@@ -1,0 +1,1 @@
+Created a configuration file for the cellpose scripts.
