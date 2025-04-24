@@ -40,7 +40,7 @@ SETTINGS = {
     "ENHANCE_CONTRAST": True,
     "ENHANCE_DIM": False,
     "GENERATE_OVERLAY": False,
-    "IMAGE_PATH": "/exports/archive/hg-funcgenom-research/IRI_multimodal_project/Stereo-seq_IRI/IRI_regist.tif",
+    "IMAGE_PATH": "IRI_regist.tif",  # /exports/archive/hg-funcgenom-research/IRI_multimodal_project/Stereo-seq_IRI/
     "CLAHE_CLIPLIMIT": 5.0,
     "CLAHE_TILE_GRID_SIZE": (32, 32),
     "OUTPUT_DIR": "iri_results_small_0d09-12_5cl_32x32",
