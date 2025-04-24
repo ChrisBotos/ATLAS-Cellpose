@@ -1,0 +1,40 @@
+[General]
+image_path = IRI_regist.tif
+output_dir = iri_results_small_0d09-12_5cl_32x32
+upscale_factor = 1
+crop_image = True
+enhance_contrast = True
+enhance_dim = False
+generate_overlay = False
+
+[CLAHE]
+cliplimit = 5.0
+tile_grid_size = 32,32
+
+[Cellpose]
+model_type = nuclei
+gpu = True
+diameter = 0
+channels = 0,0
+flow_threshold = 0.9
+cellprob_threshold = -12
+resample = True
+stitch_threshold = 0.4
+
+[EdgeDetection]
+use_edge_detection = False
+canny_threshold1 = 50
+canny_threshold2 = 150
+
+[Watershed]
+apply_watershed = False
+area_threshold = 1000
+local_maxima_footprint = 3,3
+
+[Tiling]
+use_tiling = False
+tile_size = 2048
+tile_overlap = 0.1
+
+[Overlay]
+small_overlay_size = 1024
