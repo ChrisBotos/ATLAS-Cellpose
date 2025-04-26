@@ -24,6 +24,7 @@ from scipy import ndimage as ndi
 from PIL import Image
 import logging
 import configparser
+import torch
 
 # Import the small overlay snippet function (assumed to be defined in check_segmentation_overlay.py)
 from check_segmentation_overlay import small_segmentation_overlay
@@ -36,7 +37,7 @@ Image.MAX_IMAGE_PIXELS = 10 ** 9
 # =============================================================================
 """CONFIG LOADING"""
 
-def load_config(path="cellpose_config.ini"):
+def load_config(path="nuclei_segmentation_config.ini"):
     config = configparser.ConfigParser()
     config.read(path)
 
@@ -89,7 +90,6 @@ SETTINGS, CELLPOSE_PARAMS = load_config()
 # =============================================================================
 # HELPER FUNCTIONS
 # =============================================================================
-import torch
 
 
 def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_000_000):
@@ -104,9 +104,9 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_0
     total_mem = props.total_memory  # in bytes
     # Reserve half the card for other stuff / headroom
     usable = total_mem // 2
-    # approximate bytes per patch: pixels × bytes_per_pixel
+    # Approximate bytes per patch: pixels × bytes_per_pixel.
     bytes_per_patch = tile_pixels * bytes_per_pixel
-    # how many patches fit into target_mem_per_batch
+    # How many patches fit into target_mem_per_batch.
     max_batch = max(1, usable // (bytes_per_patch * (usable // target_mem_per_batch)))
     return int(max_batch)
 
@@ -197,7 +197,7 @@ def preprocess_image(image_path, settings, logger):
 
     if settings["CROP_IMAGE"]:
         h, w = image.shape
-        image = image[int(8 * h // 16): int(8.2 * h // 16), int(12 * w // 16): int(12.2 * w // 16)]
+        image = image[int(8 * h // 16): int(8.1 * h // 16), int(12 * w // 16): int(12.1 * w // 16)]
         logger.info(f"Cropped image to shape: {image.shape}")
 
     if settings["UPSCALE_FACTOR"] > 1:
@@ -462,25 +462,30 @@ def main():
     output_dir = SETTINGS["OUTPUT_DIR"]
     os.makedirs(output_dir, exist_ok=True)
     logger = setup_logging(output_dir)
+    print("2DEBUG: dir made...")
 
     # 1. Preprocess the image.
     image = preprocess_image(SETTINGS["IMAGE_PATH"], SETTINGS, logger)
+    print("3DEBUG: preprocess done...")
 
     # 2. Segment image by tiling or as a single tile.
     model = models.Cellpose(model_type=CELLPOSE_PARAMS["model_type"],
                             gpu=CELLPOSE_PARAMS["gpu"])
+    print("4DEBUG: model made...")
 
     logger.info(f"Using device: {'cuda' if CELLPOSE_PARAMS['gpu'] else 'cpu'}")
     if CELLPOSE_PARAMS["gpu"]:
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
 
     masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
+    print("5DEBUG: cellpose3 done...")
 
     # Save the merged mask and flows.
     np.save(os.path.join(output_dir, "masks.npy"), masks)
     np.save(os.path.join(output_dir, "flows.npy"), flows)
     skio.imsave(os.path.join(output_dir, "segmentation_mask.png"), masks.astype(np.uint16))
     logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
+    print("6DEBUG: saving masks done...")
 
     # 3. Optionally refine segmentation using edge detection.
     if SETTINGS["USE_EDGE_DETECTION"]:
@@ -510,4 +515,5 @@ def main():
 
 
 if __name__ == "__main__":
+    print("1DEBUG: test starting...")
     main()
