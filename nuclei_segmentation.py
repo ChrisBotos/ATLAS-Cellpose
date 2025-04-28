@@ -37,7 +37,7 @@ Image.MAX_IMAGE_PIXELS = 10 ** 9
 # =============================================================================
 """CONFIG LOADING"""
 
-def load_config(path="nuclei_segmentation_config.ini"):
+def load_config(path="nuclei_segmentation_config.ini.ini"):
     config = configparser.ConfigParser()
     config.read(path)
 
