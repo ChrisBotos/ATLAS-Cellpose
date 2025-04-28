@@ -37,7 +37,7 @@ Image.MAX_IMAGE_PIXELS = 10 ** 9
 # =============================================================================
 """CONFIG LOADING"""
 
-def load_config(path="nuclei_segmentation_config.ini.ini"):
+def load_config(path="nuclei_segmentation_config.ini"):
     config = configparser.ConfigParser()
     config.read(path)
 
@@ -257,54 +257,38 @@ def split_image_into_tiles(image, tile_size, overlap, logger):
     return tiles.reshape(-1, tile_size, tile_size), slices
 
 
-def merge_tiles_with_weighted_overlap(tiles, slices, image_shape, overlap, logger):
+def merge_masks(tiles, slices, image_shape, overlap, logger):
     """
-    Merge tiles back into a single image with weighted averaging in overlapping regions.
+    Merge tiled segmentation masks without blending.
     Args:
-        tiles: List of processed tiles (e.g., masks or flows).
-        slices: List of slice objects corresponding to the tiles.
-        image_shape: Shape of the original image.
-        overlap: Fractional overlap between tiles (e.g., 0.1 for 10% overlap).
-        logger: Logger instance for logging.
+        tiles: List of tiled masks (integer labels).
+        slices: List of slice objects matching tiles.
+        image_shape: Shape of the original full image.
+        overlap: Fractional overlap used in tiling.
+        logger: Logger instance.
     Returns:
-        merged_image: Reconstructed image from tiles.
+        merged_mask: Final reconstructed mask (uint16).
     """
-    # Check if the tiles are multi-channel.
-    is_multi_channel = len(tiles[0].shape) == 3
-    num_channels = tiles[0].shape[2] if is_multi_channel else 1
+    merged_mask = np.zeros(image_shape, dtype=np.uint16)
+    max_label = 0
 
-    # Initialize merged image and weight map.
-    if is_multi_channel:
-        merged_image = np.zeros((*image_shape, num_channels), dtype=np.float32)
-        weight_map = np.zeros((*image_shape, num_channels), dtype=np.float32)
-    else:
-        merged_image = np.zeros(image_shape, dtype=np.float32)
-        weight_map = np.zeros(image_shape, dtype=np.float32)
+    for idx, (tile, slc) in enumerate(zip(tiles, slices)):
+        tile = tile.astype(np.uint16)
 
-    tile_size = tiles[0].shape[0]
-    step = int(tile_size * (1 - overlap))
+        # Relabel the tile so labels don't collide
+        tile_labels = tile.copy()
+        tile_labels[tile > 0] += max_label
 
-    for tile, slc in zip(tiles, slices):
-        weight = np.ones(tile.shape[:2], dtype=np.float32)  # Weight is 2D, even for multi-channel tiles.
+        # Place into merged mask
+        mask_crop = merged_mask[slc]
+        mask_crop[tile_labels > 0] = tile_labels[tile_labels > 0]
 
-        # Apply linear weights to the edges.
-        for i in range(tile.shape[0]):
-            weight[i, :] *= min(i / (overlap * tile_size), 1, (tile_size - i - 1) / (overlap * tile_size))
-        for j in range(tile.shape[1]):
-            weight[:, j] *= min(j / (overlap * tile_size), 1, (tile_size - j - 1) / (overlap * tile_size))
+        # Update max_label for next tile
+        if tile_labels.max() > max_label:
+            max_label = tile_labels.max()
 
-        if is_multi_channel:
-            for c in range(num_channels):
-                merged_image[slc[0], slc[1], c] += tile[:, :, c] * weight
-                weight_map[slc[0], slc[1], c] += weight
-        else:
-            merged_image[slc] += tile * weight
-            weight_map[slc] += weight
-
-    # Normalize by the weight map to avoid intensity artifacts.
-    merged_image /= np.maximum(weight_map, 1e-5)
-    logger.info("Merged tiles with weighted overlap.")
-    return merged_image.astype(np.float32 if is_multi_channel else np.uint16)
+    logger.info("Merged tiles without blending (label renumbering applied).")
+    return merged_mask
 
 
 # =============================================================================
@@ -377,8 +361,9 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
         total_cells += (masks > 0).sum()  # Count the number of cells in the tile.
 
     # Merge the tile masks and flows back into a single image.
-    merged_masks = merge_tiles_with_weighted_overlap(tile_masks, slices, image.shape, overlap, logger)
+    merged_masks = merge_masks(tile_masks, slices, image.shape, overlap, logger)
     merged_flows = merge_tiles_with_weighted_overlap(tile_flows, slices, image.shape, overlap, logger)
+
 
     logger.info(f"Total cells detected: {total_cells}")
     return merged_masks, merged_flows, total_cells
@@ -482,7 +467,10 @@ def main():
 
     # Save the merged mask and flows.
     np.save(os.path.join(output_dir, "masks.npy"), masks)
-    np.save(os.path.join(output_dir, "flows.npy"), flows)
+    np.savez(os.path.join(output_dir, "flows.npz"),
+             flow0=flows[0],
+             flow1=flows[1],
+             cellprob=flows[2])
     skio.imsave(os.path.join(output_dir, "segmentation_mask.png"), masks.astype(np.uint16))
     logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
     print("6DEBUG: saving masks done...")
