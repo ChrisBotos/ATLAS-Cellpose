@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
-Improved Cellpose Segmentation Pipeline with Omnipose
-and Optional Edge Detection, Watershed Splitting, and Tiling
+Advanced Nuclei Segmentation Pipeline for Spatial Multiomics Analysis.
 
-This script preprocesses a large microscopy image, splits it into smaller tiles for segmentation,
-performs cell segmentation using Cellpose's nuclei model (ideal for DAPI images), and optionally:
-1) Refines segmentation boundaries using Canny edge detection.
-2) Identifies large "fused" nuclei by area and splits them via watershed.
+This script processes large microscopy images of kidney tissue sections, optimized for DAPI-stained nuclei.
+The pipeline includes:
+1. Preprocessing with contrast enhancement and optional cropping.
+2. Intelligent tiling for handling large images efficiently.
+3. Cellpose-based deep learning segmentation with optimized parameters.
+4. Optional refinement using edge detection and watershed splitting for merged nuclei.
+5. Comprehensive visualization and quality control outputs.
 
-Results (segmentation masks, features, summary statistics, overlay images) are saved
-to a defined output directory.
+Designed for analyzing kidney I/R injury across multiple timepoints (10h, 2d, 14d).
+Outputs include segmentation masks, feature measurements, and visualization overlays.
 """
 import os
 import sys
@@ -20,7 +22,6 @@ from skimage import io as skio
 from cellpose import models, plot
 from skimage.measure import regionprops
 from skimage.segmentation import watershed
-from skimage.util import view_as_windows
 from scipy import ndimage as ndi
 from PIL import Image
 import logging
@@ -30,25 +31,10 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-# At the top of the file, define project directories clearly
-PROJECT_DIRS = {
-    "root": Path(os.path.dirname(os.path.abspath(__file__))),
-    "data": Path(os.path.dirname(os.path.abspath(__file__))) / "data",
-    "results": Path(os.path.dirname(os.path.abspath(__file__))) / "results",
-    "configs": Path(os.path.dirname(os.path.abspath(__file__))) / "configs",
-}
-
-# Print these at startup for verification
-print(f"Project directories:")
-for key, path in PROJECT_DIRS.items():
-    print(f"  {key}: {path}")
-    if not os.path.exists(path) and key != "results":
-        print(f"  WARNING: {key} directory does not exist!")
-
-# Import the small overlay snippet function
+# Import visualization utilities.
 from utils.visualization import small_segmentation_overlay
 
-# Increase the maximum allowed image pixels
+# Increase the maximum allowed image pixels to handle large microscopy images.
 Image.MAX_IMAGE_PIXELS = 10 ** 9
 
 # =============================================================================
@@ -57,11 +43,15 @@ Image.MAX_IMAGE_PIXELS = 10 ** 9
 def setup_project_structure():
     """
     Create the project directory structure if it doesn't exist.
-    
-    Creates directories for configs, data, results, logs, and tests.
-    Returns the paths to these directories as a dictionary.
+
+    Creates all necessary directories for the pipeline including configs, data,
+    results, logs, and debug directories. This ensures the pipeline can run without
+    file system errors even on a fresh installation.
+
+    Returns:
+        dict: Dictionary containing paths to all project directories.
     """
-    # Define base directories
+    # Define base directories.
     base_dir = Path(__file__).parent.absolute()
     dirs = {
         "base": base_dir,
@@ -73,14 +63,14 @@ def setup_project_structure():
         "utils": base_dir / "utils",
         "debug": base_dir / "debug"
     }
-    
-    # Create directories if they don't exist
+
+    # Create directories if they don't exist.
     for dir_path in dirs.values():
         dir_path.mkdir(exist_ok=True)
-        
+
     return dirs
 
-# Setup project structure
+# Setup project structure.
 PROJECT_DIRS = setup_project_structure()
 
 # =============================================================================
@@ -89,13 +79,13 @@ PROJECT_DIRS = setup_project_structure()
 def load_config(config_path=None):
     """
     Load configuration from the specified INI file.
-    
+
     If no config path is provided, uses the default config in the configs directory.
     Parses the configuration and returns SETTINGS and CELLPOSE_PARAMS dictionaries.
     """
     # Get current timestamp for output directory naming
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
     # Set up project directories
     script_dir = Path(__file__).resolve().parent
     PROJECT_DIRS = {
@@ -104,24 +94,24 @@ def load_config(config_path=None):
         "results": script_dir / "results",
         "configs": script_dir / "configs"
     }
-    
+
     # Print project directories for debugging
     print("Project directories:")
     for key, path in PROJECT_DIRS.items():
         print(f"  {key}: {path}")
-    
+
     if config_path is None:
         config_path = PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini"
-    
+
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    
+
     config = configparser.ConfigParser()
     try:
         config.read(config_path)
     except Exception as e:
         raise ValueError(f"Error parsing configuration file: {e}")
-    
+
     # Parse settings from config with default values for optional parameters
     SETTINGS = {
         "IMAGE_PATH": config.get("General", "image_path"),
@@ -136,41 +126,41 @@ def load_config(config_path=None):
         "USE_TILING": config.getboolean("Tiling", "use_tiling", fallback=True),
         "DEBUG_MODE": config.getboolean("Debug", "debug_mode", fallback=False) if "Debug" in config.sections() else False,
     }
-    
+
     # Parse optional settings with try/except to provide defaults
     try:
         SETTINGS["CROP_BBOX"] = tuple(map(float, config.get("General", "crop_bbox").split(',')))
     except (configparser.NoOptionError, ValueError):
         SETTINGS["CROP_BBOX"] = (0, 1, 0, 1)  # Default: full image
-    
+
     try:
         SETTINGS["CLAHE_CLIPLIMIT"] = config.getfloat("CLAHE", "cliplimit", fallback=2.0)
         SETTINGS["CLAHE_TILE_GRID_SIZE"] = tuple(map(int, config.get("CLAHE", "tile_grid_size", fallback="8,8").split(',')))
     except (configparser.NoSectionError, ValueError):
         SETTINGS["CLAHE_CLIPLIMIT"] = 2.0
         SETTINGS["CLAHE_TILE_GRID_SIZE"] = (8, 8)
-    
+
     try:
         SETTINGS["CANNY_THRESHOLD1"] = config.getint("EdgeDetection", "canny_threshold1", fallback=50)
         SETTINGS["CANNY_THRESHOLD2"] = config.getint("EdgeDetection", "canny_threshold2", fallback=150)
     except configparser.NoSectionError:
         SETTINGS["CANNY_THRESHOLD1"] = 50
         SETTINGS["CANNY_THRESHOLD2"] = 150
-    
+
     try:
         SETTINGS["AREA_THRESHOLD_FOR_WATERSHED"] = config.getint("Watershed", "area_threshold", fallback=1000)
         SETTINGS["LOCAL_MAXIMA_FOOTPRINT"] = tuple(map(int, config.get("Watershed", "local_maxima_footprint", fallback="3,3").split(',')))
     except configparser.NoSectionError:
         SETTINGS["AREA_THRESHOLD_FOR_WATERSHED"] = 1000
         SETTINGS["LOCAL_MAXIMA_FOOTPRINT"] = (3, 3)
-    
+
     try:
         SETTINGS["tile_side_length"] = config.getint("Tiling", "tile_side_length", fallback=1024)
         SETTINGS["TILE_OVERLAP"] = config.getfloat("Tiling", "tile_overlap", fallback=0.1)
     except configparser.NoSectionError:
         SETTINGS["tile_side_length"] = 1024
         SETTINGS["TILE_OVERLAP"] = 0.1
-    
+
     try:
         SETTINGS["SMALL_OVERLAY_SIZE"] = config.getint("Overlay", "small_overlay_size", fallback=1024)
     except configparser.NoSectionError:
@@ -179,7 +169,7 @@ def load_config(config_path=None):
     # Ensure image path is absolute
     if not os.path.isabs(SETTINGS["IMAGE_PATH"]):
         SETTINGS["IMAGE_PATH"] = PROJECT_DIRS["data"] / SETTINGS["IMAGE_PATH"]
-    
+
     # Verify the image path exists
     if not os.path.exists(SETTINGS["IMAGE_PATH"]):
         print(f"WARNING: Image not found at {SETTINGS['IMAGE_PATH']}")
@@ -197,7 +187,7 @@ def load_config(config_path=None):
         "stitch_threshold": config.getfloat("Cellpose", "stitch_threshold", fallback=0.4),
         "batch_size": 1  # Placeholder, will be updated dynamically
     }
-    
+
     # Parse channels with error handling
     try:
         CELLPOSE_PARAMS["channels"] = tuple(map(int, config.get("Cellpose", "channels", fallback="0,0").split(',')))
@@ -262,28 +252,28 @@ CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 def setup_logging(output_dir, debug_mode=False):
     """
     Configure logging to console and file.
-    
+
     Sets up a logger that writes to both a file in the output directory
     and to the console. If debug_mode is True, sets the log level to DEBUG.
-    
+
     Args:
         output_dir: Directory where log file will be saved.
         debug_mode: If True, sets log level to DEBUG instead of INFO.
-        
+
     Returns:
         logger: Configured logging instance.
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # Create logs directory within output directory
     logs_dir = os.path.join(output_dir, "logs")
     os.makedirs(logs_dir, exist_ok=True)
-    
+
     # Set up log file path with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(logs_dir, f"segmentation_log_{timestamp}.txt")
-    
+
     # Configure logger
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
@@ -310,7 +300,7 @@ def setup_logging(output_dir, debug_mode=False):
 
     logger.info("===== Cellpose Segmentation Pipeline Started =====")
     logger.info(f"Log file: {log_file}")
-    
+
     # Copy the config file to the output directory for reproducibility
     config_backup_path = os.path.join(output_dir, "config_used.ini")
     try:
@@ -318,7 +308,7 @@ def setup_logging(output_dir, debug_mode=False):
         logger.info(f"Configuration backed up to: {config_backup_path}")
     except Exception as e:
         logger.warning(f"Could not backup configuration file: {e}")
-    
+
     return logger
 
 # =============================================================================
@@ -327,31 +317,31 @@ def setup_logging(output_dir, debug_mode=False):
 def setup_debug(settings):
     """
     Set up debug environment if debug mode is enabled.
-    
+
     Creates debug directory and returns a function for saving debug images.
-    
+
     Args:
         settings: Dictionary containing configuration settings.
-        
+
     Returns:
         snap_function: Function for saving debug images.
     """
     if not settings.get("DEBUG_MODE", False):
         # Return a no-op function if debug mode is disabled
         return lambda tag, arr: arr
-    
+
     # Create debug directory within output directory
     debug_dir = os.path.join(settings["OUTPUT_DIR"], "debug")
     os.makedirs(debug_dir, exist_ok=True)
-    
+
     def snap(tag, arr):
         """
         Save a debug image with the given tag.
-        
+
         Args:
             tag: String identifier for the image.
             arr: Numpy array containing the image data.
-            
+
         Returns:
             arr: The input array (for inline use).
         """
@@ -361,12 +351,12 @@ def setup_debug(settings):
             v = v.astype(np.uint8)
         else:
             v = arr
-        
+
         # Save with timestamp to avoid overwriting
         timestamp = datetime.now().strftime("%H%M%S")
         imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.png"), v)
         return arr  # Return the original array for inline use
-    
+
     return snap
 
 # =============================================================================
@@ -375,31 +365,43 @@ def setup_debug(settings):
 def convert_16bit_to_8bit(image):
     """
     Convert a 16-bit image to 8-bit using percentile scaling.
-    
-    Scales the image using 1st and 99th percentiles to preserve dynamic range
-    while converting from 16-bit to 8-bit depth.
-    
+
+    Scales the image using 0.5th and 99.5th percentiles to preserve dynamic range
+    while converting from 16-bit to 8-bit depth. This preserves more detail in
+    both dark and bright regions.
+
     Args:
         image: Input image (numpy array).
-        
+
     Returns:
         8-bit image as numpy array.
     """
     if image.dtype != np.uint16:
         return image
-    p1, p99 = np.percentile(image, (1, 99))
-    if p99 - p1 == 0:
-        p1, p99 = image.min(), image.max()
-    return np.clip((image - p1) / (p99 - p1) * 255, 0, 255).astype(np.uint8)
+
+    # Use a wider percentile range to preserve more detail
+    p0_5, p99_5 = np.percentile(image, (0.5, 99.5))
+
+    # Ensure we don't divide by zero
+    if p99_5 - p0_5 <= 0:
+        p0_5, p99_5 = image.min(), image.max()
+        if p99_5 - p0_5 <= 0:  # Still zero range
+            return np.zeros_like(image, dtype=np.uint8)
+
+    # Apply contrast stretching with the new percentiles
+    normalized = np.clip((image - p0_5) / (p99_5 - p0_5), 0, 1)
+
+    # Convert to 8-bit
+    return (normalized * 255).astype(np.uint8)
 
 
 def adaptive_gamma_correction(image, min_gamma=1.5, max_gamma=2.5, logger=None):
     """
     Apply adaptive gamma correction based on the image median value.
-    
+
     Adjusts gamma correction strength based on image brightness to enhance
     dim regions while preserving bright areas.
-    
+
     Args:
         image: Input image (numpy array).
         min_gamma: Minimum gamma value.
@@ -438,17 +440,21 @@ def preprocess_image(image_path, settings, logger):
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         logger.info("Converted to grayscale")
 
-    # Save the preprocessed image for overlay generation
+    # Save the preprocessed image for overlay generation in both TIF and PNG formats
     preprocessed_dir = os.path.join(settings["OUTPUT_DIR"], "preprocessed")
     os.makedirs(preprocessed_dir, exist_ok=True)
+
+    # Save as TIF (lossless)
     skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.tif"), image)
-    logger.info(f"Saved preprocessed image to: {os.path.join(preprocessed_dir, 'preprocessed_image.tif')}")
+    # Also save as PNG for better compatibility with visualization tools
+    skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.png"), image)
+    logger.info(f"Saved preprocessed image to: {os.path.join(preprocessed_dir, 'preprocessed_image.tif')} and .png")
 
     if settings.get("CROP_IMAGE", False):
         # ── expect four numbers in INI: either fractions (0-1) or absolute pixels
         crop_bbox = settings.get("CROP_BBOX", (0, 1, 0, 1))
         if isinstance(crop_bbox, str):
-            # Parse string format like "0.25,0.3, 0.25,0.3"
+            # Parse string format like "0.25,0.75, 0.25,0.75" (y_start, y_end, x_start, x_end)
             crop_values = [float(x.strip()) for x in crop_bbox.split(',')]
             if len(crop_values) == 4:
                 y0, y1, x0, x1 = crop_values
@@ -457,17 +463,34 @@ def preprocess_image(image_path, settings, logger):
                 y0, y1, x0, x1 = 0, 1, 0, 1
         else:
             y0, y1, x0, x1 = crop_bbox
-            
+
         h, w = image.shape
-        if 0 <= y0 < 1:  # interpret as relative coordinates.
-            y0, y1 = int(y0 * h), int(y1 * h)
-            x0, x1 = int(x0 * w), int(x1 * w)
-        image = image[y0:y1, x0:x1]
-        logger.info(f"Cropped image to shape: {image.shape}")
-        
-        # Save the cropped image for overlay generation
+        logger.info(f"Original image shape before cropping: {image.shape}")
+
+        # Check if values are relative (0-1) or absolute pixel coordinates
+        if 0 <= y0 < 1 and 0 <= y1 <= 1 and 0 <= x0 < 1 and 0 <= x1 <= 1:  # interpret as relative coordinates
+            # Convert from relative coordinates to absolute pixel coordinates
+            y0_px, y1_px = int(y0 * h), int(y1 * h)
+            x0_px, x1_px = int(x0 * w), int(x1 * w)
+            logger.info(f"Converting relative crop coordinates ({y0}, {y1}, {x0}, {x1}) to pixels: ({y0_px}, {y1_px}, {x0_px}, {x1_px})")
+        else:  # interpret as absolute pixel coordinates
+            y0_px, y1_px, x0_px, x1_px = int(y0), int(y1), int(x0), int(x1)
+            logger.info(f"Using absolute pixel coordinates for cropping: ({y0_px}, {y1_px}, {x0_px}, {x1_px})")
+
+        # Ensure coordinates are within image bounds
+        y0_px = max(0, min(y0_px, h-1))
+        y1_px = max(y0_px+1, min(y1_px, h))
+        x0_px = max(0, min(x0_px, w-1))
+        x1_px = max(x0_px+1, min(x1_px, w))
+
+        # Apply the crop
+        image = image[y0_px:y1_px, x0_px:x1_px]
+        logger.info(f"Cropped image to shape: {image.shape} using coordinates y=[{y0_px}:{y1_px}], x=[{x0_px}:{x1_px}]")
+
+        # Save both TIF and PNG versions of the cropped image for overlay generation
         skio.imsave(os.path.join(preprocessed_dir, "cropped_image.tif"), image)
-        logger.info(f"Saved cropped image to: {os.path.join(preprocessed_dir, 'cropped_image.tif')}")
+        skio.imsave(os.path.join(preprocessed_dir, "cropped_image.png"), image)
+        logger.info(f"Saved cropped image to: {os.path.join(preprocessed_dir, 'cropped_image.tif')} and .png")
 
     if settings.get("UPSCALE_FACTOR", 1) > 1:
         image = cv2.resize(image, None,
@@ -482,61 +505,85 @@ def preprocess_image(image_path, settings, logger):
 def split_image_into_tiles(image, tile_size, overlap, logger):
     """
     Split a large image into overlapping tiles for processing.
-    
+
     Args:
         image: Input image as numpy array
         tile_size: Size of each tile (square)
         overlap: Fraction of overlap between tiles (0-1)
         logger: Logger object
-        
+
     Returns:
         tiles: List of image tiles
         slices: List of slice tuples for reconstructing the full image
     """
     h, w = image.shape
     logger.info(f"Splitting {h}×{w} image into tiles of size {tile_size}×{tile_size} with {overlap*100:.1f}% overlap")
-    
+
+    # If the image is smaller than the tile size, just use the whole image
+    if h <= tile_size and w <= tile_size:
+        logger.info("Image is smaller than tile size, using entire image as a single tile")
+        return [image], [(slice(0, h), slice(0, w))]
+
     # Calculate effective step size based on overlap
     step = int(tile_size * (1 - overlap))
     if step <= 0:
         logger.warning(f"Overlap too high ({overlap}), reducing to 0.8")
         overlap = 0.8
         step = int(tile_size * (1 - overlap))
-    
+
     # Calculate number of tiles in each dimension
     n_h = max(1, int(np.ceil((h - tile_size) / step)) + 1)
     n_w = max(1, int(np.ceil((w - tile_size) / step)) + 1)
-    
+
+    # If we'd create too many tiles, adjust the tile size or overlap
+    max_tiles = 100  # Arbitrary limit to prevent excessive memory usage
+    if n_h * n_w > max_tiles:
+        logger.warning(f"Too many tiles ({n_h}×{n_w}={n_h*n_w}), adjusting parameters")
+
+        # Try increasing step size (reducing overlap)
+        if overlap > 0.1:
+            overlap = 0.1
+            step = int(tile_size * (1 - overlap))
+            n_h = max(1, int(np.ceil((h - tile_size) / step)) + 1)
+            n_w = max(1, int(np.ceil((w - tile_size) / step)) + 1)
+
+            if n_h * n_w <= max_tiles:
+                logger.info(f"Reduced overlap to {overlap:.1f}, new tile count: {n_h}×{n_w}={n_h*n_w}")
+            else:
+                # If still too many, increase tile size
+                orig_tile_size = tile_size
+                tile_size = min(h, w, tile_size * 2)
+                step = int(tile_size * (1 - overlap))
+                n_h = max(1, int(np.ceil((h - tile_size) / step)) + 1)
+                n_w = max(1, int(np.ceil((w - tile_size) / step)) + 1)
+                logger.info(f"Increased tile size from {orig_tile_size} to {tile_size}, new tile count: {n_h}×{n_w}={n_h*n_w}")
+
     logger.info(f"Creating {n_h}×{n_w}={n_h*n_w} tiles")
-    
+
     tiles = []
     slices = []
-    
+
     for i in range(n_h):
         for j in range(n_w):
             # Calculate tile boundaries
-            y_start = min(i * step, h - tile_size)
-            x_start = min(j * step, w - tile_size)
-            y_end = y_start + tile_size
-            x_end = x_start + tile_size
-            
-            # Handle edge cases
-            y_end = min(y_end, h)
-            x_end = min(x_end, w)
-            
+            y_start = min(i * step, h - tile_size) if h > tile_size else 0
+            x_start = min(j * step, w - tile_size) if w > tile_size else 0
+            y_end = min(y_start + tile_size, h)
+            x_end = min(x_start + tile_size, w)
+
             # Extract tile
             tile = image[y_start:y_end, x_start:x_end]
-            
+
             # Handle tiles smaller than tile_size (at edges)
             if tile.shape[0] < tile_size or tile.shape[1] < tile_size:
                 # Create a new tile of the correct size
                 new_tile = np.zeros((tile_size, tile_size), dtype=tile.dtype)
                 new_tile[:tile.shape[0], :tile.shape[1]] = tile
                 tile = new_tile
-            
+
             tiles.append(tile)
             slices.append((slice(y_start, y_end), slice(x_start, x_end)))
-    
+
     logger.info(f"Created {len(tiles)} tiles")
     return tiles, slices
 
@@ -660,73 +707,61 @@ def merge_tiles_with_weighted_overlap(
 def merge_masks(tiles, slices, image_shape, overlap, logger, merge_overlap_thresh=0.50):
     """
     Efficiently stitch Cellpose-generated tiled masks into a single label image.
-    
-    Uses a simplified approach to avoid the performance bottleneck in the original implementation.
+
+    Uses a more robust approach to handle overlapping objects across tiles.
     """
     # Initialize the output mask
     merged_mask = np.zeros(image_shape, dtype=np.uint16)
     next_label = 1
-    label_map = {}  # Maps (tile_idx, original_label) -> new_label
-    
+
     logger.info(f"Merging {len(tiles)} mask tiles with overlap={overlap:.2f}")
-    
-    # First pass: identify objects that need to be merged across tiles
+
+    # Simple approach: directly copy tiles to the output mask, handling overlaps
+    # This avoids complex relabeling that might cause issues
     for i, (tile, slc) in enumerate(zip(tiles, slices)):
         if i % 10 == 0:
-            logger.info(f"First pass: processing tile {i+1}/{len(tiles)}")
-            
+            logger.info(f"Processing tile {i+1}/{len(tiles)}")
+
         # Skip empty tiles
         if np.max(tile) == 0:
             continue
-            
-        # For each object in this tile
-        for orig_label in np.unique(tile)[1:]:  # Skip background (0)
-            # Get mask for this object
-            obj_mask = (tile == orig_label)
-            
-            # Check if this object overlaps with existing objects in the merged mask
-            overlap_region = merged_mask[slc][obj_mask]
-            overlap_labels = np.unique(overlap_region)
-            overlap_labels = overlap_labels[overlap_labels > 0]  # Remove background
-            
-            if len(overlap_labels) == 0:
-                # No overlap, assign new label
-                label_map[(i, orig_label)] = next_label
-                next_label += 1
-            else:
-                # Object overlaps with existing label(s), use the smallest one
-                label_map[(i, orig_label)] = np.min(overlap_labels)
-    
-    # Second pass: apply the label mapping
-    for i, (tile, slc) in enumerate(zip(tiles, slices)):
-        if i % 10 == 0:
-            logger.info(f"Second pass: applying labels for tile {i+1}/{len(tiles)}")
-            
-        # Skip empty tiles
-        if np.max(tile) == 0:
-            continue
-            
-        # Create a new tile with mapped labels
-        new_tile = np.zeros_like(tile)
-        for orig_label in np.unique(tile)[1:]:  # Skip background (0)
-            if (i, orig_label) in label_map:
-                new_tile[tile == orig_label] = label_map[(i, orig_label)]
-            else:
-                # This should not happen, but just in case
-                new_label = next_label
-                next_label += 1
-                new_tile[tile == orig_label] = new_label
-                logger.warning(f"Unexpected: label {orig_label} in tile {i} not in map")
-        
-        # Update the merged mask (only where new_tile > 0)
+
+        # Get the region in the merged mask where this tile will go
         mask_region = merged_mask[slc]
-        mask_region[new_tile > 0] = new_tile[new_tile > 0]
-    
+
+        # For each object in this tile
+        for label in np.unique(tile)[1:]:  # Skip background (0)
+            # Create a binary mask for this object
+            obj_mask = (tile == label)
+
+            # Check if this object overlaps with existing objects in the merged mask
+            overlap_mask = (mask_region > 0) & obj_mask
+
+            if np.sum(overlap_mask) == 0:
+                # No overlap, assign a new label
+                mask_region[obj_mask] = next_label
+                next_label += 1
+            else:
+                # There's overlap - check how much of the object overlaps
+                overlap_ratio = np.sum(overlap_mask) / np.sum(obj_mask)
+
+                if overlap_ratio < 0.3:  # Less than 30% overlap, treat as new object
+                    mask_region[obj_mask & ~overlap_mask] = next_label
+                    next_label += 1
+                else:
+                    # Significant overlap - find the most overlapping existing label
+                    existing_labels = mask_region[overlap_mask]
+                    unique_labels, counts = np.unique(existing_labels, return_counts=True)
+                    most_common_label = unique_labels[np.argmax(counts)]
+
+                    # Extend the existing object
+                    mask_region[obj_mask & ~overlap_mask] = most_common_label
+
     # Count final objects
     unique_labels = np.unique(merged_mask)
     num_objects = len(unique_labels) - 1 if 0 in unique_labels else len(unique_labels)
     logger.info(f"Merged {len(tiles)} tiles → {num_objects} unique objects")
-    
+
     return merged_mask
 
 
@@ -744,19 +779,37 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     # ──────────────────────────────────────────────────────────
     if not use_tiling:
         logger.info("Tiling disabled – processing full image.")
-        masks, flows, *_ = model.eval(
-            image[..., None],                          # add channel axis
-            diameter          = cellpose_params["diameter"],
-            channels          = cellpose_params["channels"],
-            flow_threshold    = cellpose_params["flow_threshold"],
-            cellprob_threshold= cellpose_params["cellprob_threshold"],
-            resample          = cellpose_params["resample"],
-            augment=False,
-            batch_size        = cellpose_params["batch_size"],
-            do_3D=False
-        )
-        total_cells = np.count_nonzero(masks)
-        return masks, flows, total_cells                # ← flows already a list
+
+        # Add debug info about the image
+        logger.info(f"Image shape: {image.shape}, min: {image.min()}, max: {image.max()}, mean: {image.mean():.2f}")
+
+        try:
+            masks, flows, *_ = model.eval(
+                image[..., None],                          # add channel axis
+                diameter          = cellpose_params["diameter"],
+                channels          = cellpose_params["channels"],
+                flow_threshold    = cellpose_params["flow_threshold"],
+                cellprob_threshold= cellpose_params["cellprob_threshold"],
+                resample          = cellpose_params["resample"],
+                augment           = False,
+                batch_size        = cellpose_params["batch_size"],
+                do_3D             = False
+            )
+
+            # Count cells and log information
+            num_cells = len(np.unique(masks)) - 1 if 0 in np.unique(masks) else len(np.unique(masks))
+            logger.info(f"Detected {num_cells} cells in full image")
+
+            return masks, flows, num_cells                # ← flows already a list
+
+        except Exception as e:
+            logger.error(f"Error processing full image: {e}")
+            # Return empty masks and flows
+            empty_masks = np.zeros_like(image, dtype=np.uint16)
+            empty_flows = [np.zeros((2, *image.shape), dtype=np.float32),
+                          None,
+                          np.zeros_like(image, dtype=np.float32)]
+            return empty_masks, empty_flows, 0
 
     # ──────────────────────────────────────────────────────────
     # 2)  ***WITH TILING***  →  run tiles, then stitch
@@ -772,21 +825,40 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
 
     for idx, tile in enumerate(tiles, start=1):
         logger.info(f"  ↳ tile {idx}/{len(tiles)}")
-        masks, flows, *_ = model.eval(
-            tile[..., None],
-            diameter          = cellpose_params["diameter"],
-            channels          = cellpose_params["channels"],
-            flow_threshold    = cellpose_params["flow_threshold"],
-            cellprob_threshold= cellpose_params["cellprob_threshold"],
-            resample          = cellpose_params["resample"],
-            augment=False,
-            batch_size        = cellpose_params["batch_size"],
-            do_3D=False
-        )
-        mask_tiles.append(masks)
-        flow_xy_tiles.append(flows[0])                 # shape (2, h, w)
-        cellprob_tiles.append(flows[2])                # shape (h, w)
-        total_cells += np.count_nonzero(masks)
+
+        # Add debug info about the tile
+        logger.info(f"    Tile shape: {tile.shape}, min: {tile.min()}, max: {tile.max()}, mean: {tile.mean():.2f}")
+
+        # Run Cellpose on this tile
+        try:
+            masks, flows, *_ = model.eval(
+                tile[..., None],  # Add channel dimension
+                diameter          = cellpose_params["diameter"],
+                channels          = cellpose_params["channels"],
+                flow_threshold    = cellpose_params["flow_threshold"],
+                cellprob_threshold= cellpose_params["cellprob_threshold"],
+                resample          = cellpose_params["resample"],
+                augment           = False,  # No augmentation for inference
+                batch_size        = cellpose_params["batch_size"],
+                do_3D             = False
+            )
+
+            # Log information about the segmentation results
+            num_cells = len(np.unique(masks)) - 1 if 0 in np.unique(masks) else len(np.unique(masks))
+            logger.info(f"    Detected {num_cells} cells in tile {idx}")
+
+            mask_tiles.append(masks)
+            flow_xy_tiles.append(flows[0])                 # shape (2, h, w)
+            cellprob_tiles.append(flows[2])                # shape (h, w)
+            total_cells += num_cells
+
+        except Exception as e:
+            logger.error(f"Error processing tile {idx}: {e}")
+            # Add an empty mask for this tile to maintain indexing
+            mask_tiles.append(np.zeros_like(tile, dtype=np.uint16))
+            # Add placeholder flows
+            flow_xy_tiles.append(np.zeros((2, *tile.shape), dtype=np.float32))
+            cellprob_tiles.append(np.zeros_like(tile, dtype=np.float32))
 
     # ── stitch the results ───────────────────────────────────
     merged_masks      = merge_masks(mask_tiles,  slices, image.shape, overlap, logger)
@@ -877,15 +949,15 @@ def main():
     try:
         # Load configuration
         SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
-        
+
         # Create output directory
         output_dir = SETTINGS["OUTPUT_DIR"]
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # Set up logging
         logger = setup_logging(output_dir, debug_mode=SETTINGS.get("DEBUG_MODE", False))
         logger.info("===== Cellpose Segmentation Pipeline Started =====")
-        
+
         # Log configuration
         logger.info(f"Image path: {SETTINGS['IMAGE_PATH']}")
         logger.info(f"Output directory: {output_dir}")
@@ -893,51 +965,72 @@ def main():
         if SETTINGS.get('USE_TILING', False):
             logger.info(f"Tile size: {SETTINGS.get('tile_side_length', 'Not specified')}")
             logger.info(f"Tile overlap: {SETTINGS.get('TILE_OVERLAP', 'Not specified')}")
-        
+
         # Verify image path
         if not os.path.exists(SETTINGS["IMAGE_PATH"]):
             logger.error(f"Image file not found: {SETTINGS['IMAGE_PATH']}")
             return 1
-            
+
         # Back up the config used
         config_backup_path = os.path.join(output_dir, "config_used.ini")
         shutil.copy2(PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini", config_backup_path)
         logger.info(f"Configuration backed up to: {config_backup_path}")
-        
+
         # 1. Preprocess the image
         logger.info("Preprocessing image...")
         image = preprocess_image(SETTINGS["IMAGE_PATH"], SETTINGS, logger)
-        
+
         # 2. Initialize Cellpose model
         logger.info("Initializing Cellpose model...")
-        model = models.Cellpose(model_type=CELLPOSE_PARAMS["model_type"],
-                                gpu=CELLPOSE_PARAMS["gpu"])
-        
-        logger.info(f"Using device: {'cuda' if CELLPOSE_PARAMS['gpu'] else 'cpu'}")
+
+        # Ensure we're using the correct model type
+        model_type = CELLPOSE_PARAMS["model_type"]
+        logger.info(f"Using Cellpose model: {model_type}")
+
+        # Initialize the model with pretrained weights
+        model = models.Cellpose(model_type=model_type, gpu=CELLPOSE_PARAMS["gpu"])
+
+        # Log device information
+        logger.info(f"Using device: {'cuda' if CELLPOSE_PARAMS['gpu'] and torch.cuda.is_available() else 'cpu'}")
         if CELLPOSE_PARAMS["gpu"] and torch.cuda.is_available():
             logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-        
+        else:
+            logger.info("GPU not available or not enabled, using CPU")
+
         # 3. Run segmentation
         logger.info("Running segmentation...")
         masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
-        
+
         # 4. Save results
         logger.info("Saving segmentation results...")
+
+        # Create masks directory
+        masks_dir = os.path.join(output_dir, "masks")
+        os.makedirs(masks_dir, exist_ok=True)
+
+        # Save masks in both root and masks directory for compatibility
         np.save(os.path.join(output_dir, "masks.npy"), masks)
+        np.save(os.path.join(masks_dir, "masks.npy"), masks)
+
+        # Save flows
         np.savez(os.path.join(output_dir, "flows.npz"),
                  flow0=flows[0],
                  flow1=flows[1],
                  cellprob=flows[2])
+
+        # Save visualization-friendly versions
         skio.imsave(os.path.join(output_dir, "segmentation_mask.png"), masks.astype(np.uint16))
+        skio.imsave(os.path.join(masks_dir, "segmentation_mask.png"), masks.astype(np.uint16))
+
         logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
-        
+
         # 5. Optional: Edge detection refinement
         if SETTINGS.get("USE_EDGE_DETECTION", False):
             logger.info("Applying edge detection refinement...")
             masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
             skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.png"), masks.astype(np.uint16))
             logger.info("Saved refined segmentation mask after edge detection")
-        
+
         # 6. Optional: Watershed splitting
         if SETTINGS.get("APPLY_WATERSHED", False):
             logger.info("Applying watershed splitting to large objects...")
@@ -952,17 +1045,17 @@ def main():
             np.save(os.path.join(output_dir, "segmentation_mask_post_watershed.npy"), lumps_split_mask)
             masks = lumps_split_mask
             logger.info("Saved watershed-processed segmentation mask")
-        
+
         # 7. Optional: Generate overlay visualization
         if SETTINGS.get("GENERATE_OVERLAY", False):
             logger.info("Generating overlay visualization...")
             generate_overlay(image, masks, flows, output_dir, logger)
-        
+
         # 8. Create a small overlay snippet (cropped) for quick review
         logger.info("Generating small overlay snippet...")
         small_segmentation_overlay(output_dir, crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1))
         logger.info("Small overlay snippet generated successfully")
-        
+
         logger.info("===== Cellpose Segmentation Pipeline Completed Successfully =====")
         return 0
     except KeyError as e:
@@ -981,13 +1074,13 @@ def main():
 if __name__ == "__main__":
     # Remove test code in production or move it to a separate test function
     sys.exit(main())
-    
+
     # The following test code can be moved to a separate test function or file
     print("Running merge_masks test...")
     import numpy as np
     import logging
     test_logger = logging.getLogger("test_logger")
-    
+
     # Fake 2×2 tiling of a 6×6 image (3×3 tiles, 1-pixel overlap)
     img_shape = (6, 6)
     tiles = [
@@ -1014,7 +1107,7 @@ if __name__ == "__main__":
     merged = merge_masks(tiles, slices, img_shape, overlap=1/3, logger=test_logger)
     print(f"Merged mask max value: {merged.max()}")
     print(f"Merged mask:\n{merged}")
-    
+
     # Instead of assertion, print diagnostic information
     if merged.max() != 4:
         print("WARNING: Labels were not preserved correctly. Expected max=4, got max={merged.max()}")
