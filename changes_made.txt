@@ -1,1 +1,10 @@
-Created a configuration file for the cellpose scripts.
+1) Created a configuration file for the cellpose scripts.
+
+2) Created many directories and organized the project.
+Made many .gitkeep files and updated the .gitignore.
+
+3) Fixed the tile merge issue.
+
+4) Fixed the image area not being divisible by the tile area bug.
+Now the tiles start from the top left, so they may cover smaller areas on the bottom and on the right borders due to cropping.
+
