@@ -257,37 +257,224 @@ def split_image_into_tiles(image, tile_size, overlap, logger):
     return tiles.reshape(-1, tile_size, tile_size), slices
 
 
-def merge_masks(tiles, slices, image_shape, overlap, logger):
+"""MERGE_TILES_WITH_WEIGHTED_OVERLAP"""
+########################################################################
+#  Author : <your-initials>                                             #
+#  Date   : 2025-04-30                                                  #
+#                                                                      #
+#  PURPOSE.                                                            #
+#  ───────────────────────────────────────────────────────────────────  #
+#  Re-assemble a set of overlapping flow or probability tiles into a   #
+#  seamless panorama using a feathered α-mask. Each tile’s weight      #
+#  tapers linearly to zero inside the overlap band, eliminating seams. #
+########################################################################
+
+import numpy as np
+import logging
+
+def merge_tiles_with_weighted_overlap(
+        tile_stack:      list[np.ndarray],
+        slices:          list[tuple[slice, slice]],
+        image_shape:     tuple[int, int],
+        overlap:         float,
+        logger:          logging.Logger | None = None,
+        dtype:           np.float32 = np.float32
+    ) -> np.ndarray:
     """
-    Merge tiled segmentation masks without blending.
-    Args:
-        tiles: List of tiled masks (integer labels).
-        slices: List of slice objects matching tiles.
-        image_shape: Shape of the original full image.
-        overlap: Fractional overlap used in tiling.
-        logger: Logger instance.
-    Returns:
-        merged_mask: Final reconstructed mask (uint16).
+    Merge a list of overlapping flow- or probability-tiles back into one field.
+
+    Parameters.
+    ───────────
+    tile_stack : list[np.ndarray]
+        Each element is either (2, H, W), (H, W, 2) or (H, W).
+    slices     : list[tuple[slice, slice]]
+        The (row_slice, col_slice) that positions each tile on the canvas.
+    image_shape: (H, W) of the original image.
+    overlap    : Fractional overlap that was used when tiling (0–1).
+    logger     : Optional logger for DEBUG / INFO prints.
+    dtype      : Data type of the returned array (default float32).
+
+    Returns.
+    ────────
+    np.ndarray
+        (2, H, W) for vector fields or (H, W) for single-channel maps.
+    """
+
+    '''Sanity checks.'''
+    assert len(tile_stack) == len(slices), \
+        "tile_stack and slices must have equal length."
+
+    H, W = image_shape
+    flow_accum   = None                              # Deferred allocation.
+    weight_accum = np.zeros((H, W), dtype=dtype)
+
+    '''Helper: 2-D feather mask.'''
+    def _feather_mask(h: int, w: int, ov: float) -> np.ndarray:
+        """
+        Build a (h × w) mask that is 1.0 in the tile centre and decays
+        linearly to 0.0 at each border across an edge band of width
+        edge = ov * size / 2.
+        """
+        edge_h = max(1, int(ov * h / 2))
+        edge_w = max(1, int(ov * w / 2))
+
+        ramp_h = np.ones(h, dtype=dtype)
+        ramp_w = np.ones(w, dtype=dtype)
+
+        ramp_h[:edge_h]  = np.linspace(0.0, 1.0, edge_h,  endpoint=False)
+        ramp_h[-edge_h:] = np.linspace(1.0, 0.0, edge_h,  endpoint=False)[::-1]
+
+        ramp_w[:edge_w]  = np.linspace(0.0, 1.0, edge_w,  endpoint=False)
+        ramp_w[-edge_w:] = np.linspace(1.0, 0.0, edge_w,  endpoint=False)[::-1]
+
+        return np.outer(ramp_h, ramp_w)
+
+    '''Main accumulation loop.'''
+    for idx, (tile, slc) in enumerate(zip(tile_stack, slices), start=1):
+
+        if logger:
+            logger.debug(f"merge_tiles_with_weighted_overlap • tile {idx}/{len(tile_stack)}.")
+
+        # Standardise to (C, h, w).
+        if tile.ndim == 2:                           # (h, w)
+            tile = tile[np.newaxis, ...]
+        elif tile.ndim == 3 and tile.shape[0] == 2:  # (2, h, w)
+            pass
+        elif tile.ndim == 3 and tile.shape[-1] == 2: # (h, w, 2)
+            tile = tile.transpose(2, 0, 1)
+        else:
+            raise ValueError(f"Tile #{idx} has unsupported shape {tile.shape}.")
+
+        tile = tile.astype(dtype, copy=False)
+        C, th, tw = tile.shape
+
+        if flow_accum is None:
+            flow_accum = np.zeros((C, H, W), dtype=dtype)
+
+        alpha = _feather_mask(th, tw, overlap)
+        alpha_broadcast = np.broadcast_to(alpha, (C, th, tw))
+
+        rs, cs = slc
+        flow_accum[:, rs, cs] += tile * alpha_broadcast
+        weight_accum[rs, cs]  += alpha
+
+    '''Normalisation.'''
+    nz = weight_accum > 0.0
+    output = np.zeros_like(flow_accum, dtype=dtype)
+    output[:, nz] = flow_accum[:, nz] / weight_accum[nz]
+
+    if logger:
+        logger.info(f"Merged {len(tile_stack)} tiles → {output.shape[0]}-channel field "
+                    f"(overlap={overlap:.2f}).")
+
+    # Return 2-D array for single-channel maps.
+    return output[0] if output.shape[0] == 1 else output
+
+
+def merge_masks(
+        tiles:        list[np.ndarray],
+        slices:       list[tuple[slice, slice]],
+        image_shape:  tuple[int, int],
+        overlap:      float,
+        logger,
+        merge_overlap_thresh: float = 0.50
+    ) -> np.ndarray:
+    """
+    Stitch Cellpose-generated tiled masks into a single label image.
+
+    Parameters
+    ----------
+    tiles : list[np.ndarray]
+        2-D integer masks coming back from Cellpose (one per tile).
+    slices : list[tuple[slice, slice]]
+        The (row_slice, col_slice) used to place each tile in the canvas.
+    image_shape : tuple
+        Height × width of the original image.
+    overlap : float
+        Fractional tile overlap (not used here but kept for API compatibility).
+    logger : logging.Logger
+        For nice, centralised reporting.
+    merge_overlap_thresh : float, optional
+        Two labels are considered the *same* object when
+
+        .. math::
+            \\frac{|A \\cap B|}{\\min(|A|, |B|)} \\ge \\text{merge_overlap_thresh}
+
+        where :math:`A` and :math:`B` are the pixel sets of the two labels
+        inside the *overlap region only*.
+
+    Returns
+    -------
+    merged : np.ndarray
+        Global mask with unique, compact, 1-based labels.
     """
     merged_mask = np.zeros(image_shape, dtype=np.uint16)
-    max_label = 0
 
-    for idx, (tile, slc) in enumerate(zip(tiles, slices)):
+    # Next free global label (0 is background).
+    next_label: int = 1
+
+    for tile, slc in zip(tiles, slices):
         tile = tile.astype(np.uint16)
+        canvas_view = merged_mask[slc]              # view into the big canvas
 
-        # Relabel the tile so labels don't collide
-        tile_labels = tile.copy()
-        tile_labels[tile > 0] += max_label
+        # ---------------------------------------------------------------------
+        # 1. Decide which *tile* labels should be mapped onto *existing* labels
+        #    and which should receive a new global ID.
+        # ---------------------------------------------------------------------
+        relabel: dict[int, int] = {}                # tile_id ➜ global_id
 
-        # Place into merged mask
-        mask_crop = merged_mask[slc]
-        mask_crop[tile_labels > 0] = tile_labels[tile_labels > 0]
+        # Pixels where *both* the canvas and the tile already have labels:
+        overlap_mask = (canvas_view > 0) & (tile > 0)
 
-        # Update max_label for next tile
-        if tile_labels.max() > max_label:
-            max_label = tile_labels.max()
+        if np.any(overlap_mask):
+            # Existing labels *in the overlap only*
+            existing = np.unique(canvas_view[overlap_mask])
+            existing = existing[existing > 0]
 
-    logger.info("Merged tiles without blending (label renumbering applied).")
+            for t_lbl in np.unique(tile[overlap_mask]):
+                if t_lbl == 0:
+                    continue
+                t_mask = tile == t_lbl               # full tile-sized mask
+
+                # Pixels of this tile label that actually lie inside the overlap
+                overlap_pixels = overlap_mask & t_mask
+                if not np.any(overlap_pixels):
+                    continue
+
+                # Find *one* global label (if any) that matches above threshold.
+                best_match, best_score = None, 0.0
+                for e_lbl in existing:
+                    e_mask = canvas_view == e_lbl
+
+                    intersect = np.logical_and(t_mask, e_mask).sum()
+                    if intersect == 0:
+                        continue
+                    score = intersect / min(t_mask.sum(), e_mask.sum())
+                    if score > best_score:
+                        best_score, best_match = score, e_lbl
+
+                if best_score >= merge_overlap_thresh:
+                    relabel[t_lbl] = best_match
+
+        # ---------------------------------------------------------------------
+        # 2. Apply the relabel map or assign a fresh ID, then copy into canvas.
+        # ---------------------------------------------------------------------
+        for t_lbl in np.unique(tile):
+            if t_lbl == 0:
+                continue
+            if t_lbl not in relabel:
+                relabel[t_lbl] = next_label
+                next_label += 1
+            tile[tile == t_lbl] = relabel[t_lbl]
+
+        # Finally write the (re-id’ed) tile back to the canvas
+        canvas_view[tile > 0] = tile[tile > 0]
+
+    logger.info(
+        "Merged %d tiles ➜ %d unique objects "
+        "(overlap-threshold = %.2f).",
+        len(tiles), next_label - 1, merge_overlap_thresh,
+    )
     return merged_mask
 
 
@@ -295,77 +482,68 @@ def merge_masks(tiles, slices, image_shape, overlap, logger):
 # CELLPOSE SEGMENTATION
 # =============================================================================
 def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
-    """
-    Run Cellpose on the entire image or split it into tiles based on the settings.
-    Args:
-        model: Cellpose model instance.
-        image: Input 2D image (grayscale).
-        cellpose_params: Parameters for Cellpose.
-        settings: General settings dictionary.
-        logger: Logger instance for logging.
-    Returns:
-        merged_masks: Combined segmentation mask for the full image.
-        merged_flows: Combined flows for the full image.
-        total_cells: Total number of cells detected.
-    """
-    h, w = image.shape
-    tile_size = settings["TILE_SIZE"]
-    overlap = settings["TILE_OVERLAP"]
+    h, w          = image.shape
+    tile_size     = settings["TILE_SIZE"]
+    overlap       = settings["TILE_OVERLAP"]
+    use_tiling    = settings["USE_TILING"] and (tile_size < h or tile_size < w)
 
-    # Check if tiling is necessary.
-    if not settings["USE_TILING"] or (tile_size >= h and tile_size >= w):
-        # Process the entire image as a single tile.
-        logger.info("Tiling is disabled or unnecessary. Processing the entire image as a single tile.")
-        image = image[..., None]  # Add channel axis.
-        masks, flows, styles, diams = model.eval(
-            image,
-            diameter=cellpose_params["diameter"],
-            channels=cellpose_params["channels"],
-            flow_threshold=cellpose_params["flow_threshold"],
-            cellprob_threshold=cellpose_params["cellprob_threshold"],
-            resample=cellpose_params["resample"],
+    # ──────────────────────────────────────────────────────────
+    # 1)  ***NO TILING***  →  straight Cellpose call, nothing to merge
+    # ──────────────────────────────────────────────────────────
+    if not use_tiling:
+        logger.info("Tiling disabled – processing full image.")
+        masks, flows, *_ = model.eval(
+            image[..., None],                          # add channel axis
+            diameter          = cellpose_params["diameter"],
+            channels          = cellpose_params["channels"],
+            flow_threshold    = cellpose_params["flow_threshold"],
+            cellprob_threshold= cellpose_params["cellprob_threshold"],
+            resample          = cellpose_params["resample"],
             augment=False,
-            batch_size=cellpose_params["batch_size"],
+            batch_size        = cellpose_params["batch_size"],
             do_3D=False
         )
-        total_cells = (masks > 0).sum()  # Count the number of cells.
-        logger.info(f"Total cells detected: {total_cells}")
-        return masks, flows, total_cells
+        total_cells = np.count_nonzero(masks)
+        return masks, flows, total_cells                # ← flows already a list
 
-    # If tiling is enabled and necessary, split the image into tiles.
+    # ──────────────────────────────────────────────────────────
+    # 2)  ***WITH TILING***  →  run tiles, then stitch
+    # ──────────────────────────────────────────────────────────
     tiles, slices = split_image_into_tiles(image, tile_size, overlap, logger)
     logger.info(f"Processing {len(tiles)} tiles.")
 
-    # Initialize lists to store results.
-    tile_masks = []
-    tile_flows = []
-    total_cells = 0
+    # storage
+    mask_tiles        = []
+    flow_xy_tiles     = []   # flows[0]  (2-ch)
+    cellprob_tiles    = []   # flows[2]  (1-ch)
+    total_cells       = 0
 
-    # Run Cellpose on each tile.
-    for idx, tile in enumerate(tiles):
-        logger.info(f"Running Cellpose on tile {idx + 1}/{len(tiles)}")
-        tile = tile[..., None]  # Add channel axis.
-        masks, flows, styles, diams = model.eval(
-            tile,
-            diameter=cellpose_params["diameter"],
-            channels=cellpose_params["channels"],
-            flow_threshold=cellpose_params["flow_threshold"],
-            cellprob_threshold=cellpose_params["cellprob_threshold"],
-            resample=cellpose_params["resample"],
+    for idx, tile in enumerate(tiles, start=1):
+        logger.info(f"  ↳ tile {idx}/{len(tiles)}")
+        masks, flows, *_ = model.eval(
+            tile[..., None],
+            diameter          = cellpose_params["diameter"],
+            channels          = cellpose_params["channels"],
+            flow_threshold    = cellpose_params["flow_threshold"],
+            cellprob_threshold= cellpose_params["cellprob_threshold"],
+            resample          = cellpose_params["resample"],
             augment=False,
-            batch_size=cellpose_params["batch_size"],
+            batch_size        = cellpose_params["batch_size"],
             do_3D=False
         )
-        tile_masks.append(masks)
-        tile_flows.append(flows[0])  # Assuming flows[0] is the relevant flow field.
-        total_cells += (masks > 0).sum()  # Count the number of cells in the tile.
+        mask_tiles.append(masks)
+        flow_xy_tiles.append(flows[0])                 # shape (2, h, w)
+        cellprob_tiles.append(flows[2])                # shape (h, w)
+        total_cells += np.count_nonzero(masks)
 
-    # Merge the tile masks and flows back into a single image.
-    merged_masks = merge_masks(tile_masks, slices, image.shape, overlap, logger)
-    merged_flows = merge_tiles_with_weighted_overlap(tile_flows, slices, image.shape, overlap, logger)
+    # ── stitch the results ───────────────────────────────────
+    merged_masks      = merge_masks(mask_tiles,  slices, image.shape, overlap, logger)
+    merged_flow_xy    = merge_tiles_with_weighted_overlap(flow_xy_tiles,  slices, image.shape, overlap, logger)
+    merged_cellprob   = merge_tiles_with_weighted_overlap(cellprob_tiles, slices, image.shape, overlap, logger)
 
+    # Ensure **same API** as vanilla Cellpose: a 3-element list
+    merged_flows = [merged_flow_xy, merged_cellprob, None]
 
-    logger.info(f"Total cells detected: {total_cells}")
     return merged_masks, merged_flows, total_cells
 
 
@@ -504,4 +682,32 @@ def main():
 
 if __name__ == "__main__":
     print("1DEBUG: test starting...")
+    import numpy as np
+
+    # Fake 2×2 tiling of a 6×6 image (3×3 tiles, 1-pixel overlap)
+    img_shape = (6, 6)
+    tiles = [
+        np.array([[1, 1, 0],
+                  [1, 1, 0],
+                  [0, 0, 0]], dtype=np.uint16),  # top-left
+        np.array([[0, 2, 2],
+                  [0, 2, 2],
+                  [0, 0, 0]], dtype=np.uint16),  # top-right
+        np.array([[0, 0, 0],
+                  [3, 3, 0],
+                  [3, 3, 0]], dtype=np.uint16),  # bottom-left
+        np.array([[0, 0, 0],
+                  [0, 4, 4],
+                  [0, 4, 4]], dtype=np.uint16)  # bottom-right
+    ]
+    slices = [
+        (slice(0, 3), slice(0, 3)),
+        (slice(0, 3), slice(2, 5)),
+        (slice(2, 5), slice(0, 3)),
+        (slice(2, 5), slice(2, 5)),
+    ]
+
+    merged = merge_masks(tiles, slices, img_shape, overlap=1 / 3, logger=logging.getLogger(__name__))
+    assert merged.max() == 4, "Labels should remain distinct with zero mutual overlap"
+
     main()
