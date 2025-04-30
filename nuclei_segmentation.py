@@ -139,7 +139,7 @@ def load_config(config_path=None):
 
     return SETTINGS, CELLPOSE_PARAMS
 
-# Load config values from file
+# Load config values from file.
 SETTINGS, CELLPOSE_PARAMS = load_config()
 
 
@@ -175,7 +175,7 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_0
         return 1
     props = torch.cuda.get_device_properties(0)
     total_mem = props.total_memory  # in bytes
-    # Reserve half the card for other stuff / headroom
+
     usable = total_mem // 2
     # Approximate bytes per patch: pixels × bytes_per_pixel.
     bytes_per_patch = tile_pixels * bytes_per_pixel
