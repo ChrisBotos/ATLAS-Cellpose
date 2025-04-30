@@ -20,6 +20,7 @@ from skimage import io as skio
 from cellpose import models, plot
 from skimage.measure import regionprops
 from skimage.segmentation import watershed
+from skimage.util import view_as_windows
 from scipy import ndimage as ndi
 from PIL import Image
 import logging
@@ -52,6 +53,7 @@ def load_config(path="nuclei_segmentation_config.ini"):
         "OUTPUT_DIR": config.get("General", "output_dir"),
         "UPSCALE_FACTOR": config.getint("General", "upscale_factor"),
         "CROP_IMAGE": get_bool("General", "crop_image"),
+        "CROP_BBOX": get_tuple("General", "crop_bbox", float),
         "ENHANCE_CONTRAST": get_bool("General", "enhance_contrast"),
         "ENHANCE_DIM": get_bool("General", "enhance_dim"),
         "GENERATE_OVERLAY": get_bool("General", "generate_overlay"),
@@ -64,7 +66,7 @@ def load_config(path="nuclei_segmentation_config.ini"):
         "AREA_THRESHOLD_FOR_WATERSHED": config.getint("Watershed", "area_threshold"),
         "LOCAL_MAXIMA_FOOTPRINT": get_tuple("Watershed", "local_maxima_footprint", int),
         "USE_TILING": get_bool("Tiling", "use_tiling"),
-        "TILE_SIZE": config.getint("Tiling", "tile_size"),
+        "tile_side_length": config.getint("Tiling", "tile_side_length"),
         "TILE_OVERLAP": config.getfloat("Tiling", "tile_overlap"),
         "SMALL_OVERLAY_SIZE": config.getint("Overlay", "small_overlay_size"),
     }
@@ -91,10 +93,27 @@ SETTINGS, CELLPOSE_PARAMS = load_config()
 # HELPER FUNCTIONS
 # =============================================================================
 
+"""DEBUG TAPS — remove once issue fixed."""  #TODO remove
+import imageio, os
+DBG_DIR = "dbg_snapshots"
+os.makedirs(DBG_DIR, exist_ok=True)
+
+def _snap(tag:str, arr:np.ndarray):
+    """Write `arr` as uint8 PNG with `tag` in the filename."""
+    if arr.dtype != np.uint8:
+        v = arr.astype(np.float32)
+        v = 255*(v - v.min())/(v.ptp()+1e-6)
+        v = v.astype(np.uint8)
+    else:
+        v = arr
+    imageio.imwrite(os.path.join(DBG_DIR, f"{tag}.png"), v)
+    return arr        # so we can inline it
+
+
 
 def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_000_000):
     """
-    tile_pixels: number of pixels per patch (i.e. TILE_SIZE**2)
+    tile_pixels: number of pixels per patch (i.e. tile_side_length**2)
     bytes_per_pixel: 1 for uint8/float32≈4 (you may adjust)
     target_mem_per_batch: how much GPU memory (bytes) to devote per batch item
     """
@@ -111,8 +130,8 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_0
     return int(max_batch)
 
 
-# Example usage (TILE_SIZE=2048 → ~4.2M pixels):
-tile_pixels = SETTINGS["TILE_SIZE"] ** 2
+# Example usage (tile_side_length=2048 → ~4.2M pixels):
+tile_pixels = SETTINGS["tile_side_length"] ** 2
 CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 
 
@@ -196,8 +215,13 @@ def preprocess_image(image_path, settings, logger):
         logger.info("Converted to grayscale")
 
     if settings["CROP_IMAGE"]:
+        # ── expect four numbers in INI: either fractions (0-1) or absolute pixels
+        y0, y1, x0, x1 = settings.get("CROP_BBOX", (0, 1, 0, 1))
         h, w = image.shape
-        image = image[int(8 * h // 16): int(8.1 * h // 16), int(12 * w // 16): int(12.1 * w // 16)]
+        if 0 <= y0 < 1:  # interpret as relative coordinates.
+            y0, y1 = int(y0 * h), int(y1 * h)
+            x0, x1 = int(x0 * w), int(x1 * w)
+        image = image[y0:y1, x0:x1]
         logger.info(f"Cropped image to shape: {image.shape}")
 
     if settings["UPSCALE_FACTOR"] > 1:
@@ -222,18 +246,17 @@ def preprocess_image(image_path, settings, logger):
         skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.png"), image)
         logger.info("Applied gamma correction")
 
+    _snap("00_after_preproc", image)  # writes dbg_snapshots/00_after_preproc.png
+
     return image
 
 
-from skimage.util import view_as_windows
-
-
-def split_image_into_tiles(image, tile_size, overlap, logger):
+def split_image_into_tiles(image, tile_side_length, overlap, logger):
     """
     Split the image into overlapping tiles.
     Args:
         image: Input 2D image (grayscale).
-        tile_size: Size of each tile (pixels).
+        tile_side_length: Size of each tile (pixels).
         overlap: Fractional overlap between tiles (e.g., 0.1 for 10% overlap).
         logger: Logger instance for logging.
     Returns:
@@ -241,20 +264,20 @@ def split_image_into_tiles(image, tile_size, overlap, logger):
         slices: List of slice objects for reconstructing the full image.
     """
     h, w = image.shape
-    if tile_size > h or tile_size > w:
-        logger.warning(f"Tile size {tile_size} is larger than image dimensions ({h}, {w}). Adjusting tile size.")
-        tile_size = min(h, w)
+    if tile_side_length > h or tile_side_length > w:
+        logger.warning(f"Tile size {tile_side_length} is larger than image dimensions ({h}, {w}). Adjusting tile size.")
+        tile_side_length = min(h, w)
 
-    step = int(tile_size * (1 - overlap))
-    logger.info(f"Splitting image into tiles with size {tile_size} and step {step}")
+    step = int(tile_side_length * (1 - overlap))
+    logger.info(f"Splitting image into tiles with size {tile_side_length} and step {step}")
 
-    tiles = view_as_windows(image, (tile_size, tile_size), step)
+    tiles = view_as_windows(image, (tile_side_length, tile_side_length), step)
     slices = []
     for i in range(tiles.shape[0]):
         for j in range(tiles.shape[1]):
-            slices.append((slice(i * step, i * step + tile_size), slice(j * step, j * step + tile_size)))
+            slices.append((slice(i * step, i * step + tile_side_length), slice(j * step, j * step + tile_side_length)))
 
-    return tiles.reshape(-1, tile_size, tile_size), slices
+    return tiles.reshape(-1, tile_side_length, tile_side_length), slices
 
 
 """MERGE_TILES_WITH_WEIGHTED_OVERLAP"""
@@ -335,15 +358,17 @@ def merge_tiles_with_weighted_overlap(
         if logger:
             logger.debug(f"merge_tiles_with_weighted_overlap • tile {idx}/{len(tile_stack)}.")
 
-        # Standardise to (C, h, w).
-        if tile.ndim == 2:                           # (h, w)
+        # --- standardise to (C, h, w) ---------------------------------------
+        if tile.ndim == 2:                          # (h, w)  → single-channel
             tile = tile[np.newaxis, ...]
-        elif tile.ndim == 3 and tile.shape[0] == 2:  # (2, h, w)
-            pass
-        elif tile.ndim == 3 and tile.shape[-1] == 2: # (h, w, 2)
-            tile = tile.transpose(2, 0, 1)
+        elif tile.ndim == 3:
+            if tile.shape[0] <= 4:                  # (C, h, w) – channels FIRST
+                pass
+            else:                                   # (h, w, C) – channels LAST
+                tile = tile.transpose(2, 0, 1)
         else:
             raise ValueError(f"Tile #{idx} has unsupported shape {tile.shape}.")
+
 
         tile = tile.astype(dtype, copy=False)
         C, th, tw = tile.shape
@@ -483,9 +508,9 @@ def merge_masks(
 # =============================================================================
 def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     h, w          = image.shape
-    tile_size     = settings["TILE_SIZE"]
+    tile_side_length     = settings["tile_side_length"]
     overlap       = settings["TILE_OVERLAP"]
-    use_tiling    = settings["USE_TILING"] and (tile_size < h or tile_size < w)
+    use_tiling    = settings["USE_TILING"] and (tile_side_length < h or tile_side_length < w)
 
     # ──────────────────────────────────────────────────────────
     # 1)  ***NO TILING***  →  straight Cellpose call, nothing to merge
@@ -509,7 +534,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     # ──────────────────────────────────────────────────────────
     # 2)  ***WITH TILING***  →  run tiles, then stitch
     # ──────────────────────────────────────────────────────────
-    tiles, slices = split_image_into_tiles(image, tile_size, overlap, logger)
+    tiles, slices = split_image_into_tiles(image, tile_side_length, overlap, logger)
     logger.info(f"Processing {len(tiles)} tiles.")
 
     # storage
@@ -706,6 +731,8 @@ if __name__ == "__main__":
         (slice(2, 5), slice(0, 3)),
         (slice(2, 5), slice(2, 5)),
     ]
+
+
 
     merged = merge_masks(tiles, slices, img_shape, overlap=1 / 3, logger=logging.getLogger(__name__))
     assert merged.max() == 4, "Labels should remain distinct with zero mutual overlap"

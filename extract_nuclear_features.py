@@ -70,13 +70,13 @@ def timer(msg):
     return wrap
 
 # --- Tiling helper ---
-def get_tiles(img, tile_size, overlap=0):
+def get_tiles(img, tile_side_length, overlap=0):
     """
     Generator yielding (tile, (x_offset, y_offset)) for the image.
     Overlap ensures continuity near tile borders.
     """
     width, height = img.size
-    tile_w, tile_h = tile_size
+    tile_w, tile_h = tile_side_length
     for top in range(0, height, tile_h - overlap):
         for left in range(0, width, tile_w - overlap):
             right = min(left + tile_w, width)
@@ -216,11 +216,11 @@ def compute_region_features(i, region, neighbors_info, dark_distance_map,
     }
     return features
 
-def process_image(image_path, seg_mask_path, output_csv, tile_size=None, overlap=20,
+def process_image(image_path, seg_mask_path, output_csv, tile_side_length=None, overlap=20,
                   lbp_p=8, lbp_r=1.0, skip_lbp=True, n_jobs=-1, neighbor_radius=50.0):
     """
     Process an image and its segmentation mask.
-    Supports tiling if tile_size is specified.
+    Supports tiling if tile_side_length is specified.
     Computes neighbor information within a fixed radius per region.
     Returns the feature DataFrame and saves CSV output.
     """
@@ -242,9 +242,9 @@ def process_image(image_path, seg_mask_path, output_csv, tile_size=None, overlap
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
 
-    if tile_size is not None:
+    if tile_side_length is not None:
         print("Processing image by tiling...")
-        tiles = list(get_tiles(pil_img_full, tile_size, overlap))
+        tiles = list(get_tiles(pil_img_full, tile_side_length, overlap))
         for tile, offset in tqdm(tiles, desc="Tiles", unit="tile"):
             left, top = offset
             right = left + tile.size[0]
@@ -487,7 +487,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot_only", action="store_true", help="If set, only generate plots from existing CSV file(s)")
     args = parser.parse_args()
     
-    tile_size = (args.tile_width, args.tile_height) if args.tile_width and args.tile_height else None
+    tile_side_length = (args.tile_width, args.tile_height) if args.tile_width and args.tile_height else None
     
     if args.plot_only:
         # In plot_only mode, load the features CSV and (if provided) the control CSV, then generate plots.
@@ -551,7 +551,7 @@ if __name__ == "__main__":
         print("Processing IRI group...")
         iri_df = process_image(
             args.image, args.mask, args.output,
-            tile_size=tile_size,
+            tile_side_length=tile_side_length,
             overlap=args.overlap,
             lbp_p=args.lbp_p,
             lbp_r=args.lbp_r,
@@ -563,7 +563,7 @@ if __name__ == "__main__":
             print("Processing CNTL group...")
             cntl_df = process_image(
                 args.control_image, args.control_mask, control_output,
-                tile_size=tile_size,
+                tile_side_length=tile_side_length,
                 overlap=args.overlap,
                 lbp_p=args.lbp_p,
                 lbp_r=args.lbp_r,

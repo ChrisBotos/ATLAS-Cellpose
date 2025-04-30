@@ -55,7 +55,7 @@ SETTINGS = {
     "CANNY_THRESHOLD1": 50,
     "CANNY_THRESHOLD2": 150,
     # Tiling settings:
-    "TILE_SIZE": 2**11,  # Pixels.
+    "tile_side_length": 2**11,  # Pixels.
     "TILE_OVERLAP": 0.1,             # Must be a fraction (e.g., 0.1 for 10%).
     # Small overlay settings:
     "SMALL_OVERLAY_SIZE": 1024
@@ -81,7 +81,7 @@ import torch
 
 def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_000_000):
     """
-    tile_pixels: number of pixels per patch (i.e. TILE_SIZE**2)
+    tile_pixels: number of pixels per patch (i.e. tile_side_length**2)
     bytes_per_pixel: 1 for uint8/float32≈4 (you may adjust)
     target_mem_per_batch: how much GPU memory (bytes) to devote per batch item
     """
@@ -97,8 +97,8 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_0
     max_batch = max(1, usable // (bytes_per_patch * (usable // target_mem_per_batch)))
     return int(max_batch)
 
-# Example usage (TILE_SIZE=2048 → ~4.2M pixels):
-tile_pixels = SETTINGS["TILE_SIZE"]**2
+# Example usage (tile_side_length=2048 → ~4.2M pixels):
+tile_pixels = SETTINGS["tile_side_length"]**2
 CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 
 # =============================================================================
@@ -208,12 +208,12 @@ def preprocess_image(image_path, settings, logger):
 
 from skimage.util import view_as_windows
 
-def split_image_into_tiles(image, tile_size, overlap, logger):
+def split_image_into_tiles(image, tile_side_length, overlap, logger):
     """
     Split the image into overlapping tiles.
     Args:
         image: Input 2D image (grayscale).
-        tile_size: Size of each tile (pixels).
+        tile_side_length: Size of each tile (pixels).
         overlap: Fractional overlap between tiles (e.g., 0.1 for 10% overlap).
         logger: Logger instance for logging.
     Returns:
@@ -221,20 +221,20 @@ def split_image_into_tiles(image, tile_size, overlap, logger):
         slices: List of slice objects for reconstructing the full image.
     """
     h, w = image.shape
-    if tile_size > h or tile_size > w:
-        logger.warning(f"Tile size {tile_size} is larger than image dimensions ({h}, {w}). Adjusting tile size.")
-        tile_size = min(h, w)
+    if tile_side_length > h or tile_side_length > w:
+        logger.warning(f"Tile size {tile_side_length} is larger than image dimensions ({h}, {w}). Adjusting tile size.")
+        tile_side_length = min(h, w)
     
-    step = int(tile_size * (1 - overlap))
-    logger.info(f"Splitting image into tiles with size {tile_size} and step {step}")
+    step = int(tile_side_length * (1 - overlap))
+    logger.info(f"Splitting image into tiles with size {tile_side_length} and step {step}")
     
-    tiles = view_as_windows(image, (tile_size, tile_size), step)
+    tiles = view_as_windows(image, (tile_side_length, tile_side_length), step)
     slices = []
     for i in range(tiles.shape[0]):
         for j in range(tiles.shape[1]):
-            slices.append((slice(i * step, i * step + tile_size), slice(j * step, j * step + tile_size)))
+            slices.append((slice(i * step, i * step + tile_side_length), slice(j * step, j * step + tile_side_length)))
     
-    return tiles.reshape(-1, tile_size, tile_size), slices
+    return tiles.reshape(-1, tile_side_length, tile_side_length), slices
 
 def merge_tiles_with_weighted_overlap(tiles, slices, image_shape, overlap, logger):
     """
@@ -260,17 +260,17 @@ def merge_tiles_with_weighted_overlap(tiles, slices, image_shape, overlap, logge
         merged_image = np.zeros(image_shape, dtype=np.float32)
         weight_map = np.zeros(image_shape, dtype=np.float32)
 
-    tile_size = tiles[0].shape[0]
-    step = int(tile_size * (1 - overlap))
+    tile_side_length = tiles[0].shape[0]
+    step = int(tile_side_length * (1 - overlap))
 
     for tile, slc in zip(tiles, slices):
         weight = np.ones(tile.shape[:2], dtype=np.float32)  # Weight is 2D, even for multi-channel tiles.
 
         # Apply linear weights to the edges.
         for i in range(tile.shape[0]):
-            weight[i, :] *= min(i / (overlap * tile_size), 1, (tile_size - i - 1) / (overlap * tile_size))
+            weight[i, :] *= min(i / (overlap * tile_side_length), 1, (tile_side_length - i - 1) / (overlap * tile_side_length))
         for j in range(tile.shape[1]):
-            weight[:, j] *= min(j / (overlap * tile_size), 1, (tile_size - j - 1) / (overlap * tile_size))
+            weight[:, j] *= min(j / (overlap * tile_side_length), 1, (tile_side_length - j - 1) / (overlap * tile_side_length))
 
         if is_multi_channel:
             for c in range(num_channels):
@@ -303,11 +303,11 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
         total_cells: Total number of cells detected.
     """
     h, w = image.shape
-    tile_size = settings["TILE_SIZE"]
+    tile_side_length = settings["tile_side_length"]
     overlap = settings["TILE_OVERLAP"]
 
     # Check if tiling is necessary.
-    if not settings["USE_TILING"] or (tile_size >= h and tile_size >= w):
+    if not settings["USE_TILING"] or (tile_side_length >= h and tile_side_length >= w):
         # Process the entire image as a single tile.
         logger.info("Tiling is disabled or unnecessary. Processing the entire image as a single tile.")
         image = image[..., None]  # Add channel axis.
@@ -327,7 +327,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
         return masks, flows, total_cells
 
     # If tiling is enabled and necessary, split the image into tiles.
-    tiles, slices = split_image_into_tiles(image, tile_size, overlap, logger)
+    tiles, slices = split_image_into_tiles(image, tile_side_length, overlap, logger)
     logger.info(f"Processing {len(tiles)} tiles.")
     
     # Initialize lists to store results.
