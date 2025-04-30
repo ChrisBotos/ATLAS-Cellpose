@@ -87,52 +87,52 @@ def load_config(config_path=None):
     config = configparser.ConfigParser()
     config.read(config_path)
 
-    def get_bool(section, key):
-        return config.get(section, key).lower() == "true"
-
-    def get_tuple(section, key, cast_type=float):
-        return tuple(cast_type(i.strip()) for i in config.get(section, key).split(','))
-
     # Create timestamp for unique output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     # Parse settings from config
     SETTINGS = {
-        "IMAGE_PATH": Path(config.get("General", "image_path")),
+        "IMAGE_PATH": config.get("General", "image_path"),
         "OUTPUT_DIR": PROJECT_DIRS["results"] / f"{config.get('General', 'output_dir')}_{timestamp}",
         "UPSCALE_FACTOR": config.getint("General", "upscale_factor"),
-        "CROP_IMAGE": get_bool("General", "crop_image"),
-        "CROP_BBOX": get_tuple("General", "crop_bbox", float),
-        "ENHANCE_CONTRAST": get_bool("General", "enhance_contrast"),
-        "ENHANCE_DIM": get_bool("General", "enhance_dim"),
-        "GENERATE_OVERLAY": get_bool("General", "generate_overlay"),
+        "CROP_IMAGE": config.getboolean("General", "crop_image"),
+        "CROP_BBOX": tuple(map(float, config.get("General", "crop_bbox").split(','))),
+        "ENHANCE_CONTRAST": config.getboolean("General", "enhance_contrast"),
+        "ENHANCE_DIM": config.getboolean("General", "enhance_dim"),
+        "GENERATE_OVERLAY": config.getboolean("General", "generate_overlay"),
         "CLAHE_CLIPLIMIT": config.getfloat("CLAHE", "cliplimit"),
-        "CLAHE_TILE_GRID_SIZE": get_tuple("CLAHE", "tile_grid_size", int),
-        "USE_EDGE_DETECTION": get_bool("EdgeDetection", "use_edge_detection"),
+        "CLAHE_TILE_GRID_SIZE": tuple(map(int, config.get("CLAHE", "tile_grid_size").split(','))),
+        "USE_EDGE_DETECTION": config.getboolean("EdgeDetection", "use_edge_detection"),
         "CANNY_THRESHOLD1": config.getint("EdgeDetection", "canny_threshold1"),
         "CANNY_THRESHOLD2": config.getint("EdgeDetection", "canny_threshold2"),
-        "APPLY_WATERSHED": get_bool("Watershed", "apply_watershed"),
+        "APPLY_WATERSHED": config.getboolean("Watershed", "apply_watershed"),
         "AREA_THRESHOLD_FOR_WATERSHED": config.getint("Watershed", "area_threshold"),
-        "LOCAL_MAXIMA_FOOTPRINT": get_tuple("Watershed", "local_maxima_footprint", int),
-        "USE_TILING": get_bool("Tiling", "use_tiling"),
+        "LOCAL_MAXIMA_FOOTPRINT": tuple(map(int, config.get("Watershed", "local_maxima_footprint").split(','))),
+        "USE_TILING": config.getboolean("Tiling", "use_tiling"),
         "tile_side_length": config.getint("Tiling", "tile_side_length"),
         "TILE_OVERLAP": config.getfloat("Tiling", "tile_overlap"),
         "SMALL_OVERLAY_SIZE": config.getint("Overlay", "small_overlay_size"),
-        "DEBUG_MODE": get_bool("Debug", "debug_mode") if "Debug" in config.sections() else False,
+        "DEBUG_MODE": config.getboolean("Debug", "debug_mode") if "Debug" in config.sections() else False,
     }
 
     # Ensure image path is absolute
     if not os.path.isabs(SETTINGS["IMAGE_PATH"]):
         SETTINGS["IMAGE_PATH"] = PROJECT_DIRS["data"] / SETTINGS["IMAGE_PATH"]
+    
+    # Verify the image path exists
+    if not os.path.exists(SETTINGS["IMAGE_PATH"]):
+        print(f"WARNING: Image not found at {SETTINGS['IMAGE_PATH']}")
+        print(f"Looking for: {SETTINGS['IMAGE_PATH']}")
+        print(f"Data directory is: {PROJECT_DIRS['data']}")
 
     CELLPOSE_PARAMS = {
         "model_type": config.get("Cellpose", "model_type"),
-        "gpu": get_bool("Cellpose", "gpu") and torch.cuda.is_available(),
+        "gpu": config.getboolean("Cellpose", "gpu") and torch.cuda.is_available(),
         "diameter": config.getint("Cellpose", "diameter"),
-        "channels": get_tuple("Cellpose", "channels", int),
+        "channels": tuple(map(int, config.get("Cellpose", "channels").split(','))),
         "flow_threshold": config.getfloat("Cellpose", "flow_threshold"),
         "cellprob_threshold": config.getfloat("Cellpose", "cellprob_threshold"),
-        "resample": get_bool("Cellpose", "resample"),
+        "resample": config.getboolean("Cellpose", "resample"),
         "stitch_threshold": config.getfloat("Cellpose", "stitch_threshold"),
         "batch_size": 1  # Placeholder, will be updated dynamically
     }
@@ -574,17 +574,10 @@ def merge_tiles_with_weighted_overlap(
     return output[0] if output.shape[0] == 1 else output
 
 
-def merge_masks(
-        tiles:        list[np.ndarray],
-        slices:       list[tuple[slice, slice]],
-        image_shape:  tuple[int, int],
-        overlap:      float,
-        logger,
-        merge_overlap_thresh: float = 0.50
-    ) -> np.ndarray:
+def merge_masks(tiles, slices, image_shape, overlap, logger, merge_overlap_thresh=0.50):
     """
     Stitch Cellpose-generated tiled masks into a single label image.
-
+    
     Parameters
     ----------
     tiles : list[np.ndarray]
@@ -594,27 +587,26 @@ def merge_masks(
     image_shape : tuple
         Height × width of the original image.
     overlap : float
-        Fractional tile overlap (not used here but kept for API compatibility).
+        Fractional tile overlap - used to adjust overlap calculations.
     logger : logging.Logger
         For nice, centralised reporting.
     merge_overlap_thresh : float, optional
-        Two labels are considered the *same* object when
-
-        .. math::
-            \\frac{|A \\cap B|}{\\min(|A|, |B|)} \\ge \\text{merge_overlap_thresh}
-
-        where :math:`A` and :math:`B` are the pixel sets of the two labels
-        inside the *overlap region only*.
-
+        Threshold for considering two objects the same.
+        
     Returns
     -------
     merged : np.ndarray
         Global mask with unique, compact, 1-based labels.
     """
     merged_mask = np.zeros(image_shape, dtype=np.uint16)
-
+    
     # Next free global label (0 is background).
-    next_label: int = 1
+    next_label = 1
+    
+    # Adjust merge threshold based on overlap
+    effective_thresh = merge_overlap_thresh * (1.0 + overlap)
+    
+    logger.info(f"Merging masks with overlap={overlap:.2f}, threshold={effective_thresh:.2f}")
 
     for tile, slc in zip(tiles, slices):
         tile = tile.astype(np.uint16)
@@ -646,21 +638,33 @@ def merge_masks(
 
                 # Find *one* global label (if any) that matches above threshold.
                 best_match, best_score = None, 0.0
-                for e_lbl in existing:
-                    e_mask = canvas_view == e_lbl
+                
+                # Use a more efficient approach to find overlaps
+                overlap_labels = np.unique(canvas_view[overlap_pixels])
+                overlap_labels = overlap_labels[overlap_labels > 0]
+                
+                if len(overlap_labels) > 0:
+                    t_area = t_mask.sum()
+                    
+                    for e_lbl in overlap_labels:
+                        e_mask = canvas_view == e_lbl
+                        intersect = np.logical_and(t_mask, e_mask).sum()
+                        if intersect == 0:
+                            continue
+                        
+                        score = intersect / min(t_area, e_mask.sum())
+                        if score > best_score:
+                            best_score, best_match = score, e_lbl
+                        
+                        # Early exit if we found a very good match
+                        if best_score > 0.8:
+                            break
 
-                    intersect = np.logical_and(t_mask, e_mask).sum()
-                    if intersect == 0:
-                        continue
-                    score = intersect / min(t_mask.sum(), e_mask.sum())
-                    if score > best_score:
-                        best_score, best_match = score, e_lbl
-
-                if best_score >= merge_overlap_thresh:
+                if best_score >= effective_thresh:
                     relabel[t_lbl] = best_match
 
         # ---------------------------------------------------------------------
-        # 2. Apply the relabel map or assign a fresh ID, then copy into canvas.
+        # 2. Apply the re-label map or assign a fresh ID, then copy into canvas.
         # ---------------------------------------------------------------------
         for t_lbl in np.unique(tile):
             if t_lbl == 0:
