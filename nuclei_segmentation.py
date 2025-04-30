@@ -26,21 +26,66 @@ from PIL import Image
 import logging
 import configparser
 import torch
+import shutil
+from datetime import datetime
+from pathlib import Path
 
-# Import the small overlay snippet function (assumed to be defined in check_segmentation_overlay.py)
-from check_segmentation_overlay import small_segmentation_overlay
+# Import the small overlay snippet function
+from utils.visualization import small_segmentation_overlay
 
 # Increase the maximum allowed image pixels
 Image.MAX_IMAGE_PIXELS = 10 ** 9
 
 # =============================================================================
-# PARAMETERS
+# PROJECT STRUCTURE SETUP
 # =============================================================================
-"""CONFIG LOADING"""
+def setup_project_structure():
+    """
+    Create the project directory structure if it doesn't exist.
+    
+    Creates directories for configs, data, results, logs, and tests.
+    Returns the paths to these directories as a dictionary.
+    """
+    # Define base directories
+    base_dir = Path(__file__).parent.absolute()
+    dirs = {
+        "base": base_dir,
+        "configs": base_dir / "configs",
+        "data": base_dir / "data",
+        "results": base_dir / "results",
+        "logs": base_dir / "logs",
+        "tests": base_dir / "tests",
+        "utils": base_dir / "utils",
+        "debug": base_dir / "debug"
+    }
+    
+    # Create directories if they don't exist
+    for dir_path in dirs.values():
+        dir_path.mkdir(exist_ok=True)
+        
+    return dirs
 
-def load_config(path="nuclei_segmentation_config.ini"):
+# Setup project structure
+PROJECT_DIRS = setup_project_structure()
+
+# =============================================================================
+# CONFIG LOADING
+# =============================================================================
+def load_config(config_path=None):
+    """
+    Load configuration from the specified INI file.
+    
+    If no config path is provided, uses the default config in the configs directory.
+    Parses the configuration and returns SETTINGS and CELLPOSE_PARAMS dictionaries.
+    """
+    if config_path is None:
+        config_path = PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini"
+    
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+        
     config = configparser.ConfigParser()
-    config.read(path)
+    config.read(config_path)
 
     def get_bool(section, key):
         return config.get(section, key).lower() == "true"
@@ -48,9 +93,13 @@ def load_config(path="nuclei_segmentation_config.ini"):
     def get_tuple(section, key, cast_type=float):
         return tuple(cast_type(i.strip()) for i in config.get(section, key).split(','))
 
+    # Create timestamp for unique output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Parse settings from config
     SETTINGS = {
-        "IMAGE_PATH": config.get("General", "image_path"),
-        "OUTPUT_DIR": config.get("General", "output_dir"),
+        "IMAGE_PATH": Path(config.get("General", "image_path")),
+        "OUTPUT_DIR": PROJECT_DIRS["results"] / f"{config.get('General', 'output_dir')}_{timestamp}",
         "UPSCALE_FACTOR": config.getint("General", "upscale_factor"),
         "CROP_IMAGE": get_bool("General", "crop_image"),
         "CROP_BBOX": get_tuple("General", "crop_bbox", float),
@@ -69,7 +118,12 @@ def load_config(path="nuclei_segmentation_config.ini"):
         "tile_side_length": config.getint("Tiling", "tile_side_length"),
         "TILE_OVERLAP": config.getfloat("Tiling", "tile_overlap"),
         "SMALL_OVERLAY_SIZE": config.getint("Overlay", "small_overlay_size"),
+        "DEBUG_MODE": get_bool("Debug", "debug_mode") if "Debug" in config.sections() else False,
     }
+
+    # Ensure image path is absolute
+    if not os.path.isabs(SETTINGS["IMAGE_PATH"]):
+        SETTINGS["IMAGE_PATH"] = PROJECT_DIRS["data"] / SETTINGS["IMAGE_PATH"]
 
     CELLPOSE_PARAMS = {
         "model_type": config.get("Cellpose", "model_type"),
@@ -80,7 +134,7 @@ def load_config(path="nuclei_segmentation_config.ini"):
         "cellprob_threshold": config.getfloat("Cellpose", "cellprob_threshold"),
         "resample": get_bool("Cellpose", "resample"),
         "stitch_threshold": config.getfloat("Cellpose", "stitch_threshold"),
-        "batch_size": "placeholder"  # To be updated dynamically below
+        "batch_size": 1  # Placeholder, will be updated dynamically
     }
 
     return SETTINGS, CELLPOSE_PARAMS
@@ -138,39 +192,132 @@ CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 # =============================================================================
 # LOGGING SETUP
 # =============================================================================
-def setup_logging(output_dir):
-    """Configure logging to console and file."""
-    log_file = os.path.join(output_dir, "segmentation_log.txt")
+def setup_logging(output_dir, debug_mode=False):
+    """
+    Configure logging to console and file.
+    
+    Sets up a logger that writes to both a file in the output directory
+    and to the console. If debug_mode is True, sets the log level to DEBUG.
+    
+    Args:
+        output_dir: Directory where log file will be saved.
+        debug_mode: If True, sets log level to DEBUG instead of INFO.
+        
+    Returns:
+        logger: Configured logging instance.
+    """
+    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Create logs directory within output directory
+    logs_dir = os.path.join(output_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Set up log file path with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(logs_dir, f"segmentation_log_{timestamp}.txt")
+    
+    # Configure logger
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
 
     # Remove any existing handlers to avoid double logging
     for h in logger.handlers[:]:
         logger.removeHandler(h)
 
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    # Create formatters
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    console_formatter = logging.Formatter('%(levelname)s - %(message)s')
 
+    # File handler
     fh = logging.FileHandler(log_file)
-    fh.setFormatter(formatter)
+    fh.setFormatter(file_formatter)
+    fh.setLevel(logging.DEBUG if debug_mode else logging.INFO)
     logger.addHandler(fh)
 
+    # Console handler
     ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(formatter)
+    ch.setFormatter(console_formatter)
+    ch.setLevel(logging.INFO)  # Console always shows INFO and above
     logger.addHandler(ch)
 
-    logger.info("===== Cellpose Segmentation Log =====")
-    for k, v in SETTINGS.items():
-        logger.info(f"{k}: {v}")
-
+    logger.info("===== Cellpose Segmentation Pipeline Started =====")
+    logger.info(f"Log file: {log_file}")
+    
+    # Copy the config file to the output directory for reproducibility
+    config_backup_path = os.path.join(output_dir, "config_used.ini")
+    try:
+        shutil.copy2(PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini", config_backup_path)
+        logger.info(f"Configuration backed up to: {config_backup_path}")
+    except Exception as e:
+        logger.warning(f"Could not backup configuration file: {e}")
+    
     return logger
 
+# =============================================================================
+# DEBUG UTILITIES
+# =============================================================================
+def setup_debug(settings):
+    """
+    Set up debug environment if debug mode is enabled.
+    
+    Creates debug directory and returns a function for saving debug images.
+    
+    Args:
+        settings: Dictionary containing configuration settings.
+        
+    Returns:
+        snap_function: Function for saving debug images.
+    """
+    if not settings.get("DEBUG_MODE", False):
+        # Return a no-op function if debug mode is disabled
+        return lambda tag, arr: arr
+    
+    # Create debug directory within output directory
+    debug_dir = os.path.join(settings["OUTPUT_DIR"], "debug")
+    os.makedirs(debug_dir, exist_ok=True)
+    
+    def snap(tag, arr):
+        """
+        Save a debug image with the given tag.
+        
+        Args:
+            tag: String identifier for the image.
+            arr: Numpy array containing the image data.
+            
+        Returns:
+            arr: The input array (for inline use).
+        """
+        if arr.dtype != np.uint8:
+            v = arr.astype(np.float32)
+            v = 255 * (v - v.min()) / (v.ptp() + 1e-6)
+            v = v.astype(np.uint8)
+        else:
+            v = arr
+        
+        # Save with timestamp to avoid overwriting
+        timestamp = datetime.now().strftime("%H%M%S")
+        imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.png"), v)
+        return arr  # Return the original array for inline use
+    
+    return snap
 
 # =============================================================================
 # PREPROCESSING FUNCTIONS
 # =============================================================================
 def convert_16bit_to_8bit(image):
-    """Convert a 16-bit image to 8-bit using percentile scaling."""
+    """
+    Convert a 16-bit image to 8-bit using percentile scaling.
+    
+    Scales the image using 1st and 99th percentiles to preserve dynamic range
+    while converting from 16-bit to 8-bit depth.
+    
+    Args:
+        image: Input image (numpy array).
+        
+    Returns:
+        8-bit image as numpy array.
+    """
     if image.dtype != np.uint16:
         return image
     p1, p99 = np.percentile(image, (1, 99))
@@ -180,7 +327,17 @@ def convert_16bit_to_8bit(image):
 
 
 def adaptive_gamma_correction(image, min_gamma=1.5, max_gamma=2.5, logger=None):
-    """Apply adaptive gamma correction based on the image median value."""
+    """
+    Apply adaptive gamma correction based on the image median value.
+    
+    Adjusts gamma correction strength based on image brightness to enhance
+    dim regions while preserving bright areas.
+    
+    Args:
+        image: Input image (numpy array).
+        min_gamma: Minimum gamma value.
+        max_gamma: Maximum gamma
+    """
     median = np.median(image) / 255.0
     gamma = np.clip(max_gamma - (max_gamma - min_gamma) * median, min_gamma, max_gamma)
     if logger:
@@ -253,12 +410,18 @@ def preprocess_image(image_path, settings, logger):
 
 def split_image_into_tiles(image, tile_side_length, overlap, logger):
     """
-    Split the image into overlapping tiles.
+    Split the image into overlapping tiles, ensuring complete coverage.
+    
+    This function divides an image into tiles of specified size with overlap,
+    handling edge cases where image dimensions aren't divisible by tile size.
+    Tiles at the right and bottom edges may be smaller than the specified size.
+    
     Args:
         image: Input 2D image (grayscale).
         tile_side_length: Size of each tile (pixels).
         overlap: Fractional overlap between tiles (e.g., 0.1 for 10% overlap).
         logger: Logger instance for logging.
+        
     Returns:
         tiles: List of tiles as numpy arrays.
         slices: List of slice objects for reconstructing the full image.
@@ -270,14 +433,29 @@ def split_image_into_tiles(image, tile_side_length, overlap, logger):
 
     step = int(tile_side_length * (1 - overlap))
     logger.info(f"Splitting image into tiles with size {tile_side_length} and step {step}")
-
-    tiles = view_as_windows(image, (tile_side_length, tile_side_length), step)
+    
+    # Calculate positions for tile starting points
+    y_positions = list(range(0, h - tile_side_length + 1, step))
+    x_positions = list(range(0, w - tile_side_length + 1, step))
+    
+    # Ensure we cover the entire image by adding the final position if needed
+    if h > tile_side_length and y_positions[-1] + tile_side_length < h:
+        y_positions.append(h - tile_side_length)
+    if w > tile_side_length and x_positions[-1] + tile_side_length < w:
+        x_positions.append(w - tile_side_length)
+    
+    # Extract tiles and record their positions
+    tiles = []
     slices = []
-    for i in range(tiles.shape[0]):
-        for j in range(tiles.shape[1]):
-            slices.append((slice(i * step, i * step + tile_side_length), slice(j * step, j * step + tile_side_length)))
-
-    return tiles.reshape(-1, tile_side_length, tile_side_length), slices
+    
+    for y in y_positions:
+        for x in x_positions:
+            tile = image[y:y+tile_side_length, x:x+tile_side_length]
+            tiles.append(tile)
+            slices.append((slice(y, y+tile_side_length), slice(x, x+tile_side_length)))
+    
+    logger.info(f"Created {len(tiles)} tiles covering the {h}×{w} image.")
+    return tiles, slices
 
 
 """MERGE_TILES_WITH_WEIGHTED_OVERLAP"""
@@ -649,8 +827,11 @@ def generate_overlay(image, masks, flows, output_dir, logger):
 def main():
     output_dir = SETTINGS["OUTPUT_DIR"]
     os.makedirs(output_dir, exist_ok=True)
-    logger = setup_logging(output_dir)
+    logger = setup_logging(output_dir, debug_mode=SETTINGS.get("DEBUG_MODE", False))
     print("2DEBUG: dir made...")
+
+    # Set up debug environment if enabled
+    snap = setup_debug(SETTINGS)
 
     # 1. Preprocess the image.
     image = preprocess_image(SETTINGS["IMAGE_PATH"], SETTINGS, logger)
