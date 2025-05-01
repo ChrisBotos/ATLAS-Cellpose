@@ -1,8 +1,20 @@
 """
-Visualization utilities for nuclei segmentation.
+Visualization Utilities for Kidney I/R Injury Nuclei Segmentation Analysis.
 
-This module contains functions for creating visualizations of segmentation results,
-including overlays, thumbnails, and debug visualizations.
+This module provides specialized visualization functions for assessing segmentation
+quality and creating publication-ready figures for kidney tissue analysis. Proper
+visualization is critical for validating segmentation results and communicating
+findings about nuclear morphology changes during ischemia-reperfusion injury.
+
+The utilities handle various visualization needs including:
+1. Creating overlay images that show segmentation boundaries on original images
+2. Generating cropped previews for quick quality assessment
+3. Producing full-size visualizations for detailed inspection
+4. Creating comparison views to evaluate preprocessing and refinement steps
+
+These visualizations help researchers identify segmentation issues such as
+under-segmentation (merged nuclei) or over-segmentation (fragmented nuclei),
+which is particularly important in densely packed regions of injured kidney tissue.
 """
 import os
 import numpy as np
@@ -14,14 +26,26 @@ from pathlib import Path
 
 def small_segmentation_overlay(output_dir, crop_size=1024):
     """
-    Create a small overlay image for quick review.
+    Create a small overlay image for quick review of kidney tissue segmentation.
 
-    Extracts a central crop from the segmentation results and creates
-    an overlay visualization for quick assessment of segmentation quality.
+    This function extracts a central crop from the segmentation results and creates
+    an overlay visualization for quick assessment of segmentation quality. This is
+    particularly useful for kidney I/R injury analysis where segmentation quality
+    can vary across different regions and timepoints due to changes in nuclear
+    morphology, density, and tissue architecture.
+
+    The central crop approach focuses on a representative region of the tissue,
+    allowing researchers to quickly assess whether nuclei are being properly
+    segmented, especially in challenging areas like inflammatory infiltrates
+    or damaged tubular regions where nuclei may be densely packed or have
+    atypical morphology.
 
     Args:
-        output_dir: Directory containing segmentation results.
-        crop_size: Size of the cropped region (pixels).
+        output_dir: Directory containing segmentation results from nuclei_segmentation.py.
+        crop_size: Size of the cropped region in pixels (default: 1024).
+
+    Returns:
+        None. Visualization images are saved to the output directory.
     """
     logger = logging.getLogger()
 
@@ -162,17 +186,29 @@ def small_segmentation_overlay(output_dir, crop_size=1024):
 
 def generate_full_overlay(image, masks, flows, output_dir, logger):
     """
-    Generate and save overlay visualizations of the full image.
+    Generate and save overlay visualizations of the full kidney tissue image.
 
-    Creates mask overlay and segmentation debug visualizations for the
-    entire image and saves them to the output directory.
+    This function creates comprehensive visualization outputs for the entire
+    tissue section, including mask overlays and flow field visualizations.
+    These full-size visualizations are essential for detailed inspection of
+    segmentation quality across different kidney tissue compartments (cortex,
+    medulla, etc.) and for identifying region-specific segmentation challenges.
+
+    In kidney I/R injury analysis, different regions may show varying degrees
+    of damage and inflammatory infiltration, requiring careful assessment of
+    segmentation performance throughout the tissue. The flow field visualization
+    helps diagnose issues with the Cellpose algorithm's gradient tracking that
+    may lead to under- or over-segmentation in specific tissue contexts.
 
     Args:
-        image: Input image (grayscale).
-        masks: Segmentation masks.
-        flows: Flow fields from Cellpose.
+        image: Input kidney tissue image (grayscale).
+        masks: Segmentation masks from Cellpose or watershed refinement.
+        flows: Flow fields from Cellpose (gradient and probability maps).
         output_dir: Directory where visualizations will be saved.
-        logger: Logger instance for logging.
+        logger: Logger instance for recording progress.
+
+    Returns:
+        None. Visualization images are saved to the specified directory.
     """
     # Create visualizations directory
     vis_dir = os.path.join(output_dir, "visualizations", "full_image")

@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+"""
+Segmentation Overlay Visualization for Kidney I/R Injury Analysis.
+
+This script generates visual quality control outputs for nuclei segmentation results,
+allowing researchers to quickly assess segmentation quality and the effects of
+watershed refinement on merged nuclei in kidney tissue sections.
+"""
+
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,8 +16,18 @@ import logging
 
 def small_segmentation_overlay(output_dir, crop_size=512):
     """
-    Creates and saves cropped overlay comparisons for pre-watershed segmentation and (optionally) post-watershed segmentation.
-    
+    Creates and saves cropped overlay comparisons for pre-watershed and post-watershed segmentation.
+
+    This function generates visual quality control outputs that are essential for validating
+    segmentation results in kidney tissue analysis. It creates overlays of the segmentation
+    masks on the original image, allowing researchers to assess how well nuclear boundaries
+    are captured and whether watershed splitting has correctly separated merged nuclei.
+
+    In kidney I/R injury analysis, proper nuclear segmentation is critical as changes in
+    nuclear morphology and density are key indicators of tubular damage, inflammatory
+    infiltration, and repair processes.
+
+    The function performs the following steps:
     1. Creates subdirectory 'check_cropped_part' in 'output_dir'.
     2. Loads:
        - Preprocessed image and optionally CLAHE and gamma-corrected images.
@@ -17,10 +36,17 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     3. Crops a centered region of size 'crop_size' from each available image.
     4. Generates:
        (a) 'quick_overlay_summary.png' showing pre, CLAHE, gamma, and the pre-watershed overlay.
-       (b) 'comparison_pre_post_watershed.png' side-by-side overlays of pre- vs. post-watershed 
+       (b) 'comparison_pre_post_watershed.png' side-by-side overlays of pre- vs. post-watershed
            (generated only if the post-watershed file exists).
+
+    Args:
+        output_dir: Directory containing segmentation results and where outputs will be saved.
+        crop_size: Size in pixels of the central crop to use for visualization (default: 512).
+
+    Returns:
+        None. Results are saved as image files in the output directory.
     """
-    
+
     # -------------------------------
     # 1) Logging setup
     # -------------------------------
@@ -30,7 +56,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
         ch = logging.StreamHandler()
         ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         logger.addHandler(ch)
-    
+
     # Subdirectory for storing the check images
     check_dir = os.path.join(output_dir, "check_cropped_part")
     os.makedirs(check_dir, exist_ok=True)
@@ -57,10 +83,10 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     pre   = skio.imread(pre_path)
     clahe = skio.imread(clahe_path) if os.path.exists(clahe_path) else None
     gamma = skio.imread(gamma_path) if os.path.exists(gamma_path) else None
-    
+
     # Load pre-watershed mask (NumPy label mask)
     masks_pre = np.load(masks_path)
-    
+
     # Load post-watershed mask if it exists
     if os.path.exists(watershed_path):
         masks_post = skio.imread(watershed_path)
@@ -77,7 +103,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # -------------------------------
     h, w = pre.shape
     cy, cx = h // 2, w // 2
-    
+
     start_y = max(cy - crop_size // 2, 0)
     end_y   = min(start_y + crop_size, h)
     start_x = max(cx - crop_size // 2, 0)
@@ -86,12 +112,12 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # Crop all images that exist
     pre_crop         = pre[start_y:end_y, start_x:end_x]
     masks_pre_crop   = masks_pre[start_y:end_y, start_x:end_x]
-    
+
     if clahe is not None and clahe.shape == pre.shape:
         clahe_crop = clahe[start_y:end_y, start_x:end_x]
     else:
         clahe_crop = None
-    
+
     if gamma is not None and gamma.shape == pre.shape:
         gamma_crop = gamma[start_y:end_y, start_x:end_x]
     else:
@@ -114,7 +140,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     else:
         final_crop_height = pre_crop.shape[0]
         final_crop_width = pre_crop.shape[1]
-    
+
     pre_crop       = pre_crop[:final_crop_height, :final_crop_width]
     masks_pre_crop = masks_pre_crop[:final_crop_height, :final_crop_width]
     if clahe_crop is not None:
@@ -128,12 +154,12 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # 4) Generate overlays
     # -------------------------------
     # Pre-watershed overlay
-    overlay_pre = plot.mask_overlay(pre_crop, masks_pre_crop, 
+    overlay_pre = plot.mask_overlay(pre_crop, masks_pre_crop,
                                     colors=np.random.rand(np.max(masks_pre_crop) + 1, 3))
-    
+
     # Post-watershed overlay (only if watershed exists)
     if watershed_exists:
-        overlay_post = plot.mask_overlay(pre_crop, masks_post_crop, 
+        overlay_post = plot.mask_overlay(pre_crop, masks_post_crop,
                                          colors=np.random.rand(np.max(masks_post_crop) + 1, 3))
     else:
         overlay_post = None
@@ -178,15 +204,15 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # -------------------------------
     if watershed_exists:
         fig2, axs = plt.subplots(1, 2, figsize=(12, 6))
-    
+
         axs[0].imshow(overlay_pre)
         axs[0].set_title("Pre-Watershed Overlay")
         axs[0].axis("off")
-    
+
         axs[1].imshow(overlay_post)
         axs[1].set_title("Post-Watershed Overlay")
         axs[1].axis("off")
-    
+
         plt.tight_layout()
         comparison_path = os.path.join(check_dir, "comparison_pre_post_watershed.png")
         plt.savefig(comparison_path, dpi=300, bbox_inches='tight')
