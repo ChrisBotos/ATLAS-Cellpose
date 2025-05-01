@@ -18,16 +18,6 @@ results/*
 data/*
 !data/.gitkeep
 
-# Logs directory - keep structure but ignore contents.
-logs/*
-!logs/.gitkeep
-
-# Debug directories - keep structure but ignore contents.
-debug_snapshots/*
-!debug_snapshots/.gitkeep
-debug/*
-!debug/.gitkeep
-
 # Specific result directories.
 results*/
 !results/.gitkeep
