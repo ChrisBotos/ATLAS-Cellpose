@@ -1298,7 +1298,12 @@ def main():
 
         # 8. Create a small overlay snippet (cropped) for quick review.
         logger.info("Generating small overlay snippet...")
-        small_segmentation_overlay(output_dir, crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1))
+        # Pass the debug parameter from settings to enable detailed diagnostics when needed
+        small_segmentation_overlay(
+            output_dir,
+            crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1),
+            debug=SETTINGS.get("DEBUG_MODE", False)
+        )
         logger.info("Small overlay snippet generated successfully.")
 
         logger.info("===== Cellpose Segmentation Pipeline Completed Successfully =====")
