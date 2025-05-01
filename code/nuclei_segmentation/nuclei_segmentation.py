@@ -47,7 +47,12 @@ from skimage.feature import peak_local_max
 from cellpose import models, plot
 
 # Own code imports.
-from code.nuclei_segmentation.utils.visualization import small_segmentation_overlay
+try:
+    # When imported as a module
+    from code.nuclei_segmentation.utils.visualization import small_segmentation_overlay
+except ImportError:
+    # When run directly
+    from utils.visualization import small_segmentation_overlay
 
 # Increase the maximum allowed image pixels to handle large microscopy images.
 Image.MAX_IMAGE_PIXELS = 10 ** 9
@@ -67,9 +72,19 @@ def setup_project_structure():
         dict: Dictionary containing paths to all project directories.
     """
     # Define base directories.
-    base_dir = Path(__file__).parent.parent.parent.absolute()  # Go up to project root
-    code_dir = base_dir / "code"
-    nuclei_dir = code_dir / "nuclei_segmentation"
+    script_path = Path(__file__).absolute()
+
+    # Check if we're running from within the code/nuclei_segmentation directory
+    if script_path.parent.name == "nuclei_segmentation" and script_path.parent.parent.name == "code":
+        # Running as a module or from the correct location
+        base_dir = script_path.parent.parent.parent  # Go up to project root
+        code_dir = base_dir / "code"
+        nuclei_dir = code_dir / "nuclei_segmentation"
+    else:
+        # Running the script directly from another location
+        base_dir = script_path.parent.parent  # Assume we're in nuclei_segmentation dir
+        code_dir = base_dir / "code"
+        nuclei_dir = script_path.parent
 
     dirs = {
         "base": base_dir,
@@ -118,20 +133,19 @@ def load_config(config_path=None):
     # Get current timestamp for output directory naming.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Set up project directories.
-    script_dir = Path(__file__).resolve().parent
-    PROJECT_DIRS = {
-        "root": script_dir,
-        "data": script_dir / "data",
-        "results": script_dir / "results",
-        "configs": script_dir / "configs"
-    }
+    # We already have PROJECT_DIRS from setup_project_structure()
 
     # Use default config path if none provided.
     if config_path is None:
-        config_path = PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini"
+        # Look directly in the known location - two levels up in the configs directory
+        config_path = Path("../../configs/nuclei_segmentation_config.ini")
 
-    if not os.path.exists(config_path):
+        if not config_path.exists():
+            # If config file is not found, raise an error with helpful message
+            raise FileNotFoundError(
+                f"Configuration file not found at expected location: {config_path}"
+            )
+    elif not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
     # Parse the configuration file.
