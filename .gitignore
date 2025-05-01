@@ -1,27 +1,40 @@
-# IDE files
+# IDE files.
 .idea
 
-# Virtual environments
+# Virtual environments.
 venv311
 
-# Results directory - keep structure but ignore contents
+# Python cache files.
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Results directory - keep structure but ignore contents.
 results/*
 !results/.gitkeep
 
-# Data directory - keep structure but ignore contents
+# Data directory - keep structure but ignore contents.
 data/*
 !data/.gitkeep
 
-# Logs directory - keep structure but ignore contents
+# Logs directory - keep structure but ignore contents.
 logs/*
 !logs/.gitkeep
 
-# Debug directories - keep structure but ignore contents
+# Debug directories - keep structure but ignore contents.
 debug_snapshots/*
 !debug_snapshots/.gitkeep
 debug/*
 !debug/.gitkeep
 
-# Specific result directories
+# Specific result directories.
 results*/
 !results/.gitkeep
+
+# Jupyter Notebook files.
+.ipynb_checkpoints
+
+# Distribution / packaging.
+dist/
+build/
+*.egg-info/

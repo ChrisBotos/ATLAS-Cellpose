@@ -26,7 +26,7 @@ from PIL import Image
 import logging
 
 # Import the small overlay snippet function (assumed to be defined in check_segmentation_overlay.py)
-from check_segmentation_overlay import small_segmentation_overlay
+from archived_code.check_segmentation_overlay import small_segmentation_overlay
 
 # Increase the maximum allowed image pixels
 Image.MAX_IMAGE_PIXELS = 10**9
