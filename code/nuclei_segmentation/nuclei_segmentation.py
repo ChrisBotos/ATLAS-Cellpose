@@ -53,7 +53,7 @@ from code.nuclei_segmentation.utils.visualization import small_segmentation_over
 Image.MAX_IMAGE_PIXELS = 10 ** 9
 
 # =============================================================================
-# PROJECT STRUCTURE SETUP
+# PROJECT STRUCTURE SETUP.
 # =============================================================================
 def setup_project_structure():
     """
@@ -95,7 +95,7 @@ PROJECT_DIRS = setup_project_structure()
 
 
 # =============================================================================
-# CONFIG LOADING
+# CONFIG LOADING.
 # =============================================================================
 def load_config(config_path=None):
     """
@@ -225,7 +225,7 @@ SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS.
 # =============================================================================
 def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_000_000):
     """
@@ -266,7 +266,7 @@ CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 
 
 # =============================================================================
-# LOGGING SETUP
+# LOGGING SETUP.
 # =============================================================================
 def setup_logging(output_dir, debug_mode=False):
     """
@@ -333,7 +333,7 @@ def setup_logging(output_dir, debug_mode=False):
 
 
 # =============================================================================
-# DEBUG UTILITIES
+# DEBUG UTILITIES.
 # =============================================================================
 def setup_debug(settings):
     """
@@ -389,7 +389,7 @@ def setup_debug(settings):
 
 
 # =============================================================================
-# PREPROCESSING FUNCTIONS
+# PREPROCESSING FUNCTIONS.
 # =============================================================================
 def convert_16bit_to_8bit(image):
     """
@@ -622,7 +622,7 @@ def split_image_into_tiles(image, tile_size, overlap, logger):
             if n_h * n_w <= max_tiles:
                 logger.info(f"Reduced overlap to {overlap:.1f}, new tile count: {n_h}×{n_w}={n_h*n_w}")
             else:
-                # If still too many, increase tile size
+                # If still too many, increase tile size.
                 orig_tile_size = tile_size
                 tile_size = min(h, w, tile_size * 2)
                 step = int(tile_size * (1 - overlap))
@@ -637,18 +637,18 @@ def split_image_into_tiles(image, tile_size, overlap, logger):
 
     for i in range(n_h):
         for j in range(n_w):
-            # Calculate tile boundaries
+            # Calculate tile boundaries.
             y_start = min(i * step, h - tile_size) if h > tile_size else 0
             x_start = min(j * step, w - tile_size) if w > tile_size else 0
             y_end = min(y_start + tile_size, h)
             x_end = min(x_start + tile_size, w)
 
-            # Extract tile
+            # Extract tile.
             tile = image[y_start:y_end, x_start:x_end]
 
-            # Handle tiles smaller than tile_size (at edges)
+            # Handle tiles smaller than tile_size (at edges).
             if tile.shape[0] < tile_size or tile.shape[1] < tile_size:
-                # Create a new tile of the correct size
+                # Create a new tile of the correct size.
                 new_tile = np.zeros((tile_size, tile_size), dtype=tile.dtype)
                 new_tile[:tile.shape[0], :tile.shape[1]] = tile
                 tile = new_tile
@@ -807,7 +807,7 @@ def merge_masks(tiles, slices, image_shape, overlap, logger, settings):
     Returns:
         numpy.ndarray: Merged segmentation mask with consistent object IDs.
     """
-    # Initialize the output mask
+    # Initialize the output mask.
     merged_mask = np.zeros(image_shape, dtype=np.uint16)
     next_label = 1
 
@@ -823,7 +823,7 @@ def merge_masks(tiles, slices, image_shape, overlap, logger, settings):
         if np.max(tile) == 0:
             continue
 
-        # Get the region in the merged mask where this tile will go
+        # Get the region in the merged mask where this tile will go.
         mask_region = merged_mask[slc]
 
         # For each object in this tile, process it individually.
@@ -855,7 +855,7 @@ def merge_masks(tiles, slices, image_shape, overlap, logger, settings):
                     # Extend the existing object by assigning the same label.
                     mask_region[obj_mask & ~overlap_mask] = most_common_label
 
-    # Count final objects
+    # Count final objects.
     unique_labels = np.unique(merged_mask)
     num_objects = len(unique_labels) - 1 if 0 in unique_labels else len(unique_labels)
     logger.info(f"Merged {len(tiles)} tiles → {num_objects} unique objects")
@@ -864,7 +864,7 @@ def merge_masks(tiles, slices, image_shape, overlap, logger, settings):
 
 
 # =============================================================================
-# CELLPOSE SEGMENTATION
+# CELLPOSE SEGMENTATION.
 # =============================================================================
 def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     """
@@ -915,7 +915,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
                 do_3D             = False
             )
 
-            # Count cells and log information
+            # Count cells and log information.
             num_cells = len(np.unique(masks)) - 1 if 0 in np.unique(masks) else len(np.unique(masks))
             logger.info(f"Detected {num_cells} cells in full image")
 
@@ -923,7 +923,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
 
         except Exception as e:
             logger.error(f"Error processing full image: {e}")
-            # Return empty masks and flows
+            # Return empty masks and flows.
             empty_masks = np.zeros_like(image, dtype=np.uint16)
             empty_flows = [np.zeros((2, *image.shape), dtype=np.float32),
                           None,
@@ -936,7 +936,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     tiles, slices = split_image_into_tiles(image, tile_side_length, overlap, logger)
     logger.info(f"Processing {len(tiles)} tiles.")
 
-    # storage
+    # Storage for tile results.
     mask_tiles        = []
     flow_xy_tiles     = []   # flows[0]  (2-ch)
     cellprob_tiles    = []   # flows[2]  (1-ch)
@@ -948,7 +948,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
         # Add debug info about the tile for monitoring progress.
         logger.info(f"    Tile shape: {tile.shape}, min: {tile.min()}, max: {tile.max()}, mean: {tile.mean():.2f}.")
 
-        # Run Cellpose on this tile
+        # Run Cellpose on this tile.
         try:
             masks, flows, *_ = model.eval(
                 tile[..., None],  # Add channel dimension
@@ -973,25 +973,25 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
 
         except Exception as e:
             logger.error(f"Error processing tile {idx}: {e}")
-            # Add an empty mask for this tile to maintain indexing
+            # Add an empty mask for this tile to maintain indexing.
             mask_tiles.append(np.zeros_like(tile, dtype=np.uint16))
-            # Add placeholder flows
+            # Add placeholder flows.
             flow_xy_tiles.append(np.zeros((2, *tile.shape), dtype=np.float32))
             cellprob_tiles.append(np.zeros_like(tile, dtype=np.float32))
 
-    # Stitch the tiled results into a seamless final segmentation
+    # Stitch the tiled results into a seamless final segmentation.
     merged_masks      = merge_masks(mask_tiles,  slices, image.shape, overlap, logger, settings)
     merged_flow_xy    = merge_tiles_with_weighted_overlap(flow_xy_tiles,  slices, image.shape, overlap, logger)
     merged_cellprob   = merge_tiles_with_weighted_overlap(cellprob_tiles, slices, image.shape, overlap, logger)
 
-    # Ensure **same API** as vanilla Cellpose: a 3-element list
+    # Ensure **same API** as vanilla Cellpose: a 3-element list.
     merged_flows = [merged_flow_xy, merged_cellprob, None]
 
     return merged_masks, merged_flows, total_cells
 
 
 # =============================================================================
-# EDGE DETECTION REFINEMENT (OPTIONAL)
+# EDGE DETECTION REFINEMENT (OPTIONAL).
 # =============================================================================
 def refine_segmentation_with_edges(image, masks, settings, logger):
     """
@@ -1026,7 +1026,7 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
 
 
 # =============================================================================
-# LOCAL WATERSHED SPLITTING OF LARGE FUSED NUCLEI (OPTIONAL)
+# LOCAL WATERSHED SPLITTING OF LARGE FUSED NUCLEI (OPTIONAL).
 # =============================================================================
 def identify_and_split_fused_labels(masks, min_area=1000, footprint=(3, 3), logger=None):
     """
@@ -1101,7 +1101,7 @@ def identify_and_split_fused_labels(masks, min_area=1000, footprint=(3, 3), logg
             markers, _ = ndi.label(marker)
 
             # Apply watershed to split the merged nuclei.
-            # The negative distance is used so that watershed finds boundaries at the lowest points
+            # The negative distance is used so that watershed finds boundaries at the lowest points.
             # between peaks (likely the boundaries between touching nuclei).
             local_labels = watershed(-distance, markers, mask=submask)
 
@@ -1125,7 +1125,7 @@ def identify_and_split_fused_labels(masks, min_area=1000, footprint=(3, 3), logg
 
 
 # =============================================================================
-# OVERLAY VISUALIZATION (OPTIONAL)
+# OVERLAY VISUALIZATION (OPTIONAL).
 # =============================================================================
 def generate_overlay(image, masks, flows, output_dir, logger):
     """
@@ -1174,7 +1174,7 @@ def generate_overlay(image, masks, flows, output_dir, logger):
 
 
 # =============================================================================
-# MAIN FUNCTION
+# MAIN FUNCTION.
 # =============================================================================
 def main():
     try:

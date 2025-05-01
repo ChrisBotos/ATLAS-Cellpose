@@ -47,7 +47,7 @@ Image.MAX_IMAGE_PIXELS = 10**9
 VERBOSE = False
 
 # Try to use GPU arrays via CuPy if available for faster processing of large images.
-# This is particularly important for kidney tissue analysis where nuclei counts
+# This is particularly important for kidney tissue analysis where nuclei counts.
 # can exceed 100,000 in a single whole-slide image.
 try:
     import cupy as cp  # type: ignore
@@ -521,7 +521,7 @@ def compare_features(iri_df, cntl_df, output_prefix):
                 axes[i].axis("off")
                 continue
             feature = features_to_plot[idx]
-            # Trim feature values to the central 98%
+            # Trim feature values to the central 98%.
             lower = combined_df[feature].quantile(0.01)
             upper = combined_df[feature].quantile(0.99)
             df_filtered = combined_df[(combined_df[feature] >= lower) & (combined_df[feature] <= upper)]
@@ -572,12 +572,12 @@ def compare_features(iri_df, cntl_df, output_prefix):
     else:
         comparison_df["FDR-corrected p"] = np.nan
 
-    # Replace any zeros with a small epsilon to avoid issues with log
+    # Replace any zeros with a small epsilon to avoid issues with log.
     epsilon = 1e-300
     comparison_df["FDR-corrected p"] = comparison_df["FDR-corrected p"].replace(0, epsilon)
     comparison_df["-log10(FDR p)"] = -np.log10(comparison_df["FDR-corrected p"])
 
-    # Sort by FDR-corrected p-value (ascending)
+    # Sort by FDR-corrected p-value (ascending).
     comparison_df = comparison_df.sort_values("FDR-corrected p")
     comparison_csv = os.path.join(plot_dir, "feature_comparison.csv")
     comparison_df.to_csv(comparison_csv, index=False)
@@ -586,12 +586,12 @@ def compare_features(iri_df, cntl_df, output_prefix):
     ax = sns.barplot(x="-log10(FDR p)", y="Feature", data=comparison_df)
     plt.xlabel("-log10(FDR p-value)")
     plt.title("Bar Plot of FDR-Corrected p-values (sorted)")
-    # Draw a vertical line at -log10(0.05) (≈ 1.30)
+    # Draw a vertical line at -log10(0.05) (≈ 1.30).
     threshold = -np.log10(0.05)
     plt.axvline(x=threshold, color="red", linestyle="--", lw=2, label="p = 0.05 threshold")
     plt.legend()
-    # # Set a fixed upper limit to zoom in (e.g., from 0 to 3)
-    # plt.xlim(0, 3)
+    # Set a fixed upper limit to zoom in (e.g., from 0 to 3).
+    # plt.xlim(0, 3).
     plt.tight_layout()
     plt.savefig(os.path.join(plot_dir, "barplot_pvalues.png"))
     plt.close()
@@ -618,7 +618,7 @@ def compare_features(iri_df, cntl_df, output_prefix):
     plt.savefig(os.path.join(plot_dir, "correlation_heatmap.png"))
     plt.close()
 
-    # Show complete DataFrame
+    # Show complete DataFrame.
     pd.set_option("display.max_rows", None)
     pd.set_option("display.max_columns", None)
     print(f"Comparison plots and table saved in {plot_dir}")

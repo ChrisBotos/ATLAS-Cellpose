@@ -6,6 +6,7 @@ venv311
 
 # Python cache files.
 __pycache__/
+*/__pycache__/
 *.py[cod]
 *$py.class
 
@@ -38,3 +39,6 @@ results*/
 dist/
 build/
 *.egg-info/
+
+# Archived code.
+archived_code/

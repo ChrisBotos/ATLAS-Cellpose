@@ -8,3 +8,17 @@ Made many .gitkeep files and updated the .gitignore.
 4) Fixed the image area not being divisible by the tile area bug.
 Now the tiles start from the top left, so they may cover smaller areas on the bottom and on the right borders due to cropping.
 
+5) Organized the project repository:
+- Created a code directory and code subdirectories.
+- Created a nuclei_segmentation directory.
+- Created a utils directory.
+- Created a tests directory.
+- Created a configs directory.
+- Created a data directory.
+- Created a results directory.
+- Created a logs directory.
+- Created a debug directory.
+- Created a debug_snapshots directory.
+- Created a .gitignore file.
+- Created a README.md file.
+- Created a requirements.txt file.

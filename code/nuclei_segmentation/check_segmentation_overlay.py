@@ -57,7 +57,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
         ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         logger.addHandler(ch)
 
-    # Subdirectory for storing the check images
+    # Subdirectory for storing the check images.
     check_dir = os.path.join(output_dir, "check_cropped_part")
     os.makedirs(check_dir, exist_ok=True)
     logger.info(f"Created/Found check directory: {check_dir}")
@@ -71,7 +71,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     masks_path     = os.path.join(output_dir, "masks.npy")  # pre-watershed mask
     watershed_path = os.path.join(output_dir, "segmentation_mask_watershed.png")  # post-watershed mask (optional)
 
-    # Check essential file existence
+    # Check essential file existence.
     if not os.path.exists(pre_path):
         logger.error(f"File not found: {pre_path}")
         return
@@ -79,15 +79,15 @@ def small_segmentation_overlay(output_dir, crop_size=512):
         logger.error(f"File not found: {masks_path}")
         return
 
-    # Load images
+    # Load images.
     pre   = skio.imread(pre_path)
     clahe = skio.imread(clahe_path) if os.path.exists(clahe_path) else None
     gamma = skio.imread(gamma_path) if os.path.exists(gamma_path) else None
 
-    # Load pre-watershed mask (NumPy label mask)
+    # Load pre-watershed mask (NumPy label mask).
     masks_pre = np.load(masks_path)
 
-    # Load post-watershed mask if it exists
+    # Load post-watershed mask if it exists.
     if os.path.exists(watershed_path):
         masks_post = skio.imread(watershed_path)
         watershed_exists = True
@@ -95,7 +95,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
         logger.warning(f"Watershed file not found: {watershed_path}. Skipping post-watershed overlay.")
         watershed_exists = False
 
-    # Ensure shapes match for pre image and pre-watershed mask
+    # Ensure shapes match for pre image and pre-watershed mask.
     assert pre.shape == masks_pre.shape, "Mismatch: preprocessed image & pre-watershed mask must have same shape"
 
     # -------------------------------
@@ -109,7 +109,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     start_x = max(cx - crop_size // 2, 0)
     end_x   = min(start_x + crop_size, w)
 
-    # Crop all images that exist
+    # Crop all images that exist.
     pre_crop         = pre[start_y:end_y, start_x:end_x]
     masks_pre_crop   = masks_pre[start_y:end_y, start_x:end_x]
 
@@ -126,14 +126,14 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # If watershed mask exists, crop it; otherwise, leave it as None.
     if watershed_exists:
         h_w, w_w = masks_post.shape
-        # Safe indices: crop only up to the size of the watershed mask
+        # Safe indices: crop only up to the size of the watershed mask.
         end_y_w = min(end_y, h_w)
         end_x_w = min(end_x, w_w)
         masks_post_crop = masks_post[start_y:end_y_w, start_x:end_x_w]
     else:
         masks_post_crop = None
 
-    # Adjust cropping in case the post-watershed mask (if exists) is smaller
+    # Adjust cropping in case the post-watershed mask (if exists) is smaller.
     if watershed_exists:
         final_crop_height = min(pre_crop.shape[0], masks_post_crop.shape[0])
         final_crop_width  = min(pre_crop.shape[1], masks_post_crop.shape[1])
@@ -153,11 +153,11 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # -------------------------------
     # 4) Generate overlays
     # -------------------------------
-    # Pre-watershed overlay
+    # Pre-watershed overlay.
     overlay_pre = plot.mask_overlay(pre_crop, masks_pre_crop,
                                     colors=np.random.rand(np.max(masks_pre_crop) + 1, 3))
 
-    # Post-watershed overlay (only if watershed exists)
+    # Post-watershed overlay (only if watershed exists).
     if watershed_exists:
         overlay_post = plot.mask_overlay(pre_crop, masks_post_crop,
                                          colors=np.random.rand(np.max(masks_post_crop) + 1, 3))
