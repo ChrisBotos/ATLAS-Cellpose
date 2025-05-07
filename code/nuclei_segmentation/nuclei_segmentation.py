@@ -50,9 +50,11 @@ from cellpose import models, plot
 try:
     # When imported as a module
     from code.nuclei_segmentation.utils.visualization import small_segmentation_overlay
+    from code.nuclei_segmentation.utils.watershed import apply_watershed_to_mask
 except ImportError:
     # When run directly
     from utils.visualization import small_segmentation_overlay
+    from utils.watershed import apply_watershed_to_mask
 
 # Increase the maximum allowed image pixels to handle large microscopy images.
 Image.MAX_IMAGE_PIXELS = 10 ** 9
@@ -137,8 +139,8 @@ def load_config(config_path=None):
 
     # Use default config path if none provided.
     if config_path is None:
-        # Look directly in the known location - two levels up in the configs directory
-        config_path = Path("../../configs/nuclei_segmentation_config.ini")
+        # Use the PROJECT_DIRS to get the absolute path to the config file
+        config_path = PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini"
 
         if not config_path.exists():
             # If config file is not found, raise an error with helpful message
@@ -201,9 +203,11 @@ def load_config(config_path=None):
     try:
         SETTINGS["tile_side_length"] = config.getint("Tiling", "tile_side_length", fallback=1024)
         SETTINGS["TILE_OVERLAP"] = config.getfloat("Tiling", "tile_overlap", fallback=0.1)
+        SETTINGS["MERGE_OVERLAP_THRESHOLD"] = config.getfloat("Tiling", "merge_overlap_threshold", fallback=0.3)
     except configparser.NoSectionError:
         SETTINGS["tile_side_length"] = 1024
         SETTINGS["TILE_OVERLAP"] = 0.1
+        SETTINGS["MERGE_OVERLAP_THRESHOLD"] = 0.3
 
     try:
         SETTINGS["SMALL_OVERLAY_SIZE"] = config.getint("Overlay", "small_overlay_size", fallback=1024)
@@ -212,7 +216,19 @@ def load_config(config_path=None):
 
     # Ensure image path is absolute.
     if not os.path.isabs(SETTINGS["IMAGE_PATH"]):
-        SETTINGS["IMAGE_PATH"] = PROJECT_DIRS["data"] / SETTINGS["IMAGE_PATH"]
+        # Convert to Path object for consistent handling
+        img_path = Path(SETTINGS["IMAGE_PATH"])
+        # Check if the path exists directly
+        if img_path.exists():
+            SETTINGS["IMAGE_PATH"] = img_path.absolute()
+        else:
+            # Try to find it in the data directory
+            data_path = PROJECT_DIRS["data"] / img_path
+            if data_path.exists():
+                SETTINGS["IMAGE_PATH"] = data_path
+            else:
+                # Keep the original path but make it absolute for error reporting
+                SETTINGS["IMAGE_PATH"] = data_path
 
     # Parse Cellpose parameters with defaults.
     CELLPOSE_PARAMS = {
@@ -241,6 +257,44 @@ SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
 # =============================================================================
 # HELPER FUNCTIONS.
 # =============================================================================
+def ensure_matching_shapes(image, masks, logger, crop_only=True):
+    """
+    Ensure that image and masks have the same shape by cropping to common dimensions.
+
+    This function is used throughout the pipeline to prevent shape mismatches that
+    could cause errors or incorrect results. Instead of resizing (which can distort
+    segmentation masks), it crops both arrays to their common dimensions.
+
+    Args:
+        image: The image array (2D or 3D).
+        masks: The mask array (2D).
+        logger: Logger for recording information.
+        crop_only: If True, only crop; if False, allow padding of smaller array.
+
+    Returns:
+        tuple: (image, masks) with matching shapes.
+    """
+    if image.shape[:2] == masks.shape[:2]:
+        logger.debug("Image and masks already have matching shapes.")
+        return image, masks
+
+    logger.warning(f"Shape mismatch: image {image.shape} vs masks {masks.shape}")
+
+    # Find common dimensions
+    common_h = min(image.shape[0], masks.shape[0])
+    common_w = min(image.shape[1], masks.shape[1])
+
+    logger.info(f"Using common region of size {common_h}x{common_w}")
+
+    # Crop both to common size
+    image_cropped = image[:common_h, :common_w]
+    masks_cropped = masks[:common_h, :common_w]
+
+    logger.info(f"Cropped image to {image_cropped.shape} and masks to {masks_cropped.shape}")
+
+    return image_cropped, masks_cropped
+
+
 def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_000_000):
     """
     Calculate optimal batch size for GPU processing based on available memory.
@@ -338,8 +392,12 @@ def setup_logging(output_dir, debug_mode=False):
     # Copy the config file to the output directory for reproducibility.
     config_backup_path = os.path.join(output_dir, "config_used.ini")
     try:
-        shutil.copy2(PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini", config_backup_path)
-        logger.info(f"Configuration backed up to: {config_backup_path}")
+        config_source_path = PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini"
+        if config_source_path.exists():
+            shutil.copy2(config_source_path, config_backup_path)
+            logger.info(f"Configuration backed up to: {config_backup_path}")
+        else:
+            logger.warning(f"Config file not found at {config_source_path} for backup")
     except Exception as e:
         logger.warning(f"Could not backup configuration file: {e}")
 
@@ -529,6 +587,49 @@ def preprocess_image(image_path, settings, logger):
     skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.tif"), image)  # Lossless TIF.
     skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.png"), image)  # PNG for visualization.
     logger.info(f"Saved preprocessed images to {preprocessed_dir} directory.")
+
+    # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) if enabled
+    if settings.get("ENHANCE_CONTRAST", False):
+        logger.info("Applying CLAHE enhancement...")
+        try:
+            # Get CLAHE parameters from settings
+            clip_limit = settings.get("CLAHE_CLIPLIMIT", 2.0)
+            tile_grid_size = settings.get("CLAHE_TILE_GRID_SIZE", (8, 8))
+
+            # Create CLAHE object
+            clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+
+            # Apply CLAHE
+            clahe_enhanced = clahe.apply(image)
+
+            # Save CLAHE enhanced image
+            skio.imsave(os.path.join(preprocessed_dir, "contrast_enhanced_image.tif"), clahe_enhanced)
+            skio.imsave(os.path.join(preprocessed_dir, "contrast_enhanced_image.png"), clahe_enhanced)
+            logger.info(f"Saved CLAHE enhanced image with clip_limit={clip_limit}, tile_grid_size={tile_grid_size}")
+
+            # Also save at the root level for backward compatibility
+            skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.png"), clahe_enhanced)
+        except Exception as e:
+            logger.error(f"Error applying CLAHE enhancement: {e}")
+            logger.error(traceback.format_exc())
+
+    # Apply gamma correction if enabled
+    if settings.get("ENHANCE_DIM", False):
+        logger.info("Applying gamma correction for dim regions...")
+        try:
+            # Apply adaptive gamma correction
+            gamma_corrected = adaptive_gamma_correction(image, min_gamma=1.5, max_gamma=2.5, logger=logger)
+
+            # Save gamma corrected image
+            skio.imsave(os.path.join(preprocessed_dir, "gamma_corrected_image.tif"), gamma_corrected)
+            skio.imsave(os.path.join(preprocessed_dir, "gamma_corrected_image.png"), gamma_corrected)
+            logger.info("Saved gamma corrected image")
+
+            # Also save at the root level for backward compatibility
+            skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.png"), gamma_corrected)
+        except Exception as e:
+            logger.error(f"Error applying gamma correction: {e}")
+            logger.error(traceback.format_exc())
 
     # Apply region-of-interest cropping if enabled.
     if settings.get("CROP_IMAGE", False):
@@ -982,7 +1083,14 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
 
             mask_tiles.append(masks)
             flow_xy_tiles.append(flows[0])                 # shape (2, h, w)
-            cellprob_tiles.append(flows[2])                # shape (h, w)
+
+            # Handle the case where flows[2] might be None
+            if flows[2] is not None:
+                cellprob_tiles.append(flows[2])            # shape (h, w)
+            else:
+                logger.warning(f"    No probability map returned for tile {idx}, using zeros.")
+                cellprob_tiles.append(np.zeros_like(tile, dtype=np.float32))
+
             total_cells += num_cells
 
         except Exception as e:
@@ -1027,14 +1135,42 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
         numpy.ndarray: Refined segmentation masks with improved boundaries.
     """
     logger.info("Applying edge detection based refinement to the segmentation mask")
+
+    # Verify that image and masks have the same shape
+    if image.shape != masks.shape:
+        logger.error(f"Shape mismatch: image {image.shape} vs masks {masks.shape}")
+        logger.warning("Cannot apply edge detection with mismatched shapes")
+
+        # Find common region that can be used for both
+        common_h = min(image.shape[0], masks.shape[0])
+        common_w = min(image.shape[1], masks.shape[1])
+
+        logger.info(f"Using common region of size {common_h}x{common_w}")
+
+        # Crop both to common size
+        image = image[:common_h, :common_w]
+        masks = masks[:common_h, :common_w]
+
+        logger.info(f"Cropped image to {image.shape} and masks to {masks.shape}")
+
+    # Apply Canny edge detection
     edges = cv2.Canny(image,
                       threshold1=settings.get("CANNY_THRESHOLD1", 50),
                       threshold2=settings.get("CANNY_THRESHOLD2", 150))
+
+    # Dilate edges to ensure they fully separate touching nuclei
     kernel = np.ones((3, 3), np.uint8)
     dilated_edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # Create binary mask from segmentation
     binary_mask = (masks > 0).astype(np.uint8) * 255
+
+    # Subtract edges from binary mask
     refined_mask = cv2.subtract(binary_mask, dilated_edges)
+
+    # Connected components analysis to get new labels
     num_labels, refined_labels = cv2.connectedComponents(refined_mask)
+
     logger.info(f"Refined segmentation into {num_labels - 1} objects after edge detection")
     return refined_labels
 
@@ -1076,6 +1212,11 @@ def identify_and_split_fused_labels(masks, min_area=1000, footprint=(3, 3), logg
 
     # Process each region in the original segmentation mask.
     for prop in props:
+        # Skip background (label 0) if it somehow got included in regionprops
+        if prop.label == 0:
+            logger.debug("Skipping background label (0) in watershed processing.")
+            continue
+
         # Get region properties.
         area = prop.area
         minr, minc, maxr, maxc = prop.bbox  # Bounding box coordinates.
@@ -1166,25 +1307,55 @@ def generate_overlay(image, masks, flows, output_dir, logger):
     Returns:
         None. Visualization images are saved to the specified directory.
     """
+    # Verify that image and masks have the same shape
+    if image.shape != masks.shape:
+        logger.error(f"Shape mismatch in generate_overlay: image {image.shape} vs masks {masks.shape}")
+        logger.warning("Cannot generate overlay with mismatched shapes")
+
+        # Find common region that can be used for both
+        common_h = min(image.shape[0], masks.shape[0])
+        common_w = min(image.shape[1], masks.shape[1])
+
+        logger.info(f"Using common region of size {common_h}x{common_w} for overlay")
+
+        # Crop both to common size
+        image = image[:common_h, :common_w]
+        masks = masks[:common_h, :common_w]
+
+        logger.info(f"Cropped image to {image.shape} and masks to {masks.shape} for overlay")
+
     # Generate a color overlay of segmentation masks on the original image.
     # Each nucleus gets a random color for clear visual distinction.
-    overlay = plot.mask_overlay(image, masks, colors=np.random.rand(np.max(masks) + 1, 3))
+    try:
+        # Use a fixed random seed for reproducible colors
+        np.random.seed(42)
+        colors = np.random.rand(np.max(masks) + 1, 3)
+        np.random.seed(None)  # Reset seed
 
-    # Save the overlay as a PNG image for easy viewing.
-    overlay_path = os.path.join(output_dir, "mask_overlay.png")
-    skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
-    logger.info(f"Saved overlay image to: {overlay_path}.")
+        overlay = plot.mask_overlay(image, masks, colors=colors)
+
+        # Save the overlay as a PNG image for easy viewing.
+        overlay_path = os.path.join(output_dir, "mask_overlay.png")
+        skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
+        logger.info(f"Saved overlay image to: {overlay_path}.")
+    except Exception as e:
+        logger.error(f"Error generating mask overlay: {e}")
+        logger.error(traceback.format_exc())
 
     # Create a more detailed visualization showing both masks and flow fields.
     # This is useful for diagnosing segmentation issues related to the flow field.
-    fig = plt.figure()
-    plot.show_segmentation(fig, img=image, maski=masks, flowi=flows[0], channels=[0, 0])
+    try:
+        fig = plt.figure(figsize=(12, 10))
+        plot.show_segmentation(fig, img=image, maski=masks, flowi=flows[0], channels=[0, 0])
 
-    # Save the debug visualization at high resolution.
-    debug_path = os.path.join(output_dir, "segmentation_debug.png")
-    fig.savefig(debug_path, dpi=300)
-    plt.close(fig)
-    logger.info(f"Saved segmentation debug overlay to: {debug_path}.")
+        # Save the debug visualization at high resolution.
+        debug_path = os.path.join(output_dir, "segmentation_debug.png")
+        fig.savefig(debug_path, dpi=300)
+        plt.close(fig)
+        logger.info(f"Saved segmentation debug overlay to: {debug_path}.")
+    except Exception as e:
+        logger.error(f"Error generating segmentation debug visualization: {e}")
+        logger.error(traceback.format_exc())
 
 
 # =============================================================================
@@ -1206,20 +1377,71 @@ def main():
         # Log configuration details for reproducibility.
         logger.info(f"Image path: {SETTINGS['IMAGE_PATH']}.")
         logger.info(f"Output directory: {output_dir}.")
+
+        # Enhanced debug output to show all parameters
+        if SETTINGS.get("DEBUG_MODE", False):
+            logger.info("========== CONFIGURATION PARAMETERS ==========")
+            logger.info("[General Settings]")
+            for key in sorted([k for k in SETTINGS.keys() if k not in CELLPOSE_PARAMS]):
+                logger.info(f"  {key} = {SETTINGS[key]}")
+
+            logger.info("\n[Cellpose Parameters]")
+            for key in sorted(CELLPOSE_PARAMS.keys()):
+                logger.info(f"  {key} = {CELLPOSE_PARAMS[key]}")
+
+            # Check for missing parameters that might be used in the code
+            critical_params = [
+                "MERGE_OVERLAP_THRESHOLD",
+                "USE_TILING",
+                "APPLY_WATERSHED",
+                "USE_EDGE_DETECTION",
+                "ENHANCE_CONTRAST",
+                "ENHANCE_DIM"
+            ]
+
+            missing_params = [param for param in critical_params if param not in SETTINGS]
+            if missing_params:
+                logger.warning("\n[WARNING] The following critical parameters are missing from settings:")
+                for param in missing_params:
+                    logger.warning(f"  {param} - This may cause errors in the pipeline!")
+                    # Add default values for missing parameters to prevent crashes
+                    if param == "MERGE_OVERLAP_THRESHOLD":
+                        SETTINGS[param] = 0.3
+                        logger.warning(f"    Added default value: {param} = {SETTINGS[param]}")
+
+            logger.info("==============================================\n")
+
+        # Standard logging
         logger.info(f"Using tiling: {SETTINGS.get('USE_TILING', False)}.")
         if SETTINGS.get('USE_TILING', False):
             logger.info(f"Tile size: {SETTINGS.get('tile_side_length', 'Not specified')}.")
             logger.info(f"Tile overlap: {SETTINGS.get('TILE_OVERLAP', 'Not specified')}.")
+            logger.info(f"Merge overlap threshold: {SETTINGS.get('MERGE_OVERLAP_THRESHOLD', 'Not specified (using default 0.3)')}.")
 
         # Verify image path exists before proceeding.
-        if not os.path.exists(SETTINGS["IMAGE_PATH"]):
-            logger.error(f"Image file not found: {SETTINGS['IMAGE_PATH']}.")
+        image_path = SETTINGS["IMAGE_PATH"]
+        if not os.path.exists(image_path):
+            logger.error(f"Image file not found: {image_path}")
+            logger.error("Please check the image_path in your configuration file.")
+
+            # Try to provide helpful suggestions
+            data_dir = PROJECT_DIRS["data"]
+            if os.path.exists(data_dir):
+                # List available image files in the data directory
+                image_files = [f for f in os.listdir(data_dir)
+                              if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff'))]
+                if image_files:
+                    logger.info(f"Available image files in {data_dir}:")
+                    for img_file in image_files:
+                        logger.info(f"  - {img_file}")
+                    logger.info("Update your config file with one of these image names.")
+                else:
+                    logger.info(f"No image files found in {data_dir}. Please add images to this directory.")
+
             return 1
 
-        # Back up the configuration file for reproducibility.
-        config_backup_path = os.path.join(output_dir, "config_used.ini")
-        shutil.copy2(PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini", config_backup_path)
-        logger.info(f"Configuration backed up to: {config_backup_path}.")
+        # Configuration backup is already handled in setup_logging() function
+        # No need to duplicate it here
 
         # 1. Preprocess the image to optimize for nuclei detection.
         logger.info("Preprocessing image...")
@@ -1272,39 +1494,82 @@ def main():
         # 5. Optional: Edge detection refinement.
         if SETTINGS.get("USE_EDGE_DETECTION", False):
             logger.info("Applying edge detection refinement...")
-            masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
+            # Ensure image and masks have matching shapes before edge detection
+            image_matched, masks_matched = ensure_matching_shapes(image, masks, logger)
+            masks = refine_segmentation_with_edges(image_matched, masks_matched, SETTINGS, logger)
             skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.png"), masks.astype(np.uint16))
             logger.info("Saved refined segmentation mask after edge detection.")
 
         # 6. Optional: Watershed splitting.
         if SETTINGS.get("APPLY_WATERSHED", False):
             logger.info("Applying watershed splitting to large objects...")
-            lumps_split_mask = identify_and_split_fused_labels(
-                masks,
-                min_area=SETTINGS.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
-                footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
-                logger=logger
-            )
-            skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.png"),
-                        lumps_split_mask.astype(np.uint16))
-            np.save(os.path.join(output_dir, "segmentation_mask_post_watershed.npy"), lumps_split_mask)
-            masks = lumps_split_mask
-            logger.info("Saved watershed-processed segmentation mask.")
+            try:
+                # Use the new watershed module
+                lumps_split_mask = apply_watershed_to_mask(
+                    masks,
+                    min_area=SETTINGS.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
+                    footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
+                    logger=logger
+                )
+
+                # Save the watershed results
+                skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.png"),
+                            lumps_split_mask.astype(np.uint16))
+                np.save(os.path.join(output_dir, "segmentation_mask_post_watershed.npy"), lumps_split_mask)
+
+                # Update the masks variable with the watershed results
+                masks = lumps_split_mask
+                logger.info("Saved watershed-processed segmentation mask.")
+
+                # If in debug mode, also save a comparison visualization
+                if SETTINGS.get("DEBUG_MODE", False):
+                    # Create a side-by-side comparison of before and after watershed
+                    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+                    axes[0].imshow(plot.mask_overlay(image, masks, colors=np.random.rand(np.max(masks) + 1, 3)))
+                    axes[0].set_title("After Watershed Splitting")
+                    axes[0].axis('off')
+
+                    # Load the original masks for comparison
+                    orig_masks = np.load(os.path.join(output_dir, "masks.npy"))
+                    axes[1].imshow(plot.mask_overlay(image, orig_masks, colors=np.random.rand(np.max(orig_masks) + 1, 3)))
+                    axes[1].set_title("Before Watershed Splitting")
+                    axes[1].axis('off')
+
+                    plt.tight_layout()
+                    plt.savefig(os.path.join(output_dir, "watershed_comparison.png"), dpi=300)
+                    plt.close()
+                    logger.info("Saved watershed comparison visualization.")
+            except Exception as e:
+                logger.error(f"Error in watershed splitting: {e}")
+                logger.error(traceback.format_exc())
+                logger.warning("Continuing with original masks due to watershed error.")
 
         # 7. Optional: Generate overlay visualization.
         if SETTINGS.get("GENERATE_OVERLAY", False):
             logger.info("Generating overlay visualization...")
-            generate_overlay(image, masks, flows, output_dir, logger)
+            # Ensure image and masks have matching shapes before generating overlay
+            image_matched, masks_matched = ensure_matching_shapes(image, masks, logger)
+            # Call the correct function - there are two overlay functions:
+            # 1. generate_overlay - for basic overlay
+            # 2. generate_full_overlay - for comprehensive visualization
+            generate_overlay(image_matched, masks_matched, flows, output_dir, logger)
+            # Also generate the full overlay for comprehensive visualization
+            generate_full_overlay(image_matched, masks_matched, flows, output_dir, logger)
 
         # 8. Create a small overlay snippet (cropped) for quick review.
         logger.info("Generating small overlay snippet...")
-        # Pass the debug parameter from settings to enable detailed diagnostics when needed
-        small_segmentation_overlay(
-            output_dir,
-            crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1),
-            debug=SETTINGS.get("DEBUG_MODE", False)
-        )
-        logger.info("Small overlay snippet generated successfully.")
+        try:
+            # Pass the debug parameter from settings to enable detailed diagnostics when needed
+            small_segmentation_overlay(
+                output_dir,
+                crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1),
+                debug=SETTINGS.get("DEBUG_MODE", False)
+            )
+            logger.info("Small overlay snippet generated successfully.")
+        except Exception as e:
+            logger.error(f"Error generating small overlay snippet: {e}")
+            logger.error(traceback.format_exc())
+            logger.warning("Continuing despite overlay generation error.")
 
         logger.info("===== Cellpose Segmentation Pipeline Completed Successfully =====")
         return 0

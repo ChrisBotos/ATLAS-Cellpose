@@ -1,0 +1,164 @@
+"""
+Watershed-based Nuclei Splitting for Kidney I/R Injury Analysis.
+
+This module provides specialized watershed algorithms for splitting merged nuclei
+in segmentation masks. This is particularly important for kidney tissue analysis
+after ischemia-reperfusion injury, where inflammatory infiltrates can create
+densely packed nuclear clusters that basic segmentation algorithms may fail to
+separate properly.
+
+The watershed algorithm uses distance transforms to identify likely centers of
+individual nuclei within merged objects, then separates them based on these centers.
+This is crucial for accurate quantification of nuclear counts and morphology in
+regions of high cellular density.
+"""
+
+import numpy as np
+from scipy import ndimage as ndi
+from skimage.segmentation import watershed
+from skimage.feature import peak_local_max
+from skimage.measure import regionprops
+import logging
+import traceback
+
+def apply_watershed_to_mask(masks, min_area=1000, footprint=(3, 3), logger=None):
+    """
+    Apply watershed algorithm to split merged nuclei in a segmentation mask.
+
+    This function identifies large objects in the segmentation mask that are likely
+    to be merged nuclei, applies the watershed algorithm to split them based on
+    distance transforms, and returns a refined mask with separated nuclei.
+
+    Args:
+        masks: Input segmentation mask as a numpy array.
+        min_area: Minimum area threshold to identify potentially fused objects.
+        footprint: Size of the local maxima filter for finding nuclear centers.
+        logger: Optional logger for progress information.
+
+    Returns:
+        numpy.ndarray: Refined segmentation with split objects and reassigned labels.
+    """
+    if logger:
+        logger.info(f"Applying watershed splitting to objects larger than {min_area} pixels")
+        logger.info(f"Using local maxima footprint of {footprint}")
+        logger.info(f"Input mask shape: {masks.shape}, dtype: {masks.dtype}")
+        logger.info(f"Mask statistics: min={masks.min()}, max={masks.max()}, unique labels={len(np.unique(masks))}")
+
+    # Verify mask is valid for watershed processing
+    if masks.size == 0:
+        if logger:
+            logger.error("Empty mask provided to watershed function")
+        return np.zeros((1, 1), dtype=np.uint16)  # Return minimal empty mask
+
+    if masks.max() == 0:
+        if logger:
+            logger.warning("Mask contains no objects (all zeros)")
+        return masks  # Return original mask as there's nothing to process
+
+    # Initialize an empty mask to store the refined segmentation results
+    final_mask = np.zeros_like(masks, dtype=np.uint16)
+
+    try:
+        # Extract properties of all labeled regions in the input mask
+        props = regionprops(masks)
+
+        if logger:
+            logger.info(f"Found {len(props)} objects in the mask")
+
+        # Initialize label counter for the new mask
+        current_label = 0
+
+        # Track statistics for reporting
+        small_objects = 0
+        large_objects = 0
+        split_objects = 0
+
+        # Process each region in the original segmentation mask
+        for prop in props:
+            # Skip background (label 0) if it somehow got included in regionprops
+            if prop.label == 0:
+                if logger:
+                    logger.debug("Skipping background label (0) in watershed processing")
+                continue
+
+            # Get region properties
+            area = prop.area
+            minr, minc, maxr, maxc = prop.bbox  # Bounding box coordinates
+
+            # CASE 1: Small objects - keep as is (likely single nuclei)
+            if area <= min_area:
+                # Assign a new label to this region
+                current_label += 1
+
+                # Copy the region to the final mask with the new label
+                final_mask[prop.coords[:, 0], prop.coords[:, 1]] = current_label
+                small_objects += 1
+
+            # CASE 2: Large objects - apply watershed to split potential merged nuclei
+            else:
+                large_objects += 1
+                if logger and large_objects % 100 == 0:
+                    logger.info(f"Processing large object {large_objects}")
+
+                # Extract the binary mask for this region
+                submask = prop.image.astype(bool)
+
+                # Compute distance transform - each pixel value is the distance to the nearest background pixel
+                # This creates a topographic surface where nuclei centers are peaks
+                distance = ndi.distance_transform_edt(submask)
+
+                # Find local maxima in the distance map - these are likely nuclei centers
+                # The footprint parameter controls the minimum separation between peaks
+                peaks = peak_local_max(distance, footprint=np.ones(footprint), labels=submask)
+
+                # Create a marker image for watershed
+                marker = np.zeros(distance.shape, dtype=bool)
+
+                # Place markers at the detected peaks (nuclei centers)
+                if peaks.size > 0:
+                    marker[tuple(peaks.T)] = True
+
+                    # Label the markers for watershed
+                    markers, num_markers = ndi.label(marker)
+
+                    # Apply watershed to split the merged nuclei
+                    # The negative distance is used so that watershed finds boundaries at the lowest points
+                    # between peaks (likely the boundaries between touching nuclei)
+                    local_labels = watershed(-distance, markers, mask=submask)
+
+                    # Assign new labels to each watershed-separated region
+                    for ul in np.unique(local_labels):
+                        # Skip background (label 0)
+                        if ul == 0:
+                            continue
+
+                        # Assign a new unique label
+                        current_label += 1
+
+                        # Create a mask for this specific sub-region
+                        region_mask = local_labels == ul
+
+                        # Place the sub-region in the final mask at the correct position
+                        # The bounding box coordinates are used to position the region correctly
+                        final_mask[minr:maxr, minc:maxc][region_mask] = current_label
+                        split_objects += 1
+                else:
+                    # No peaks found, keep the object as is
+                    current_label += 1
+                    final_mask[prop.coords[:, 0], prop.coords[:, 1]] = current_label
+
+        if logger:
+            logger.info(f"Watershed splitting complete:")
+            logger.info(f"  Small objects kept as-is: {small_objects}")
+            logger.info(f"  Large objects processed: {large_objects}")
+            logger.info(f"  Objects after splitting: {split_objects + small_objects}")
+            logger.info(f"  Total objects in final mask: {current_label}")
+
+        return final_mask
+
+    except Exception as e:
+        if logger:
+            logger.error(f"Error in watershed splitting: {e}")
+            logger.error(traceback.format_exc())
+        # Return the original mask if there's an error
+        return masks

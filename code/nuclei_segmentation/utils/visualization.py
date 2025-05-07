@@ -57,31 +57,90 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         logger.addHandler(ch)
 
+    # Print diagnostic information about the output directory
+    logger.info(f"Working with output directory: {os.path.abspath(output_dir)}")
+
     # Create debug snapshots directory if in debug mode
     debug_dir = None
     if debug:
         debug_dir = os.path.join(output_dir, "debug_snapshots")
-        os.makedirs(debug_dir, exist_ok=True)
-        logger.debug(f"Created debug snapshots directory: {debug_dir}")
+        try:
+            os.makedirs(debug_dir, exist_ok=True)
+            logger.debug(f"Created debug snapshots directory: {debug_dir}")
+        except Exception as e:
+            logger.error(f"Error creating debug directory: {e}")
+            debug_dir = output_dir  # Fallback to main output directory
 
-    # Subdirectory for storing the check images
+    # Subdirectory for storing the check images - this is critical
     check_dir = os.path.join(output_dir, "visualizations", "cropped_preview")
-    os.makedirs(check_dir, exist_ok=True)
-    logger.info(f"Created visualization directory: {check_dir}")
+    try:
+        os.makedirs(check_dir, exist_ok=True)
+        logger.info(f"Created visualization directory: {check_dir}")
+    except Exception as e:
+        logger.error(f"Error creating visualization directory: {e}")
+        # Try alternative paths as fallbacks
+        fallback_dirs = [
+            os.path.join(output_dir, "cropped_preview"),
+            os.path.join(output_dir, "visualizations"),
+            output_dir
+        ]
 
-    # Print diagnostic information about the output directory
-    logger.info(f"Working with output directory: {os.path.abspath(output_dir)}")
+        for fallback_dir in fallback_dirs:
+            try:
+                os.makedirs(fallback_dir, exist_ok=True)
+                check_dir = fallback_dir
+                logger.warning(f"Using fallback directory: {check_dir}")
+                break
+            except Exception:
+                continue
+
+    # Verify the directory exists and is writable
+    if not os.path.exists(check_dir):
+        logger.error(f"Critical error: Could not create or access directory: {check_dir}")
+        return
+
+    # Try to write a test file to verify permissions
+    test_file = os.path.join(check_dir, "test_write.txt")
+    try:
+        with open(test_file, 'w') as f:
+            f.write("Test write permission")
+        os.remove(test_file)  # Clean up
+        logger.info(f"Verified write permission to: {check_dir}")
+    except Exception as e:
+        logger.error(f"Cannot write to directory {check_dir}: {e}")
+        logger.error("Visualization will likely fail due to permission issues")
 
     # Define all possible image paths with both .png and .tif extensions.
-    possible_image_paths = [
+    # For the main preprocessed image
+    preprocessed_paths = [
         os.path.join(output_dir, "preprocessed", "preprocessed_image.png"),
         os.path.join(output_dir, "preprocessed", "preprocessed_image.tif"),
-        os.path.join(output_dir, "preprocessed", "cropped_image.png"),
-        os.path.join(output_dir, "preprocessed", "cropped_image.tif"),
+        os.path.join(output_dir, "preprocessed_image.png"),
+        os.path.join(output_dir, "preprocessed_image.tif")
+    ]
+
+    # For the CLAHE enhanced image
+    clahe_paths = [
         os.path.join(output_dir, "preprocessed", "contrast_enhanced_image.png"),
         os.path.join(output_dir, "preprocessed", "contrast_enhanced_image.tif"),
+        os.path.join(output_dir, "contrast_enhanced_image.png"),
+        os.path.join(output_dir, "contrast_enhanced_image.tif")
+    ]
+
+    # For the gamma corrected image
+    gamma_paths = [
         os.path.join(output_dir, "preprocessed", "gamma_corrected_image.png"),
-        os.path.join(output_dir, "preprocessed", "gamma_corrected_image.tif")
+        os.path.join(output_dir, "preprocessed", "gamma_corrected_image.tif"),
+        os.path.join(output_dir, "gamma_corrected_image.png"),
+        os.path.join(output_dir, "gamma_corrected_image.tif")
+    ]
+
+    # Combined list for general image loading
+    possible_image_paths = preprocessed_paths + [
+        os.path.join(output_dir, "preprocessed", "cropped_image.png"),
+        os.path.join(output_dir, "preprocessed", "cropped_image.tif"),
+        os.path.join(output_dir, "cropped_image.png"),
+        os.path.join(output_dir, "cropped_image.tif")
     ]
 
     # Define all possible mask paths.
@@ -246,19 +305,30 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         h, w = img.shape[:2]
         logger.info(f"Image dimensions for overlay: {h}x{w}")
 
-        # Make sure masks has the same shape as img
+        # Make sure masks and image can be properly cropped together
         if masks.shape != img.shape:
             logger.warning(f"Mask shape ({masks.shape}) doesn't match image shape ({img.shape})")
-            try:
-                # Try to resize masks if dimensions don't match
-                if len(masks.shape) == 2 and len(img.shape) == 2:
-                    from skimage.transform import resize
-                    logger.info(f"Resizing masks from {masks.shape} to {img.shape}")
-                    masks = resize(masks, img.shape, order=0, preserve_range=True).astype(np.uint16)
-                    logger.info(f"Resized masks to match image shape: {masks.shape}")
-            except Exception as e:
-                logger.error(f"Error resizing masks: {e}")
-                logger.error("Will attempt to crop masks as-is, but this may cause issues")
+
+            # Instead of resizing, we'll find the common region that can be cropped from both
+            common_h = min(masks.shape[0], img.shape[0])
+            common_w = min(masks.shape[1], img.shape[1])
+
+            logger.info(f"Using common region of size {common_h}x{common_w} for both image and masks")
+
+            # Crop both image and masks to the common size
+            if common_h < img.shape[0] or common_w < img.shape[1]:
+                img = img[:common_h, :common_w]
+                logger.info(f"Cropped image to {img.shape}")
+
+            if common_h < masks.shape[0] or common_w < masks.shape[1]:
+                masks = masks[:common_h, :common_w]
+                logger.info(f"Cropped masks to {masks.shape}")
+
+            # Verify they now match
+            if masks.shape != img.shape:
+                logger.error(f"Failed to make shapes match: img={img.shape}, masks={masks.shape}")
+                logger.error("Cannot proceed with visualization")
+                return
 
         # If image is already smaller than crop_size, use the entire image
         if h <= crop_size and w <= crop_size:
@@ -276,12 +346,42 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
 
                 # Sample a few regions (center, and 4 quadrants)
                 sample_points = [
+                    # User-specified region of interest (middle part)
+                    (int(h * 0.5), int(w * 0.66)),   # Middle-right area (matches crop_bbox in config)
+
+                    # Standard sampling points
                     (h//2, w//2),                    # Center
                     (h//4, w//4),                    # Top-left quadrant
                     (h//4, 3*w//4),                  # Top-right quadrant
                     (3*h//4, w//4),                  # Bottom-left quadrant
-                    (3*h//4, 3*w//4)                 # Bottom-right quadrant
+                    (3*h//4, 3*w//4),                # Bottom-right quadrant
+                    (h//2, w//4),                    # Middle-left
+                    (h//2, 3*w//4),                  # Middle-right
+                    (h//4, w//2),                    # Top-middle
+                    (3*h//4, w//2)                   # Bottom-middle
                 ]
+
+                # Give higher weight to the first point (user's region of interest)
+                # by checking it first and setting a higher threshold for other regions
+                cy, cx = sample_points[0]
+                y0 = max(0, cy - crop_size//2)
+                x0 = max(0, cx - crop_size//2)
+                y1 = min(h, y0 + crop_size)
+                x1 = min(w, x0 + crop_size)
+
+                # Sample the user's region of interest
+                sample = img[y0:y1, x0:x1]
+                user_roi_mean = sample.mean()
+                logger.info(f"User's region of interest at ({y0}:{y1}, {x0}:{x1}) has mean intensity: {user_roi_mean:.2f}")
+
+                # If the user's ROI has reasonable content, use it directly
+                if user_roi_mean > 10:  # Threshold for "reasonable content"
+                    best_y0, best_x0 = y0, x0
+                    best_mean = user_roi_mean
+                    logger.info(f"Using user's region of interest with mean={best_mean:.2f}")
+                else:
+                    # Otherwise, check all sample points
+                    sample_points = sample_points[1:]  # Skip the first point as we already checked it
 
                 for cy, cx in sample_points:
                     y0 = max(0, cy - crop_size//2)
@@ -341,8 +441,53 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         skio.imsave(os.path.join(check_dir, "cropped_image_no_masks.png"), img_crop)
         return
 
-    # Create overlay
+    # Always save the cropped image regardless of what happens next
+    cropped_img_path = os.path.join(check_dir, "cropped_image.png")
     try:
+        skio.imsave(cropped_img_path, img_crop)
+        logger.info(f"Saved cropped image to: {cropped_img_path}")
+    except Exception as e:
+        logger.error(f"Error saving cropped image: {e}")
+
+    # Verify that all cropped images have the same dimensions before creating overlay
+    try:
+        # Check dimensions of all cropped images
+        img_crop_shape = img_crop.shape
+        masks_crop_shape = masks_crop.shape
+
+        if img_crop_shape != masks_crop_shape:
+            logger.error(f"Critical error: Cropped image shape {img_crop_shape} doesn't match cropped masks shape {masks_crop_shape}")
+            logger.warning("Attempting to fix by cropping both to minimum dimensions")
+
+            # Find common dimensions
+            common_h = min(img_crop.shape[0], masks_crop.shape[0])
+            common_w = min(img_crop.shape[1], masks_crop.shape[1])
+
+            # Crop both to common dimensions
+            img_crop = img_crop[:common_h, :common_w]
+            masks_crop = masks_crop[:common_h, :common_w]
+
+            logger.info(f"Cropped both to {common_h}x{common_w} for compatibility")
+
+            # Save the fixed crops for debugging
+            debug_img_path = os.path.join(check_dir, "debug_img_crop_fixed.png")
+            debug_mask_path = os.path.join(check_dir, "debug_mask_crop_fixed.png")
+            skio.imsave(debug_img_path, img_crop)
+
+            # Create a visualization of the mask for debugging
+            mask_vis = np.zeros((*masks_crop.shape, 3), dtype=np.uint8)
+            if masks_crop.max() > 0:
+                colors_debug = np.random.rand(masks_crop.max() + 1, 3)
+                for i in range(1, masks_crop.max() + 1):
+                    mask_vis[masks_crop == i] = (colors_debug[i] * 255).astype(np.uint8)
+            skio.imsave(debug_mask_path, mask_vis)
+
+            logger.info(f"Saved fixed crops to: {debug_img_path} and {debug_mask_path}")
+
+        # Log the final dimensions being used for the overlay
+        logger.info(f"Creating overlay with images of shape {img_crop_shape}")
+
+        # Create overlay
         num_labels = np.max(masks_crop)
         logger.info(f"Creating overlay with {num_labels} unique mask labels")
 
@@ -467,21 +612,251 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.error(traceback.format_exc())
         return
 
-    # Create figure with both original and overlay.
-    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-    ax[0].imshow(img_crop, cmap='gray')
-    ax[0].set_title("Original Image (Crop)")
-    ax[0].axis('off')
+    # Load CLAHE and gamma corrected images if available
+    clahe_img = None
+    gamma_img = None
 
-    ax[1].imshow(overlay)
-    ax[1].set_title("Segmentation Overlay")
-    ax[1].axis('off')
+    # Try to load CLAHE image
+    for clahe_path in clahe_paths:
+        if os.path.exists(clahe_path):
+            try:
+                clahe_img = skio.imread(clahe_path)
+                logger.info(f"Successfully loaded CLAHE image: {clahe_path}")
+                break
+            except Exception as e:
+                logger.warning(f"Could not load CLAHE image {clahe_path}: {e}")
 
-    plt.tight_layout()
-    fig_path = os.path.join(check_dir, "central_crop_comparison.png")
-    plt.savefig(fig_path, dpi=300)
-    plt.close(fig)
-    logger.info(f"Saved comparison figure to: {fig_path}")
+    # Try to load gamma corrected image
+    for gamma_path in gamma_paths:
+        if os.path.exists(gamma_path):
+            try:
+                gamma_img = skio.imread(gamma_path)
+                logger.info(f"Successfully loaded gamma corrected image: {gamma_path}")
+                break
+            except Exception as e:
+                logger.warning(f"Could not load gamma image {gamma_path}: {e}")
+
+    # Crop CLAHE and gamma images if they exist - using the same approach as for masks
+    if clahe_img is not None:
+        try:
+            # Make sure CLAHE image can be properly cropped with the main image
+            if clahe_img.shape != img.shape:
+                logger.warning(f"CLAHE image shape ({clahe_img.shape}) doesn't match main image shape ({img.shape})")
+
+                # Find the common region that can be cropped
+                common_h = min(clahe_img.shape[0], img.shape[0])
+                common_w = min(clahe_img.shape[1], img.shape[1])
+
+                logger.info(f"Using common region of size {common_h}x{common_w} for CLAHE image")
+
+                # Crop both to the common size
+                if common_h < img.shape[0] or common_w < img.shape[1]:
+                    img = img[:common_h, :common_w]
+                    logger.info(f"Re-cropped main image to {img.shape}")
+
+                if common_h < clahe_img.shape[0] or common_w < clahe_img.shape[1]:
+                    clahe_img = clahe_img[:common_h, :common_w]
+                    logger.info(f"Cropped CLAHE image to {clahe_img.shape}")
+
+                # Also update masks to match
+                if masks.shape != img.shape:
+                    masks = masks[:common_h, :common_w]
+                    logger.info(f"Re-cropped masks to {masks.shape}")
+
+            # Apply the same crop as the main image
+            if h <= crop_size and w <= crop_size:
+                clahe_crop = clahe_img
+            else:
+                clahe_crop = clahe_img[y0:y1, x0:x1]
+                logger.info(f"Cropped CLAHE image to shape {clahe_crop.shape}")
+        except Exception as e:
+            logger.error(f"Error cropping CLAHE image: {e}")
+            clahe_crop = None
+    else:
+        clahe_crop = None
+
+    # Crop gamma image if it exists - using the same approach
+    if gamma_img is not None:
+        try:
+            # Make sure gamma image can be properly cropped with the main image
+            if gamma_img.shape != img.shape:
+                logger.warning(f"Gamma image shape ({gamma_img.shape}) doesn't match main image shape ({img.shape})")
+
+                # Find the common region that can be cropped
+                common_h = min(gamma_img.shape[0], img.shape[0])
+                common_w = min(gamma_img.shape[1], img.shape[1])
+
+                logger.info(f"Using common region of size {common_h}x{common_w} for gamma image")
+
+                # Crop both to the common size
+                if common_h < img.shape[0] or common_w < img.shape[1]:
+                    img = img[:common_h, :common_w]
+                    logger.info(f"Re-cropped main image to {img.shape}")
+
+                    # Also update other images and masks to match
+                    if masks.shape != img.shape:
+                        masks = masks[:common_h, :common_w]
+                        logger.info(f"Re-cropped masks to {masks.shape}")
+
+                    if clahe_crop is not None and clahe_crop.shape != img.shape:
+                        clahe_crop = clahe_crop[:common_h, :common_w]
+                        logger.info(f"Re-cropped CLAHE image to {clahe_crop.shape}")
+
+                if common_h < gamma_img.shape[0] or common_w < gamma_img.shape[1]:
+                    gamma_img = gamma_img[:common_h, :common_w]
+                    logger.info(f"Cropped gamma image to {gamma_img.shape}")
+
+            # Apply the same crop as the main image
+            if h <= crop_size and w <= crop_size:
+                gamma_crop = gamma_img
+            else:
+                gamma_crop = gamma_img[y0:y1, x0:x1]
+                logger.info(f"Cropped gamma image to shape {gamma_crop.shape}")
+        except Exception as e:
+            logger.error(f"Error cropping gamma image: {e}")
+            gamma_crop = None
+    else:
+        gamma_crop = None
+
+    # Update h, w after all the cropping to ensure consistent dimensions
+    h, w = img.shape[:2]
+    logger.info(f"Final image dimensions for overlay after all cropping: {h}x{w}")
+
+    # Create a 2x2 figure showing the preprocessing steps and segmentation result
+    try:
+        logger.info("Creating 2x2 summary figure with preprocessing steps and overlay")
+        fig1, axes = plt.subplots(2, 2, figsize=(10, 10))
+
+        # Preprocessed image - always available
+        axes[0, 0].imshow(img_crop, cmap="gray")
+        axes[0, 0].set_title("Preprocessed Image")
+        axes[0, 0].axis("off")
+
+        # CLAHE enhanced image
+        if clahe_crop is not None:
+            try:
+                axes[0, 1].imshow(clahe_crop, cmap="gray")
+                axes[0, 1].set_title("CLAHE Enhanced")
+            except Exception as e:
+                logger.error(f"Error displaying CLAHE image: {e}")
+                axes[0, 1].text(0.5, 0.5, "CLAHE Error", ha="center", va="center")
+        else:
+            axes[0, 1].text(0.5, 0.5, "No CLAHE", ha="center", va="center")
+        axes[0, 1].axis("off")
+
+        # Gamma corrected image
+        if gamma_crop is not None:
+            try:
+                axes[1, 0].imshow(gamma_crop, cmap="gray")
+                axes[1, 0].set_title("Gamma Corrected")
+            except Exception as e:
+                logger.error(f"Error displaying gamma image: {e}")
+                axes[1, 0].text(0.5, 0.5, "Gamma Error", ha="center", va="center")
+        else:
+            axes[1, 0].text(0.5, 0.5, "No Gamma", ha="center", va="center")
+        axes[1, 0].axis("off")
+
+        # Segmentation overlay
+        try:
+            axes[1, 1].imshow(overlay)
+            axes[1, 1].set_title("Segmentation Masks Overlay")
+        except Exception as e:
+            logger.error(f"Error displaying overlay: {e}")
+            # Try to show just the masks as a fallback
+            try:
+                if masks_crop.max() > 0:
+                    # Create a simple colored mask visualization
+                    mask_vis = np.zeros((*masks_crop.shape, 3), dtype=np.uint8)
+                    colors_vis = np.random.rand(masks_crop.max() + 1, 3)
+                    for i in range(1, masks_crop.max() + 1):
+                        mask_vis[masks_crop == i] = (colors_vis[i] * 255).astype(np.uint8)
+                    axes[1, 1].imshow(mask_vis)
+                    axes[1, 1].set_title("Segmentation Masks")
+                else:
+                    axes[1, 1].text(0.5, 0.5, "No Masks", ha="center", va="center")
+            except:
+                axes[1, 1].text(0.5, 0.5, "Overlay Error", ha="center", va="center")
+        axes[1, 1].axis("off")
+
+        # Save the figure
+        plt.tight_layout()
+        summary_path = os.path.join(check_dir, "quick_overlay_summary.png")
+        plt.savefig(summary_path, dpi=300, bbox_inches='tight')
+        plt.close(fig1)
+        logger.info(f"Saved 4-panel summary figure to: {summary_path}")
+
+        # Also save individual panels as separate files for easier inspection
+        try:
+            # Save preprocessed image
+            skio.imsave(os.path.join(check_dir, "panel1_preprocessed.png"), img_crop)
+
+            # Save CLAHE if available
+            if clahe_crop is not None:
+                skio.imsave(os.path.join(check_dir, "panel2_clahe.png"), clahe_crop)
+
+            # Save gamma if available
+            if gamma_crop is not None:
+                skio.imsave(os.path.join(check_dir, "panel3_gamma.png"), gamma_crop)
+
+            # Save overlay
+            if isinstance(overlay, np.ndarray):
+                overlay_img = (overlay * 255).astype(np.uint8) if overlay.max() <= 1.0 else overlay.astype(np.uint8)
+                skio.imsave(os.path.join(check_dir, "panel4_overlay.png"), overlay_img)
+
+            logger.info("Saved individual panel images for easier inspection")
+        except Exception as e:
+            logger.error(f"Error saving individual panels: {e}")
+
+        # Also create the side-by-side comparison for backward compatibility
+        try:
+            fig2, ax = plt.subplots(1, 2, figsize=(12, 6))
+
+            # Original image - always available
+            ax[0].imshow(img_crop, cmap='gray')
+            ax[0].set_title("Original Image (Crop)")
+            ax[0].axis('off')
+
+            # Overlay - with fallback
+            try:
+                ax[1].imshow(overlay)
+                ax[1].set_title("Segmentation Overlay")
+            except Exception as e:
+                logger.error(f"Error displaying overlay in side-by-side comparison: {e}")
+                # Try to show just the masks as a fallback
+                try:
+                    if masks_crop.max() > 0:
+                        # Create a simple colored mask visualization
+                        mask_vis = np.zeros((*masks_crop.shape, 3), dtype=np.uint8)
+                        colors_vis = np.random.rand(masks_crop.max() + 1, 3)
+                        for i in range(1, masks_crop.max() + 1):
+                            mask_vis[masks_crop == i] = (colors_vis[i] * 255).astype(np.uint8)
+                        ax[1].imshow(mask_vis)
+                        ax[1].set_title("Segmentation Masks")
+                    else:
+                        ax[1].text(0.5, 0.5, "No Masks", ha="center", va="center")
+                except:
+                    ax[1].text(0.5, 0.5, "Overlay Error", ha="center", va="center")
+            ax[1].axis('off')
+
+            plt.tight_layout()
+            fig_path = os.path.join(check_dir, "central_crop_comparison.png")
+            plt.savefig(fig_path, dpi=300)
+            plt.close(fig2)
+            logger.info(f"Saved side-by-side comparison figure to: {fig_path}")
+        except Exception as e:
+            logger.error(f"Error creating side-by-side comparison: {e}")
+            logger.error(traceback.format_exc())
+    except Exception as e:
+        logger.error(f"Error creating summary figures: {e}")
+        logger.error(traceback.format_exc())
+
+        # Last resort: save at least the cropped image if everything else fails
+        try:
+            last_resort_path = os.path.join(check_dir, "last_resort_crop.png")
+            skio.imsave(last_resort_path, img_crop)
+            logger.warning(f"Saved last resort crop to: {last_resort_path}")
+        except Exception as e2:
+            logger.error(f"Even last resort save failed: {e2}")
 
     # Also save a full-size overlay if the image is not too large.
     if h * w <= 4000 * 4000:  # Only for reasonably sized images
