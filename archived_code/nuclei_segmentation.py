@@ -370,14 +370,14 @@ def setup_debug(settings):
         # Normalize array to 8-bit for visualization.
         if arr.dtype != np.uint8:
             v = arr.astype(np.float32)
-            v = 255 * (v - v.min()) / (v.ptp() + 1e-6)
+            v = 255 * (v - v.min()) / (v.np.ptp() + 1e-6)
             v = v.astype(np.uint8)
         else:
             v = arr
 
         # Save with timestamp to avoid overwriting previous debug images.
         timestamp = datetime.now().strftime("%H%M%S")
-        imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.png"), v)
+        imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.tif"), v)
         return arr  # Return the original array for inline use.
 
     return snap
@@ -508,7 +508,7 @@ def preprocess_image(image_path, settings, logger):
 
     # Save preprocessed image in multiple formats for different uses.
     skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.tif"), image)  # Lossless TIF.
-    skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.png"), image)  # PNG for visualization.
+    skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.tif"), image)  # PNG for visualization.
     logger.info(f"Saved preprocessed images to {preprocessed_dir} directory.")
 
     # Apply region-of-interest cropping if enabled.
@@ -556,7 +556,7 @@ def preprocess_image(image_path, settings, logger):
 
         # Save cropped image in multiple formats.
         skio.imsave(os.path.join(preprocessed_dir, "cropped_image.tif"), image)  # Lossless TIF.
-        skio.imsave(os.path.join(preprocessed_dir, "cropped_image.png"), image)  # PNG for visualization.
+        skio.imsave(os.path.join(preprocessed_dir, "cropped_image.tif"), image)  # PNG for visualization.
         logger.info(f"Saved cropped images to {preprocessed_dir} directory.")
 
     if settings.get("UPSCALE_FACTOR", 1) > 1:
@@ -1152,7 +1152,7 @@ def generate_overlay(image, masks, flows, output_dir, logger):
     overlay = plot.mask_overlay(image, masks, colors=np.random.rand(np.max(masks) + 1, 3))
 
     # Save the overlay as a PNG image for easy viewing.
-    overlay_path = os.path.join(output_dir, "mask_overlay.png")
+    overlay_path = os.path.join(output_dir, "mask_overlay.tif")
     skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
     logger.info(f"Saved overlay image to: {overlay_path}.")
 
@@ -1162,7 +1162,7 @@ def generate_overlay(image, masks, flows, output_dir, logger):
     plot.show_segmentation(fig, img=image, maski=masks, flowi=flows[0], channels=[0, 0])
 
     # Save the debug visualization at high resolution.
-    debug_path = os.path.join(output_dir, "segmentation_debug.png")
+    debug_path = os.path.join(output_dir, "segmentation_debug.tif")
     fig.savefig(debug_path, dpi=300)
     plt.close(fig)
     logger.info(f"Saved segmentation debug overlay to: {debug_path}.")
@@ -1245,8 +1245,8 @@ def main():
                  cellprob=flows[2])
 
         # Save visualization-friendly versions.
-        skio.imsave(os.path.join(output_dir, "segmentation_mask.png"), masks.astype(np.uint16))
-        skio.imsave(os.path.join(masks_dir, "segmentation_mask.png"), masks.astype(np.uint16))
+        skio.imsave(os.path.join(output_dir, "segmentation_mask.tif"), masks.astype(np.uint16))
+        skio.imsave(os.path.join(masks_dir, "segmentation_mask.tif"), masks.astype(np.uint16))
 
         logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
 
@@ -1254,7 +1254,7 @@ def main():
         if SETTINGS.get("USE_EDGE_DETECTION", False):
             logger.info("Applying edge detection refinement...")
             masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
-            skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.png"), masks.astype(np.uint16))
+            skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.tif"), masks.astype(np.uint16))
             logger.info("Saved refined segmentation mask after edge detection.")
 
         # 6. Optional: Watershed splitting.
@@ -1266,7 +1266,7 @@ def main():
                 footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
                 logger=logger
             )
-            skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.png"),
+            skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.tif"),
                         lumps_split_mask.astype(np.uint16))
             np.save(os.path.join(output_dir, "segmentation_mask_post_watershed.npy"), lumps_split_mask)
             masks = lumps_split_mask

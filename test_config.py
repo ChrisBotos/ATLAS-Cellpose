@@ -4,7 +4,7 @@ Test script to verify the load_config function works correctly.
 """
 
 try:
-    from code.nuclei_segmentation.nuclei_segmentation import load_config
+    from code.nuclei_segmentation.runner import load_config
     
     print("Attempting to load configuration...")
     settings, cellpose_params, project_dirs = load_config()

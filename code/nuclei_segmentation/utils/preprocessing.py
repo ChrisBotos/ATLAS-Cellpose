@@ -184,7 +184,7 @@ def preprocess_image(image_path, settings, logger):
 
     # Save preprocessed image in multiple formats for different uses.
     skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.tif"), image)  # Lossless TIF.
-    skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.png"), image)  # PNG for visualization.
+    skio.imsave(os.path.join(preprocessed_dir, "preprocessed_image.tif"), image)  # PNG for visualization.
     logger.info(f"Saved preprocessed images to {preprocessed_dir} directory.")
 
     # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) if enabled
@@ -203,11 +203,11 @@ def preprocess_image(image_path, settings, logger):
 
             # Save CLAHE enhanced image
             skio.imsave(os.path.join(preprocessed_dir, "contrast_enhanced_image.tif"), clahe_enhanced)
-            skio.imsave(os.path.join(preprocessed_dir, "contrast_enhanced_image.png"), clahe_enhanced)
+            skio.imsave(os.path.join(preprocessed_dir, "contrast_enhanced_image.tif"), clahe_enhanced)
             logger.info(f"Saved CLAHE enhanced image with clip_limit={clip_limit}, tile_grid_size={tile_grid_size}")
 
             # Also save at the root level for backward compatibility
-            skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.png"), clahe_enhanced)
+            skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.tif"), clahe_enhanced)
         except Exception as e:
             logger.error(f"Error applying CLAHE enhancement: {e}")
             logger.error(traceback.format_exc())
@@ -221,11 +221,11 @@ def preprocess_image(image_path, settings, logger):
 
             # Save gamma corrected image
             skio.imsave(os.path.join(preprocessed_dir, "gamma_corrected_image.tif"), gamma_corrected)
-            skio.imsave(os.path.join(preprocessed_dir, "gamma_corrected_image.png"), gamma_corrected)
+            skio.imsave(os.path.join(preprocessed_dir, "gamma_corrected_image.tif"), gamma_corrected)
             logger.info("Saved gamma corrected image")
 
             # Also save at the root level for backward compatibility
-            skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.png"), gamma_corrected)
+            skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.tif"), gamma_corrected)
         except Exception as e:
             logger.error(f"Error applying gamma correction: {e}")
             logger.error(traceback.format_exc())
@@ -275,7 +275,7 @@ def preprocess_image(image_path, settings, logger):
 
         # Save cropped image in multiple formats.
         skio.imsave(os.path.join(preprocessed_dir, "cropped_image.tif"), image)  # Lossless TIF.
-        skio.imsave(os.path.join(preprocessed_dir, "cropped_image.png"), image)  # PNG for visualization.
+        skio.imsave(os.path.join(preprocessed_dir, "cropped_image.tif"), image)  # PNG for visualization.
         logger.info(f"Saved cropped images to {preprocessed_dir} directory.")
 
     if settings.get("UPSCALE_FACTOR", 1) > 1:

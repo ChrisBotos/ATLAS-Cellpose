@@ -32,11 +32,11 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     2. Loads:
        - Preprocessed image and optionally CLAHE and gamma-corrected images.
        - Pre-watershed mask from 'masks.npy'.
-       - Post-watershed mask from 'segmentation_mask_watershed.png' if it exists.
+       - Post-watershed mask from 'segmentation_mask_watershed.tif' if it exists.
     3. Crops a centered region of size 'crop_size' from each available image.
     4. Generates:
-       (a) 'quick_overlay_summary.png' showing pre, CLAHE, gamma, and the pre-watershed overlay.
-       (b) 'comparison_pre_post_watershed.png' side-by-side overlays of pre- vs. post-watershed
+       (a) 'quick_overlay_summary.tif' showing pre, CLAHE, gamma, and the pre-watershed overlay.
+       (b) 'comparison_pre_post_watershed.tif' side-by-side overlays of pre- vs. post-watershed
            (generated only if the post-watershed file exists).
 
     Args:
@@ -65,11 +65,11 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     # -------------------------------
     # 2) Load images
     # -------------------------------
-    pre_path       = os.path.join(output_dir, "preprocessed_image.png")
-    clahe_path     = os.path.join(output_dir, "contrast_enhanced_image.png")
-    gamma_path     = os.path.join(output_dir, "gamma_corrected_image.png")
+    pre_path       = os.path.join(output_dir, "preprocessed_image.tif")
+    clahe_path     = os.path.join(output_dir, "contrast_enhanced_image.tif")
+    gamma_path     = os.path.join(output_dir, "gamma_corrected_image.tif")
     masks_path     = os.path.join(output_dir, "masks.npy")  # pre-watershed mask
-    watershed_path = os.path.join(output_dir, "segmentation_mask_watershed.png")  # post-watershed mask (optional)
+    watershed_path = os.path.join(output_dir, "segmentation_mask_watershed.tif")  # post-watershed mask (optional)
 
     # Check essential file existence.
     if not os.path.exists(pre_path):
@@ -194,7 +194,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     axes[1, 1].axis("off")
 
     plt.tight_layout()
-    summary_path = os.path.join(check_dir, "quick_overlay_summary.png")
+    summary_path = os.path.join(check_dir, "quick_overlay_summary.tif")
     plt.savefig(summary_path, dpi=300, bbox_inches='tight')
     plt.close(fig1)
     logger.info(f"Saved summary overlay figure to: {summary_path}")
@@ -214,7 +214,7 @@ def small_segmentation_overlay(output_dir, crop_size=512):
         axs[1].axis("off")
 
         plt.tight_layout()
-        comparison_path = os.path.join(check_dir, "comparison_pre_post_watershed.png")
+        comparison_path = os.path.join(check_dir, "comparison_pre_post_watershed.tif")
         plt.savefig(comparison_path, dpi=300, bbox_inches='tight')
         plt.close(fig2)
         logger.info(f"Saved pre/post comparison overlay figure to: {comparison_path}")

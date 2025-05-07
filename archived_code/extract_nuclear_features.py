@@ -536,7 +536,7 @@ def compare_features(iri_df, cntl_df, output_prefix):
             ax.set_title(f"{feature}\n[{lower:.2f}, {upper:.2f}]")
             ax.set_xlabel("")
         plt.tight_layout()
-        plt.savefig(os.path.join(plot_dir, f"violin_plots_page_{page+1}.png"))
+        plt.savefig(os.path.join(plot_dir, f"violin_plots_page_{page+1}.tif"))
         plt.close()
 
     # --- Bar Plot of p-values computed on trimmed data ---
@@ -593,7 +593,7 @@ def compare_features(iri_df, cntl_df, output_prefix):
     # # Set a fixed upper limit to zoom in (e.g., from 0 to 3)
     # plt.xlim(0, 3)
     plt.tight_layout()
-    plt.savefig(os.path.join(plot_dir, "barplot_pvalues.png"))
+    plt.savefig(os.path.join(plot_dir, "barplot_pvalues.tif"))
     plt.close()
 
     # --- Scatter Plot of IRI/CNTL Mean Ratios (linear scale) ---
@@ -605,7 +605,7 @@ def compare_features(iri_df, cntl_df, output_prefix):
     plt.title("Scatter Plot of IRI/CNTL Mean Ratios")
     plt.ylabel("IRI/CNTL Ratio")
     plt.tight_layout()
-    plt.savefig(os.path.join(plot_dir, "scatter_ratio.png"))
+    plt.savefig(os.path.join(plot_dir, "scatter_ratio.tif"))
     plt.close()
 
     # --- Correlation Heatmap ---
@@ -615,7 +615,7 @@ def compare_features(iri_df, cntl_df, output_prefix):
                 linewidths=0.5, linecolor="white")
     plt.title("Correlation Matrix of Features")
     plt.tight_layout()
-    plt.savefig(os.path.join(plot_dir, "correlation_heatmap.png"))
+    plt.savefig(os.path.join(plot_dir, "correlation_heatmap.tif"))
     plt.close()
 
     # Show complete DataFrame
@@ -691,7 +691,7 @@ if __name__ == "__main__":
                     ax.set_title(f"{feature}\n[{lower:.2f}, {upper:.2f}]")
                     ax.set_xlabel("")
                 plt.tight_layout()
-                plt.savefig(os.path.join(plot_dir, f"violin_plots_page_{page+1}.png"))
+                plt.savefig(os.path.join(plot_dir, f"violin_plots_page_{page+1}.tif"))
                 plt.close()
             # Correlation heatmap:
             plt.figure(figsize=(10,10))
@@ -700,7 +700,7 @@ if __name__ == "__main__":
                         linewidths=0.5, linecolor="white")
             plt.title("Correlation Matrix of Features (IRI)")
             plt.tight_layout()
-            plt.savefig(os.path.join(plot_dir, "correlation_heatmap.png"))
+            plt.savefig(os.path.join(plot_dir, "correlation_heatmap.tif"))
             plt.close()
             print(f"Plots saved in {plot_dir}")
     else:

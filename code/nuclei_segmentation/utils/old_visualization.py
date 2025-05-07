@@ -96,7 +96,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     atypical morphology.
 
     Args:
-        output_dir: Directory containing segmentation results from nuclei_segmentation.py.
+        output_dir: Directory containing segmentation results from runner.py.
         crop_size: Size of the cropped region in pixels (default: 1024).
         debug: Enable detailed debug information and additional diagnostic outputs (default: False).
 
@@ -165,36 +165,36 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.error(f"Cannot write to directory {check_dir}: {e}")
         logger.error("Visualization will likely fail due to permission issues")
 
-    # Define all possible image paths with both .png and .tif extensions.
+    # Define all possible image paths with both .tif and .tif extensions.
     # For the main preprocessed image
     preprocessed_paths = [
-        os.path.join(output_dir, "preprocessed", "preprocessed_image.png"),
         os.path.join(output_dir, "preprocessed", "preprocessed_image.tif"),
-        os.path.join(output_dir, "preprocessed_image.png"),
+        os.path.join(output_dir, "preprocessed", "preprocessed_image.tif"),
+        os.path.join(output_dir, "preprocessed_image.tif"),
         os.path.join(output_dir, "preprocessed_image.tif")
     ]
 
     # For the CLAHE enhanced image
     clahe_paths = [
-        os.path.join(output_dir, "preprocessed", "contrast_enhanced_image.png"),
         os.path.join(output_dir, "preprocessed", "contrast_enhanced_image.tif"),
-        os.path.join(output_dir, "contrast_enhanced_image.png"),
+        os.path.join(output_dir, "preprocessed", "contrast_enhanced_image.tif"),
+        os.path.join(output_dir, "contrast_enhanced_image.tif"),
         os.path.join(output_dir, "contrast_enhanced_image.tif")
     ]
 
     # For the gamma corrected image
     gamma_paths = [
-        os.path.join(output_dir, "preprocessed", "gamma_corrected_image.png"),
         os.path.join(output_dir, "preprocessed", "gamma_corrected_image.tif"),
-        os.path.join(output_dir, "gamma_corrected_image.png"),
+        os.path.join(output_dir, "preprocessed", "gamma_corrected_image.tif"),
+        os.path.join(output_dir, "gamma_corrected_image.tif"),
         os.path.join(output_dir, "gamma_corrected_image.tif")
     ]
 
     # Combined list for general image loading
     possible_image_paths = preprocessed_paths + [
-        os.path.join(output_dir, "preprocessed", "cropped_image.png"),
         os.path.join(output_dir, "preprocessed", "cropped_image.tif"),
-        os.path.join(output_dir, "cropped_image.png"),
+        os.path.join(output_dir, "preprocessed", "cropped_image.tif"),
+        os.path.join(output_dir, "cropped_image.tif"),
         os.path.join(output_dir, "cropped_image.tif")
     ]
 
@@ -211,7 +211,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     found_files = []
     for root, dirs, files in os.walk(output_dir):
         for file in files:
-            if file.endswith(".png") or file.endswith(".tif") or file.endswith(".npy"):
+            if file.endswith(".tif") or file.endswith(".tif") or file.endswith(".npy"):
                 file_path = os.path.join(root, file)
                 found_files.append(file_path)
                 logger.debug(f"Found file: {file_path}")
@@ -219,7 +219,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     logger.info(f"Found {len(found_files)} relevant files in output directory")
 
     # Group files by type for better organization in logs
-    png_files = [f for f in found_files if f.endswith(".png")]
+    png_files = [f for f in found_files if f.endswith(".tif")]
     tif_files = [f for f in found_files if f.endswith(".tif")]
     npy_files = [f for f in found_files if f.endswith(".npy")]
 
@@ -244,7 +244,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                     plt.title(f"Histogram of {os.path.basename(img_path)}")
                     plt.xlabel("Pixel Value")
                     plt.ylabel("Frequency")
-                    hist_path = os.path.join(debug_dir, f"histogram_{os.path.basename(img_path)}.png")
+                    hist_path = os.path.join(debug_dir, f"histogram_{os.path.basename(img_path)}.tif")
                     plt.savefig(hist_path)
                     plt.close()
                     logger.debug(f"Saved image histogram to: {hist_path}")
@@ -332,7 +332,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                     plt.title(f"Histogram of mask labels in {os.path.basename(mask_path)}")
                     plt.xlabel("Label Value")
                     plt.ylabel("Frequency")
-                    hist_path = os.path.join(debug_dir, f"histogram_masks_{os.path.basename(mask_path)}.png")
+                    hist_path = os.path.join(debug_dir, f"histogram_masks_{os.path.basename(mask_path)}.tif")
                     plt.savefig(hist_path)
                     plt.close()
                     logger.debug(f"Saved mask label histogram to: {hist_path}")
@@ -343,7 +343,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                         colors = np.random.rand(masks.max() + 1, 3)
                         for i in range(1, masks.max() + 1):
                             mask_vis[masks == i] = (colors[i] * 255).astype(np.uint8)
-                        mask_path = os.path.join(debug_dir, f"mask_visualization_{os.path.basename(mask_path)}.png")
+                        mask_path = os.path.join(debug_dir, f"mask_visualization_{os.path.basename(mask_path)}.tif")
                         skio.imsave(mask_path, mask_vis)
                         logger.debug(f"Saved mask visualization to: {mask_path}")
 
@@ -469,7 +469,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
 
                 # Save the crop for debugging
                 if debug and debug_dir:
-                    crop_debug_path = os.path.join(debug_dir, "image_crop_debug.png")
+                    crop_debug_path = os.path.join(debug_dir, "image_crop_debug.tif")
                     skio.imsave(crop_debug_path, img_crop)
                     logger.debug(f"Saved image crop to: {crop_debug_path}")
 
@@ -493,11 +493,11 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     if np.max(masks_crop) == 0:
         logger.warning("No segmentation masks found in the cropped region!")
         # Save the cropped image anyway for debugging.
-        skio.imsave(os.path.join(check_dir, "cropped_image_no_masks.png"), img_crop)
+        skio.imsave(os.path.join(check_dir, "cropped_image_no_masks.tif"), img_crop)
         return
 
     # Always save the cropped image regardless of what happens next
-    cropped_img_path = os.path.join(check_dir, "cropped_image.png")
+    cropped_img_path = os.path.join(check_dir, "cropped_image.tif")
     try:
         skio.imsave(cropped_img_path, img_crop)
         logger.info(f"Saved cropped image to: {cropped_img_path}")
@@ -525,8 +525,8 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
             logger.info(f"Cropped both to {common_h}x{common_w} for compatibility")
 
             # Save the fixed crops for debugging
-            debug_img_path = os.path.join(check_dir, "debug_img_crop_fixed.png")
-            debug_mask_path = os.path.join(check_dir, "debug_mask_crop_fixed.png")
+            debug_img_path = os.path.join(check_dir, "debug_img_crop_fixed.tif")
+            debug_mask_path = os.path.join(check_dir, "debug_mask_crop_fixed.tif")
             skio.imsave(debug_img_path, img_crop)
 
             # Create a visualization of the mask for debugging
@@ -550,7 +550,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         if num_labels == 0:
             logger.warning("No mask labels found in crop region. Creating a simple image without overlay.")
             # Just save the cropped image
-            overlay_path = os.path.join(check_dir, "central_crop_no_masks.png")
+            overlay_path = os.path.join(check_dir, "central_crop_no_masks.tif")
             skio.imsave(overlay_path, img_crop)
             logger.info(f"Saved crop without overlay to: {overlay_path}")
 
@@ -613,7 +613,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                         # Continue with original overlay
 
                 # Save overlay
-                overlay_path = os.path.join(check_dir, "central_crop_overlay.png")
+                overlay_path = os.path.join(check_dir, "central_crop_overlay.tif")
                 skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
                 logger.info(f"Saved central crop overlay to: {overlay_path}")
 
@@ -624,7 +624,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                     # Enhance the non-zero (mask) parts
                     mask = (high_contrast.sum(axis=2) > 0)
                     high_contrast[mask] = np.clip(high_contrast[mask] * 1.5, 0, 1)
-                    high_contrast_path = os.path.join(debug_dir, "high_contrast_overlay.png")
+                    high_contrast_path = os.path.join(debug_dir, "high_contrast_overlay.tif")
                     skio.imsave(high_contrast_path, (high_contrast * 255).astype(np.uint8))
                     logger.debug(f"Saved high-contrast overlay to: {high_contrast_path}")
             except Exception as e:
@@ -644,7 +644,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                             color = (colors[i] * 255).astype(np.uint8)
                             for c in range(3):
                                 simple_overlay[boundary, c] = color[c]
-                    overlay_path = os.path.join(check_dir, "central_crop_overlay_fallback.png")
+                    overlay_path = os.path.join(check_dir, "central_crop_overlay_fallback.tif")
                     skio.imsave(overlay_path, simple_overlay)
                     logger.info(f"Saved fallback overlay to: {overlay_path}")
                     overlay = simple_overlay / 255.0  # Normalize for consistency with rest of code
@@ -653,7 +653,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
                     logger.error(traceback.format_exc())
                     # Save just the image as a last resort
                     try:
-                        skio.imsave(os.path.join(check_dir, "image_only.png"), img_crop)
+                        skio.imsave(os.path.join(check_dir, "image_only.tif"), img_crop)
                         logger.info("Saved image without overlay as a fallback")
                         # Create a dummy overlay for the rest of the function
                         overlay = np.zeros((*img_crop.shape, 3), dtype=np.float32)
@@ -835,7 +835,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
 
         # Save the figure
         plt.tight_layout()
-        summary_path = os.path.join(check_dir, "quick_overlay_summary.png")
+        summary_path = os.path.join(check_dir, "quick_overlay_summary.tif")
         plt.savefig(summary_path, dpi=300, bbox_inches='tight')
         plt.close(fig1)
         logger.info(f"Saved 4-panel summary figure to: {summary_path}")
@@ -843,20 +843,20 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         # Also save individual panels as separate files for easier inspection
         try:
             # Save preprocessed image
-            skio.imsave(os.path.join(check_dir, "panel1_preprocessed.png"), img_crop)
+            skio.imsave(os.path.join(check_dir, "panel1_preprocessed.tif"), img_crop)
 
             # Save CLAHE if available
             if clahe_crop is not None:
-                skio.imsave(os.path.join(check_dir, "panel2_clahe.png"), clahe_crop)
+                skio.imsave(os.path.join(check_dir, "panel2_clahe.tif"), clahe_crop)
 
             # Save gamma if available
             if gamma_crop is not None:
-                skio.imsave(os.path.join(check_dir, "panel3_gamma.png"), gamma_crop)
+                skio.imsave(os.path.join(check_dir, "panel3_gamma.tif"), gamma_crop)
 
             # Save overlay
             if isinstance(overlay, np.ndarray):
                 overlay_img = (overlay * 255).astype(np.uint8) if overlay.max() <= 1.0 else overlay.astype(np.uint8)
-                skio.imsave(os.path.join(check_dir, "panel4_overlay.png"), overlay_img)
+                skio.imsave(os.path.join(check_dir, "panel4_overlay.tif"), overlay_img)
 
             logger.info("Saved individual panel images for easier inspection")
         except Exception as e:
@@ -894,7 +894,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
             ax[1].axis('off')
 
             plt.tight_layout()
-            fig_path = os.path.join(check_dir, "central_crop_comparison.png")
+            fig_path = os.path.join(check_dir, "central_crop_comparison.tif")
             plt.savefig(fig_path, dpi=300)
             plt.close(fig2)
             logger.info(f"Saved side-by-side comparison figure to: {fig_path}")
@@ -907,7 +907,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
 
         # Last resort: save at least the cropped image if everything else fails
         try:
-            last_resort_path = os.path.join(check_dir, "last_resort_crop.png")
+            last_resort_path = os.path.join(check_dir, "last_resort_crop.tif")
             skio.imsave(last_resort_path, img_crop)
             logger.warning(f"Saved last resort crop to: {last_resort_path}")
         except Exception as e2:
@@ -919,7 +919,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
             logger.info("Generating full-size overlay...")
             full_overlay = plot.mask_overlay(img, masks,
                                           colors=np.random.rand(np.max(masks) + 1, 3))
-            full_overlay_path = os.path.join(check_dir, "full_image_overlay.png")
+            full_overlay_path = os.path.join(check_dir, "full_image_overlay.tif")
             skio.imsave(full_overlay_path, (full_overlay * 255).astype(np.uint8))
             logger.info(f"Saved full-size overlay to: {full_overlay_path}")
         except Exception as e:
@@ -983,8 +983,8 @@ def generate_full_overlay(image, masks, flows, output_dir, logger=None):
         else:
             colors = np.random.rand(masks.max() + 1, 3)
             full = plot.mask_overlay(image, masks, colors=colors)
-            skio.imsave(vis_dir / 'mask_overlay.png', (full * 255).astype(np.uint8))
-            logger.info(f"Saved full overlay: {vis_dir / 'mask_overlay.png'}")
+            skio.imsave(vis_dir / 'mask_overlay.tif', (full * 255).astype(np.uint8))
+            logger.info(f"Saved full overlay: {vis_dir / 'mask_overlay.tif'}")
     except Exception as e:
         logger.error(f"Full overlay failed: {e}")
         traceback.print_exc()
@@ -993,7 +993,7 @@ def generate_full_overlay(image, masks, flows, output_dir, logger=None):
     try:
         fig = plt.figure(figsize=(10, 10))
         plot.show_segmentation(fig, img=image, maski=masks, flowi=flows[0], channels=[0, 0])
-        debug_path = vis_dir / 'segmentation_debug.png'
+        debug_path = vis_dir / 'segmentation_debug.tif'
         fig.savefig(debug_path, dpi=300, bbox_inches='tight')
         plt.close(fig)
         logger.info(f"Saved flow debug: {debug_path}")

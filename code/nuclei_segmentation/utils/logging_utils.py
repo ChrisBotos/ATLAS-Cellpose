@@ -126,14 +126,14 @@ def setup_debug(settings):
         # Normalize array to 8-bit for visualization.
         if arr.dtype != np.uint8:
             v = arr.astype(np.float32)
-            v = 255 * (v - v.min()) / (v.ptp() + 1e-6)
+            v = 255 * (v - v.min()) / (np.ptp(v) + 1e-6)
             v = v.astype(np.uint8)
         else:
             v = arr
 
         # Save with timestamp to avoid overwriting previous debug images.
         timestamp = datetime.now().strftime("%H%M%S")
-        imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.png"), v)
+        imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.tif"), v)
         return arr  # Return the original array for inline use.
 
     return snap

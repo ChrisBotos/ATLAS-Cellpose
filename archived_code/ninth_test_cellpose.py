@@ -189,19 +189,19 @@ def preprocess_image(image_path, settings, logger):
                            interpolation=cv2.INTER_LINEAR)
         logger.info(f"Upscaled image to: {image.shape}")
     
-    skio.imsave(os.path.join(settings["OUTPUT_DIR"], "preprocessed_image.png"), image)
+    skio.imsave(os.path.join(settings["OUTPUT_DIR"], "preprocessed_image.tif"), image)
     logger.info("Saved preprocessed grayscale image")
     
     if settings["ENHANCE_CONTRAST"]:
         clahe = cv2.createCLAHE(clipLimit=settings["CLAHE_CLIPLIMIT"],
                                 tileGridSize=settings["CLAHE_TILE_GRID_SIZE"])
         image = clahe.apply(image)
-        skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.png"), image)
+        skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.tif"), image)
         logger.info("Applied CLAHE contrast enhancement")
     
     if settings["ENHANCE_DIM"]:
         image = adaptive_gamma_correction(image, min_gamma=1.2, max_gamma=1.5, logger=logger)
-        skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.png"), image)
+        skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.tif"), image)
         logger.info("Applied gamma correction")
     
     return image
@@ -418,13 +418,13 @@ def identify_and_split_fused_labels(masks, min_area=1000, footprint=(3,3), logge
 def generate_overlay(image, masks, flows, output_dir, logger):
     """Generate and save overlay visualizations."""
     overlay = plot.mask_overlay(image, masks, colors=np.random.rand(np.max(masks)+1, 3))
-    overlay_path = os.path.join(output_dir, "mask_overlay.png")
+    overlay_path = os.path.join(output_dir, "mask_overlay.tif")
     skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
     logger.info(f"Saved overlay image to: {overlay_path}")
     
     fig = plt.figure()
     plot.show_segmentation(fig, img=image, maski=masks, flowi=flows[0], channels=[0, 0])
-    debug_path = os.path.join(output_dir, "segmentation_debug.png")
+    debug_path = os.path.join(output_dir, "segmentation_debug.tif")
     fig.savefig(debug_path, dpi=300)
     plt.close(fig)
     logger.info(f"Saved segmentation debug overlay to: {debug_path}")
@@ -454,13 +454,13 @@ def main():
     # Save the merged mask and flows.
     np.save(os.path.join(output_dir, "masks.npy"), masks)
     np.save(os.path.join(output_dir, "flows.npy"), flows)
-    skio.imsave(os.path.join(output_dir, "segmentation_mask.png"), masks.astype(np.uint16))
+    skio.imsave(os.path.join(output_dir, "segmentation_mask.tif"), masks.astype(np.uint16))
     logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
     
     # 3. Optionally refine segmentation using edge detection.
     if SETTINGS["USE_EDGE_DETECTION"]:
         masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
-        skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.png"), masks.astype(np.uint16))
+        skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.tif"), masks.astype(np.uint16))
         logger.info("Saved refined segmentation mask after edge detection")
     
     # 4. Optionally apply watershed splitting to large fused nuclei.
@@ -471,7 +471,7 @@ def main():
             footprint=SETTINGS["LOCAL_MAXIMA_FOOTPRINT"],
             logger=logger
         )
-        skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.png"), lumps_split_mask.astype(np.uint16))
+        skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.tif"), lumps_split_mask.astype(np.uint16))
         np.save(os.path.join(output_dir, "segmentation_mask_post_watershed.npy"), lumps_split_mask)
         masks = lumps_split_mask
 
