@@ -41,6 +41,7 @@ from utils.logging_utils import setup_logging, setup_debug
 from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import apply_watershed_to_mask, refine_segmentation_with_edges
 from utils.visualization import small_segmentation_overlay, generate_full_overlay
+from pipeline import run_segmentation_pipeline
 
 
 def main():
