@@ -11,9 +11,14 @@ The watershed algorithm uses distance transforms to identify likely centers of
 individual nuclei within merged objects, then separates them based on these centers.
 This is crucial for accurate quantification of nuclear counts and morphology in
 regions of high cellular density.
+
+This module also includes edge detection refinement for improving segmentation
+boundaries using Canny edge detection, which can help separate touching nuclei
+in densely packed regions of injured kidney tissue.
 """
 
 import numpy as np
+import cv2
 from scipy import ndimage as ndi
 from skimage.segmentation import watershed
 from skimage.feature import peak_local_max
@@ -162,3 +167,63 @@ def apply_watershed_to_mask(masks, min_area=1000, footprint=(3, 3), logger=None)
             logger.error(traceback.format_exc())
         # Return the original mask if there's an error
         return masks
+
+
+def refine_segmentation_with_edges(image, masks, settings, logger):
+    """
+    Refine segmentation masks using Canny edge detection.
+
+    This function improves segmentation accuracy by incorporating edge information
+    from the original image. In kidney tissue, nuclei often have distinct boundaries
+    that may not be perfectly captured by Cellpose. By detecting these edges and
+    using them to refine the segmentation, we can achieve more accurate delineation
+    of nuclear boundaries, especially in densely packed regions.
+
+    Args:
+        image: Original grayscale image.
+        masks: Initial segmentation masks from Cellpose.
+        settings: Dictionary containing edge detection parameters.
+        logger: Logger for progress information.
+
+    Returns:
+        numpy.ndarray: Refined segmentation masks with improved boundaries.
+    """
+    logger.info("Applying edge detection based refinement to the segmentation mask")
+
+    # Verify that image and masks have the same shape
+    if image.shape != masks.shape:
+        logger.error(f"Shape mismatch: image {image.shape} vs masks {masks.shape}")
+        logger.warning("Cannot apply edge detection with mismatched shapes")
+
+        # Find common region that can be used for both
+        common_h = min(image.shape[0], masks.shape[0])
+        common_w = min(image.shape[1], masks.shape[1])
+
+        logger.info(f"Using common region of size {common_h}x{common_w}")
+
+        # Crop both to common size
+        image = image[:common_h, :common_w]
+        masks = masks[:common_h, :common_w]
+
+        logger.info(f"Cropped image to {image.shape} and masks to {masks.shape}")
+
+    # Apply Canny edge detection
+    edges = cv2.Canny(image,
+                      threshold1=settings.get("CANNY_THRESHOLD1", 50),
+                      threshold2=settings.get("CANNY_THRESHOLD2", 150))
+
+    # Dilate edges to ensure they fully separate touching nuclei
+    kernel = np.ones((3, 3), np.uint8)
+    dilated_edges = cv2.dilate(edges, kernel, iterations=1)
+
+    # Create binary mask from segmentation
+    binary_mask = (masks > 0).astype(np.uint8) * 255
+
+    # Subtract edges from binary mask
+    refined_mask = cv2.subtract(binary_mask, dilated_edges)
+
+    # Connected components analysis to get new labels
+    num_labels, refined_labels = cv2.connectedComponents(refined_mask)
+
+    logger.info(f"Refined segmentation into {num_labels - 1} objects after edge detection")
+    return refined_labels
