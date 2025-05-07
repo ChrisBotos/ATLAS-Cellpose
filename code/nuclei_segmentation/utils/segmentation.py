@@ -20,7 +20,7 @@ import torch
 import logging
 
 # Import from other utility modules.
-from code.nuclei_segmentation.utils.tiling import split_image_into_tiles, merge_masks, merge_tiles_with_weighted_overlap
+from .tiling import split_image_into_tiles, merge_masks, merge_tiles_with_weighted_overlap
 
 
 def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):

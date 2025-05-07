@@ -35,18 +35,18 @@ from skimage import io as skio
 from cellpose import models
 
 # Import utility modules.
-from code.nuclei_segmentation.utils.project_setup import setup_project_structure, load_config, choose_batch_size
-from code.nuclei_segmentation.utils.preprocessing import preprocess_image, ensure_matching_shapes
-from code.nuclei_segmentation.utils.logging_utils import setup_logging, setup_debug
-from code.nuclei_segmentation.utils.segmentation import run_cellpose_on_tiles
-from code.nuclei_segmentation.utils.watershed import apply_watershed_to_mask, refine_segmentation_with_edges
-from code.nuclei_segmentation.utils.visualization import small_segmentation_overlay, generate_full_overlay
+from utils.project_setup import setup_project_structure, load_config, choose_batch_size
+from utils.preprocessing import preprocess_image, ensure_matching_shapes
+from utils.logging_utils import setup_logging, setup_debug
+from utils.segmentation import run_cellpose_on_tiles
+from utils.watershed import apply_watershed_to_mask, refine_segmentation_with_edges
+from utils.visualization import small_segmentation_overlay, generate_full_overlay
 
 
 def main():
     """
     Main function for the nuclei segmentation pipeline.
-    
+
     This function orchestrates the entire segmentation workflow, including:
     1. Loading configuration settings
     2. Setting up logging and debugging
@@ -55,10 +55,10 @@ def main():
     5. Applying optional refinements (edge detection, watershed)
     6. Generating visualizations
     7. Saving results
-    
+
     The function is designed to be robust to errors, with comprehensive logging
     and error handling at each step.
-    
+
     Returns:
         int: 0 for successful execution, 1 for errors
     """
@@ -146,7 +146,7 @@ def main():
         # 3. Preprocess the image to optimize for nuclei detection.
         logger.info("Preprocessing image...")
         image = preprocess_image(SETTINGS["IMAGE_PATH"], SETTINGS, logger)
-        
+
         # Save a debug snapshot of the preprocessed image if in debug mode.
         snap("preprocessed_image", image)
 
@@ -175,7 +175,7 @@ def main():
         # 5. Run segmentation on the preprocessed image.
         logger.info("Running segmentation...")
         masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
-        
+
         # Save a debug snapshot of the initial segmentation if in debug mode.
         snap("initial_segmentation", masks)
 
@@ -210,7 +210,7 @@ def main():
             masks = refine_segmentation_with_edges(image_matched, masks_matched, SETTINGS, logger)
             skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.png"), masks.astype(np.uint16))
             logger.info("Saved refined segmentation mask after edge detection.")
-            
+
             # Save a debug snapshot of the edge-refined segmentation if in debug mode.
             snap("edge_refined_segmentation", masks)
 
@@ -234,14 +234,14 @@ def main():
                 # Update the masks variable with the watershed results.
                 masks = lumps_split_mask
                 logger.info("Saved watershed-processed segmentation mask.")
-                
+
                 # Save a debug snapshot of the watershed-refined segmentation if in debug mode.
                 snap("watershed_refined_segmentation", masks)
 
                 # If in debug mode, also save a comparison visualization.
                 if SETTINGS.get("DEBUG_MODE", False):
                     import matplotlib.pyplot as plt
-                    
+
                     # Create a side-by-side comparison of before and after watershed.
                     fig, axes = plt.subplots(1, 2, figsize=(12, 6))
                     axes[0].imshow(models.plot.mask_overlay(image, masks, colors=np.random.rand(np.max(masks) + 1, 3)))
