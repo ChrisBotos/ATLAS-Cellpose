@@ -49,11 +49,11 @@ from cellpose import models, plot
 # Own code imports.
 try:
     # When imported as a module
-    from code.nuclei_segmentation.utils.visualization import small_segmentation_overlay
+    from code.nuclei_segmentation.utils.visualization import small_segmentation_overlay, generate_full_overlay
     from code.nuclei_segmentation.utils.watershed import apply_watershed_to_mask
 except ImportError:
     # When run directly
-    from utils.visualization import small_segmentation_overlay
+    from utils.visualization import small_segmentation_overlay, generate_full_overlay
     from utils.watershed import apply_watershed_to_mask
 
 # Increase the maximum allowed image pixels to handle large microscopy images.
