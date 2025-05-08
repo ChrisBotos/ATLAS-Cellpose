@@ -4,11 +4,8 @@
 import os
 import pytest
 import numpy as np
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 10**9
-from io import BytesIO
 
 # Relative import of the visualization utilities being tested.
 import sys
