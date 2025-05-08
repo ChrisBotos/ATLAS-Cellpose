@@ -110,7 +110,6 @@ def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         # Normalize paths early.
         image_path = Path(SETTINGS["IMAGE_PATH"]).expanduser().resolve()
         output_dir = Path(SETTINGS["OUTPUT_DIR"]).expanduser().resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
         SETTINGS["OUTPUT_DIR"] = str(output_dir)  # Ensure all downstream functions use the same path.
 
         # Check image exists.

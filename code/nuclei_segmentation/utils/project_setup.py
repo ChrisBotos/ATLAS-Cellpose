@@ -15,10 +15,8 @@ The module handles:
 
 # Standard library imports.
 import os
-import sys
 import configparser
 import shutil
-import traceback
 from datetime import datetime
 from pathlib import Path
 
