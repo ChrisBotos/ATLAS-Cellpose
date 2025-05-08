@@ -23,10 +23,6 @@ def main():
     try:
         SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
 
-        # Get current timestamp for output directory naming.
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        SETTINGS["OUTPUT_DIR"] = str(Path(PROJECT_DIRS["results"]) / f"iri_results_{timestamp}")
 
         logger = setup_logging(SETTINGS["OUTPUT_DIR"], debug_mode=SETTINGS.get("DEBUG_MODE", False))
         snap = setup_debug(SETTINGS)
