@@ -57,5 +57,5 @@ def test_pipeline_generates_outputs(minimal_settings, dummy_params, dummy_dirs):
     output = Path(minimal_settings["OUTPUT_DIR"])
     assert (output / "masks.npy").exists()
     assert (output / "flows.npz").exists()
-    assert (output / "segmentation_mask.tif").exists()
+    assert (output / "segmentation_masks.tif").exists()
     snap.capture.assert_called_once_with("end_of_pipeline", {"masks": dummy_mask})

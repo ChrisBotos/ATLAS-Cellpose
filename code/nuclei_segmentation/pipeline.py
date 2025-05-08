@@ -9,7 +9,7 @@ from skimage import io as skio
 import torch
 from cellpose import models
 
-from utils.preprocessing import preprocess_image, ensure_matching_shapes
+from utils.preprocessing import preprocess_image
 from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
 from utils.visualization import generate_full_overlay, small_segmentation_overlay
@@ -47,21 +47,22 @@ def save_outputs(masks, flows, output_dir, logger):
     masks_dir = output_dir / "masks"
     masks_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(output_dir / "masks.npy", masks)
-    np.save(masks_dir / "masks.npy", masks)
-    np.savez(output_dir / "flows.npz", flow0=flows[0], flow1=flows[1], cellprob=flows[2])
+    flows_dir = output_dir / "flows"
+    flows_dir.mkdir(parents=True, exist_ok=True)
 
-    skio.imsave(output_dir / "segmentation_mask.tif", masks.astype(np.uint16))
-    skio.imsave(masks_dir / "segmentation_mask.tif", masks.astype(np.uint16))
+    np.save(masks_dir / "segmentation_masks.npy", masks)
+    skio.imsave(masks_dir / "segmentation_masks.tif", masks.astype(np.uint16))
+
+    np.savez(flows_dir / "flows.npz", flow0=flows[0], flow1=flows[1], cellprob=flows[2])
+
     logger.info("Segmentation results saved.")
 
 
 def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
     if SETTINGS.get("USE_EDGE_DETECTION", False):
         logger.info("Running edge refinement...")
-        image, masks = ensure_matching_shapes(image, masks, logger)
         masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
-        skio.imsave(Path(output_dir) / "refined_segmentation_mask.tif", masks.astype(np.uint16))
+        skio.imsave(Path(output_dir) / "refined_segmentation_masks.tif", masks.astype(np.uint16))
 
     if SETTINGS.get("APPLY_WATERSHED", False):
         logger.info("Applying watershed...")
@@ -72,8 +73,8 @@ def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
                 footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
                 logger=logger
             )
-            skio.imsave(Path(output_dir) / "segmentation_mask_post_watershed.tif", masks.astype(np.uint16))
-            np.save(Path(output_dir) / "segmentation_mask_post_watershed.npy", masks)
+            skio.imsave(Path(output_dir) / "segmentation_masks_post_watershed.tif", masks.astype(np.uint16))
+            np.save(Path(output_dir) / "segmentation_masks_post_watershed.npy", masks)
         except Exception as e:
             logger.error(f"Watershed error: {e}")
             logger.debug(traceback.format_exc())
@@ -83,7 +84,6 @@ def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
 
 def generate_overlays(image, masks, flows, output_dir, SETTINGS, logger):
     if SETTINGS.get("GENERATE_OVERLAY", False):
-        image, masks = ensure_matching_shapes(image, masks, logger)
         generate_full_overlay(image, masks, flows, output_dir, logger)
 
     try:
