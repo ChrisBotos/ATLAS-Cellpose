@@ -1,111 +1,139 @@
-import os
-import numpy as np
-import traceback
-import torch
-from skimage import io as skio
+"""
+PIPELINE: Modular segmentation flow using Cellpose3 with DAPI-stained nuclear features.
+"""
 
+import traceback
+import numpy as np
+from pathlib import Path
+from skimage import io as skio
+import torch
 from cellpose import models
 
 from utils.preprocessing import preprocess_image, ensure_matching_shapes
 from utils.segmentation import run_cellpose_on_tiles
-from utils.watershed import apply_watershed_to_mask, refine_segmentation_with_edges
+from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
 from utils.visualization import generate_full_overlay, small_segmentation_overlay
 
 
-def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap):
-    try:
-        image_path = SETTINGS["IMAGE_PATH"]
-        output_subdir = SETTINGS.get("OUTPUT_SUBDIR", "unnamed_run")
-        output_dir = os.path.join(PROJECT_DIRS["results"], output_subdir)
-        os.makedirs(output_dir, exist_ok=True)
+def log_config(logger, SETTINGS, CELLPOSE_PARAMS):
+    if SETTINGS.get("DEBUG_MODE", False):
+        logger.debug("=== SETTINGS ===")
+        for k, v in SETTINGS.items():
+            logger.debug(f"{k}: {v}")
+        logger.debug("=== CELLPOSE ===")
+        for k, v in CELLPOSE_PARAMS.items():
+            logger.debug(f"{k}: {v}")
 
-        logger.info("===== Cellpose Segmentation Pipeline Started =====")
+
+def setup_model(CELLPOSE_PARAMS, logger):
+    model_type = CELLPOSE_PARAMS["model_type"]
+    use_gpu = CELLPOSE_PARAMS.get("gpu", False)
+    device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
+    model = models.Cellpose(model_type=model_type, gpu=(device == 'cuda'))
+
+    logger.info(f"Using Cellpose model: {model_type}")
+    logger.info(f"Using device: {device}")
+    if device == 'cuda':
+        try:
+            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+        except Exception:
+            logger.warning("Failed to get CUDA device name.")
+
+    return model
+
+
+def save_outputs(masks, flows, output_dir, logger):
+    output_dir = Path(output_dir)
+    masks_dir = output_dir / "masks"
+    masks_dir.mkdir(parents=True, exist_ok=True)
+
+    np.save(output_dir / "masks.npy", masks)
+    np.save(masks_dir / "masks.npy", masks)
+    np.savez(output_dir / "flows.npz", flow0=flows[0], flow1=flows[1], cellprob=flows[2])
+
+    skio.imsave(output_dir / "segmentation_mask.tif", masks.astype(np.uint16))
+    skio.imsave(masks_dir / "segmentation_mask.tif", masks.astype(np.uint16))
+    logger.info("Segmentation results saved.")
+
+
+def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
+    if SETTINGS.get("USE_EDGE_DETECTION", False):
+        logger.info("Running edge refinement...")
+        image, masks = ensure_matching_shapes(image, masks, logger)
+        masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
+        skio.imsave(Path(output_dir) / "refined_segmentation_mask.tif", masks.astype(np.uint16))
+
+    if SETTINGS.get("APPLY_WATERSHED", False):
+        logger.info("Applying watershed...")
+        try:
+            masks = apply_watershed_to_mask(
+                masks,
+                min_area=SETTINGS.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
+                footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
+                logger=logger
+            )
+            skio.imsave(Path(output_dir) / "segmentation_mask_post_watershed.tif", masks.astype(np.uint16))
+            np.save(Path(output_dir) / "segmentation_mask_post_watershed.npy", masks)
+        except Exception as e:
+            logger.error(f"Watershed error: {e}")
+            logger.debug(traceback.format_exc())
+
+    return masks
+
+
+def generate_overlays(image, masks, flows, output_dir, SETTINGS, logger):
+    if SETTINGS.get("GENERATE_OVERLAY", False):
+        image, masks = ensure_matching_shapes(image, masks, logger)
+        generate_full_overlay(image, masks, flows, output_dir, logger)
+
+    try:
+        small_segmentation_overlay(
+            output_dir,
+            crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1),
+            debug=SETTINGS.get("DEBUG_MODE", False)
+        )
+    except Exception as e:
+        logger.warning(f"Overlay generation failed: {e}")
+        logger.debug(traceback.format_exc())
+
+
+def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap=None):
+    """
+    Orchestrates the full segmentation pipeline.
+
+    Returns:
+        int: 0 if successful, 1 otherwise.
+    """
+    try:
+        log_config(logger, SETTINGS, CELLPOSE_PARAMS)
+
+        image_path = Path(SETTINGS["IMAGE_PATH"])
+        output_subdir = SETTINGS.get("OUTPUT_SUBDIR", "unnamed_run")
+        output_dir = Path(PROJECT_DIRS["results"]) / output_subdir
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if not image_path.exists():
+            logger.error(f"Image file not found: {image_path}")
+            return 1
+
         logger.info(f"Image path: {image_path}")
         logger.info(f"Output directory: {output_dir}")
 
-        if SETTINGS.get("DEBUG_MODE", False):
-            logger.info("========== CONFIGURATION PARAMETERS ==========")
-            for k, v in SETTINGS.items():
-                logger.info(f"[SETTINGS] {k} = {v}")
-            for k, v in CELLPOSE_PARAMS.items():
-                logger.info(f"[CELLPOSE] {k} = {v}")
-            logger.info("==============================================")
-
-        if not os.path.exists(image_path):
-            logger.error(f"Image file not found: {image_path}")
-            logger.info(f"Available in {PROJECT_DIRS['data']}:")
-            for f in os.listdir(PROJECT_DIRS["data"]):
-                logger.info(f"  - {f}")
-            return 1
-
-        logger.info("Preprocessing image...")
         image = preprocess_image(image_path, SETTINGS, logger)
+        model = setup_model(CELLPOSE_PARAMS, logger)
 
-        model_type = CELLPOSE_PARAMS["model_type"]
-        logger.info(f"Using Cellpose model: {model_type}")
-        model = models.Cellpose(model_type=model_type, gpu=CELLPOSE_PARAMS["gpu"])
-        device = 'cuda' if CELLPOSE_PARAMS["gpu"] and torch.cuda.is_available() else 'cpu'
-        logger.info(f"Using device: {device}")
-        if device == 'cuda':
-            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-
-        logger.info("Running segmentation...")
+        logger.info("Running Cellpose segmentation...")
         masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
 
         if masks is None or masks.size == 0:
-            logger.error("No segmentation masks were returned. Aborting.")
+            logger.error("No segmentation masks returned. Aborting.")
             return 1
 
-        masks_dir = os.path.join(output_dir, "masks")
-        os.makedirs(masks_dir, exist_ok=True)
-        np.save(os.path.join(output_dir, "masks.npy"), masks)
-        np.save(os.path.join(masks_dir, "masks.npy"), masks)
-        np.savez(os.path.join(output_dir, "flows.npz"),
-                 flow0=flows[0], flow1=flows[1], cellprob=flows[2])
-        skio.imsave(os.path.join(output_dir, "segmentation_mask.tif"), masks.astype(np.uint16))
-        skio.imsave(os.path.join(masks_dir, "segmentation_mask.tif"), masks.astype(np.uint16))
         logger.info(f"Segmentation completed. Total cells: {total_cells}")
+        save_outputs(masks, flows, output_dir, logger)
+        masks = apply_postprocessing(image, masks, SETTINGS, output_dir, logger)
+        generate_overlays(image, masks, flows, output_dir, SETTINGS, logger)
 
-        if SETTINGS.get("USE_EDGE_DETECTION", False):
-            logger.info("Applying edge refinement...")
-            image, masks = ensure_matching_shapes(image, masks, logger)
-            masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
-            skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.tif"), masks.astype(np.uint16))
-            logger.info("Edge refinement completed.")
-
-        if SETTINGS.get("APPLY_WATERSHED", False):
-            logger.info("Applying watershed splitting...")
-            try:
-                masks = apply_watershed_to_mask(
-                    masks,
-                    min_area=SETTINGS.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
-                    footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
-                    logger=logger
-                )
-                skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.tif"), masks.astype(np.uint16))
-                np.save(os.path.join(output_dir, "segmentation_mask_post_watershed.npy"), masks)
-                logger.info("Watershed segmentation saved.")
-            except Exception as e:
-                logger.error("Watershed error: " + str(e))
-                logger.error(traceback.format_exc())
-
-        if SETTINGS.get("GENERATE_OVERLAY", False):
-            logger.info("Generating overlay...")
-            image, masks = ensure_matching_shapes(image, masks, logger)
-            generate_full_overlay(image, masks, flows, output_dir, logger)
-
-        try:
-            logger.info("Generating small overlay snippet...")
-            small_segmentation_overlay(
-                output_dir,
-                crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1),
-                debug=SETTINGS.get("DEBUG_MODE", False)
-            )
-        except Exception as e:
-            logger.error(f"Overlay snippet generation error: {e}")
-            logger.error(traceback.format_exc())
-
-        # Optional: trigger debug snapshot
         if snap:
             snap.capture("end_of_pipeline", {"masks": masks})
 
@@ -113,6 +141,6 @@ def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         return 0
 
     except Exception as e:
-        logger.error("Fatal pipeline error: " + str(e))
-        logger.error(traceback.format_exc())
+        logger.error(f"Fatal pipeline error: {e}")
+        logger.debug(traceback.format_exc())
         return 1
