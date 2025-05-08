@@ -174,6 +174,16 @@ def preprocess_image(image_path, settings, logger):
     if logger:
         logger.info(f"Loaded {image_path} with shape {image.shape} and dtype {image.dtype}")
 
+    out_dir = os.path.join(settings["OUTPUT_DIR"], "preprocessed")
+    os.makedirs(out_dir, exist_ok=True)
+
+    if settings.get("CROP_IMAGE", False):
+        crop_box = settings.get("CROP_BBOX", (0, 1, 0, 1))
+        if isinstance(crop_box, str):
+            crop_box = [float(x.strip()) for x in crop_box.split(',')]
+        image = crop_image(image, crop_box, logger)
+        save_image(image, os.path.join(out_dir, "cropped.tif"), logger)
+
     if image.ndim == 3 and image.shape[-1] == 4:
         image = image[:, :, :3]
         logger.info("Removed alpha channel.")
@@ -182,14 +192,13 @@ def preprocess_image(image_path, settings, logger):
         image = convert_16bit_to_8bit(image)
         logger.info("Converted from 16-bit to 8-bit.")
 
+    save_image(image, os.path.join(out_dir, "eight_bit.tif"), logger)
+
     if image.ndim == 3:
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         logger.info("Converted RGB to grayscale.")
 
-    out_dir = os.path.join(settings["OUTPUT_DIR"], "preprocessed")
-    os.makedirs(out_dir, exist_ok=True)
-
-    save_image(image, os.path.join(out_dir, "initial.tif"), logger)
+    save_image(image, os.path.join(out_dir, "grayscale.tif"), logger)
 
     if settings.get("ENHANCE_CONTRAST", False):
         image = apply_clahe(image,
@@ -202,17 +211,12 @@ def preprocess_image(image_path, settings, logger):
         image = adaptive_gamma_correction(image, logger=logger)
         save_image(image, os.path.join(out_dir, "gamma.tif"), logger)
 
-    if settings.get("CROP_IMAGE", False):
-        crop_box = settings.get("CROP_BBOX", (0, 1, 0, 1))
-        if isinstance(crop_box, str):
-            crop_box = [float(x.strip()) for x in crop_box.split(',')]
-        image = crop_image(image, crop_box, logger)
-        save_image(image, os.path.join(out_dir, "cropped.tif"), logger)
-
     upscale_factor = settings.get("UPSCALE_FACTOR", 1)
     if upscale_factor > 1:
         image = cv2.resize(image, None, fx=upscale_factor, fy=upscale_factor, interpolation=cv2.INTER_LINEAR)
         logger.info(f"Upscaled image to shape {image.shape}")
         save_image(image, os.path.join(out_dir, "upscaled.tif"), logger)
+
+    save_image(image, os.path.join(out_dir, "final.tif"), logger)
 
     return image
