@@ -99,19 +99,25 @@ def generate_overlays(image, masks, flows, output_dir, SETTINGS, logger):
 
 def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap=None):
     """
-    Orchestrates the full segmentation pipeline.
+    Orchestrates the full segmentation pipeline for nuclear masks from DAPI-stained images.
+
+    This includes preprocessing, tiling-aware Cellpose segmentation, optional refinement,
+    and visualization generation. All outputs are stored in SETTINGS["OUTPUT_DIR"].
 
     Returns:
         int: 0 if successful, 1 otherwise.
     """
     try:
+        # Log current configuration.
         log_config(logger, SETTINGS, CELLPOSE_PARAMS)
 
-        image_path = Path(SETTINGS["IMAGE_PATH"])
-        output_subdir = SETTINGS.get("OUTPUT_SUBDIR", "unnamed_run")
-        output_dir = Path(PROJECT_DIRS["results"]) / output_subdir
+        # Normalize paths early.
+        image_path = Path(SETTINGS["IMAGE_PATH"]).expanduser().resolve()
+        output_dir = Path(SETTINGS["OUTPUT_DIR"]).expanduser().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
+        SETTINGS["OUTPUT_DIR"] = str(output_dir)  # Ensure all downstream functions use the same path.
 
+        # Check image exists.
         if not image_path.exists():
             logger.error(f"Image file not found: {image_path}")
             return 1
@@ -119,9 +125,13 @@ def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         logger.info(f"Image path: {image_path}")
         logger.info(f"Output directory: {output_dir}")
 
+        # Step 1: Image preprocessing (CLAHE, cropping etc.).
         image = preprocess_image(image_path, SETTINGS, logger)
+
+        # Step 2: Load Cellpose model (with GPU if available).
         model = setup_model(CELLPOSE_PARAMS, logger)
 
+        # Step 3: Segmentation.
         logger.info("Running Cellpose segmentation...")
         masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
 
@@ -130,10 +140,17 @@ def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             return 1
 
         logger.info(f"Segmentation completed. Total cells: {total_cells}")
+
+        # Step 4: Save raw outputs.
         save_outputs(masks, flows, output_dir, logger)
+
+        # Step 5: Postprocess with edge refinement and/or watershed.
         masks = apply_postprocessing(image, masks, SETTINGS, output_dir, logger)
+
+        # Step 6: Overlay generation (cropped + full).
         generate_overlays(image, masks, flows, output_dir, SETTINGS, logger)
 
+        # Step 7: Optional debug snapshot.
         if snap:
             snap.capture("end_of_pipeline", {"masks": masks})
 
