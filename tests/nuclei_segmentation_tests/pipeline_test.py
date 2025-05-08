@@ -1,8 +1,10 @@
 """TEST: Pipeline integration logic (segmentation, overlays, logging)."""
 
+import sys
 import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../code/nuclei_segmentation')))
 from pipeline import run_segmentation_pipeline
 
 
