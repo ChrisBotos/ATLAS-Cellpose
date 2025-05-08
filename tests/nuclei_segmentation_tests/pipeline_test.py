@@ -1,18 +1,26 @@
-"""TEST: Pipeline integration logic (segmentation, overlays, logging)."""
+"""TEST: Full pipeline integration (mocked Cellpose, real I/O)."""
 
 import sys
+import os
 import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from skimage.io import imsave
+from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../code/nuclei_segmentation')))
 from pipeline import run_segmentation_pipeline
 
 
 @pytest.fixture
-def dummy_settings(tmp_path):
+def minimal_settings(tmp_path):
+    """Returns minimal SETTINGS dict with real file paths and output directory."""
+    image_path = tmp_path / "dummy_image.tif"
+    image = np.random.randint(0, 255, size=(128, 128), dtype=np.uint8)
+    imsave(image_path, image)
+
     return {
-        "IMAGE_PATH": str(tmp_path / "dummy_image.tif"),
-        "OUTPUT_SUBDIR": "test_run",
+        "IMAGE_PATH": str(image_path),
+        "OUTPUT_DIR": str(tmp_path / "out"),
         "DEBUG_MODE": True,
         "GENERATE_OVERLAY": False,
         "USE_EDGE_DETECTION": False,
@@ -22,10 +30,7 @@ def dummy_settings(tmp_path):
 
 @pytest.fixture
 def dummy_params():
-    return {
-        "model_type": "nuclei",
-        "gpu": False
-    }
+    return {"model_type": "nuclei", "gpu": False}
 
 
 @pytest.fixture
@@ -33,29 +38,24 @@ def dummy_dirs(tmp_path):
     return {"results": str(tmp_path / "results")}
 
 
-def test_pipeline_runs_and_saves_masks(tmp_path, dummy_settings, dummy_params, dummy_dirs):
+def test_pipeline_generates_outputs(minimal_settings, dummy_params, dummy_dirs):
     """
-    Validates that the pipeline completes successfully and saves expected files.
+    Tests that the pipeline completes, saves expected files,
+    and correctly calls snapshot.
     """
-    from skimage.io import imsave
-
-    dummy_image = np.random.randint(0, 255, size=(128, 128), dtype=np.uint8)
     dummy_mask = np.ones((128, 128), dtype=np.uint8)
     dummy_flows = [np.zeros((2, 128, 128)), np.zeros((2, 128, 128)), np.zeros((128, 128))]
-    dummy_settings["IMAGE_PATH"] = str(tmp_path / "dummy_image.tif")
-    imsave(dummy_settings["IMAGE_PATH"], dummy_image)
-
     logger = MagicMock()
     snap = MagicMock()
 
-    with patch("pipeline.preprocess_image", return_value=dummy_image), \
-         patch("pipeline.run_cellpose_on_tiles", return_value=(dummy_mask, dummy_flows, 123)), \
-         patch("pipeline.setup_model", autospec=True), \
-         patch("pipeline.save_outputs", autospec=True), \
-         patch("pipeline.apply_postprocessing", return_value=dummy_mask), \
-         patch("pipeline.generate_overlays"):
+    with patch("pipeline.run_cellpose_on_tiles", return_value=(dummy_mask, dummy_flows, 494)), \
+         patch("pipeline.setup_model", autospec=True):
 
-        result = run_segmentation_pipeline(dummy_settings, dummy_params, dummy_dirs, logger, snap)
+        result = run_segmentation_pipeline(minimal_settings, dummy_params, dummy_dirs, logger, snap)
 
-    assert result == 0, "Pipeline should complete without error."
-    snap.capture.assert_called_once()
+    assert result == 0
+    output = Path(minimal_settings["OUTPUT_DIR"])
+    assert (output / "masks.npy").exists()
+    assert (output / "flows.npz").exists()
+    assert (output / "segmentation_mask.tif").exists()
+    snap.capture.assert_called_once_with("end_of_pipeline", {"masks": dummy_mask})
