@@ -31,7 +31,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
 
     height, width = image.shape
     tile_size = settings["tile_side_length"]
-    overlap = settings["TILE_OVERLAP"]
+    overlap = int(tile_size * settings["TILE_OVERLAP"])
     use_tiling = settings["USE_TILING"] and (height > tile_size or width > tile_size)
 
     logger.info(f"Segmentation initiated. Image shape: {image.shape}. Tiling: {use_tiling}")

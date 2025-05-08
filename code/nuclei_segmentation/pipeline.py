@@ -12,7 +12,7 @@ from cellpose import models
 from utils.preprocessing import preprocess_image
 from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
-from utils.visualization import generate_full_overlay, small_segmentation_overlay
+from utils.visualization import small_segmentation_overlay
 
 
 def log_config(logger, SETTINGS, CELLPOSE_PARAMS):
@@ -52,7 +52,6 @@ def save_outputs(masks, flows, output_dir, logger):
 
     np.save(masks_dir / "segmentation_masks.npy", masks)
     skio.imsave(masks_dir / "segmentation_masks.tif", masks.astype(np.uint16))
-
     np.savez(flows_dir / "flows.npz", flow0=flows[0], flow1=flows[1], cellprob=flows[2])
 
     logger.info("Segmentation results saved.")
@@ -83,9 +82,6 @@ def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
 
 
 def generate_overlays(image, masks, flows, output_dir, SETTINGS, logger):
-    if SETTINGS.get("GENERATE_OVERLAY", False):
-        generate_full_overlay(image, masks, flows, output_dir, logger)
-
     try:
         small_segmentation_overlay(
             output_dir,

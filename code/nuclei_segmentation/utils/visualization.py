@@ -25,7 +25,7 @@ import traceback
 from pathlib import Path
 
 
-def _setup_logger(name: str, debug: bool = False, log_file: Path = None) -> logging.Logger:
+def setup_logger(name: str, debug: bool = False, log_file: Path = None) -> logging.Logger:
     """
     Creates and configures a logger for visualization functions.
 
@@ -624,7 +624,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     """
 
     """SETUP"""
-    logger = _setup_logger("small_segmentation_overlay", debug=debug)
+    logger = setup_logger("small_segmentation_overlay", debug=debug)
     output_dir = Path(output_dir).expanduser().resolve()
     logger.info(f"Running overlay visualization on: {output_dir}")
 
@@ -719,95 +719,3 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.info("Saved full image overlay.")
     except Exception as e:
         logger.warning(f"Failed to create full-size overlay: {e}")
-
-
-def _ensure_dir(path):
-    """
-    Ensure a directory exists, creating it if necessary.
-
-    Args:
-        path (str or Path): Directory path to ensure.
-
-    Returns:
-        Path: Path object for the ensured directory.
-    """
-    path = Path(path)
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def generate_full_overlay(image, masks, flows, output_dir, logger=None):
-    """
-    Generate and save full-size overlay visualizations for entire tissue.
-
-    Args:
-        image (np.ndarray): Grayscale input image.
-        masks (np.ndarray): Segmentation masks.
-        flows (tuple): Cellpose flow fields.
-        output_dir (str or Path): Directory to save results.
-        logger (logging.Logger): Optional logger.
-
-    Returns:
-        None.
-    """
-
-    if logger is None:
-        logger = _setup_logger('generate_full_overlay', False)
-
-    # Validate input types.
-    if image is None or not isinstance(image, np.ndarray):
-        logger.error("Input 'image' must be a valid numpy array.")
-        return
-
-    if masks is None or not isinstance(masks, np.ndarray):
-        logger.error("Input 'masks' must be a valid numpy array.")
-        return
-
-    if flows is None or not isinstance(flows, list) or len(flows) == 0:
-        logger.error("Input 'flows' must be a non-empty list of numpy arrays.")
-        return
-
-    if not isinstance(output_dir, (str, Path)):
-        logger.error("Output directory must be a string or Path object.")
-        return
-
-    # Check array shape agreement.
-    if image.shape[:2] != masks.shape:
-        logger.warning(f"Image and mask shape mismatch: image={image.shape}, masks={masks.shape}")
-        min_h = min(image.shape[0], masks.shape[0])
-        min_w = min(image.shape[1], masks.shape[1])
-        image = image[:min_h, :min_w]
-        masks = masks[:min_h, :min_w]
-
-    vis_dir = Path(output_dir) / 'visualizations/full_image'
-
-    try:
-        vis_dir = _ensure_dir(vis_dir)
-    except PermissionError as e:
-        logger.error(e)
-        return
-
-    """Create and save mask overlay."""
-    try:
-        if masks.max() == 0:
-            logger.warning("No masks found; skipping mask overlay.")
-        else:
-            colors = np.random.rand(masks.max() + 1, 3)
-            full = plot.mask_overlay(image, masks, colors=colors)
-            skio.imsave(vis_dir / 'mask_overlay.tif', (full * 255).astype(np.uint8))
-            logger.info(f"Saved full overlay: {vis_dir / 'mask_overlay.tif'}")
-    except Exception as e:
-        logger.error(f"Full overlay failed: {e}")
-        traceback.print_exc()
-
-    """Create and save Cellpose flow visualization."""
-    try:
-        fig = plt.figure(figsize=(10, 10))
-        plot.show_segmentation(fig, img=image, maski=masks, flowi=flows[0], channels=[0, 0])
-        debug_path = vis_dir / 'segmentation_debug.tif'
-        fig.savefig(debug_path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        logger.info(f"Saved flow debug: {debug_path}")
-    except Exception as e:
-        logger.error(f"Flow debug failed: {e}")
-        traceback.print_exc()

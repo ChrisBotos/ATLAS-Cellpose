@@ -710,7 +710,7 @@ def merge_tiles_with_weighted_overlap(
     weight_accum = np.zeros((H, W), dtype=dtype)
 
     # Helper function to create a 2D feather mask for smooth blending.
-    def _feather_mask(h: int, w: int, ov: float) -> np.ndarray:
+    def feather_mask(h: int, w: int, ov: float) -> np.ndarray:
         """
         Build a (h × w) mask that is 1.0 in the tile center and decays
         linearly to 0.0 at each border across an edge band of width
@@ -758,7 +758,7 @@ def merge_tiles_with_weighted_overlap(
         if flow_accum is None:
             flow_accum = np.zeros((C, H, W), dtype=dtype)
 
-        alpha = _feather_mask(th, tw, overlap)
+        alpha = feather_mask(th, tw, overlap)
         alpha_broadcast = np.broadcast_to(alpha, (C, th, tw))
 
         rs, cs = slc
