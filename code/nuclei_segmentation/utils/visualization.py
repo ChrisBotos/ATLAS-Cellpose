@@ -270,7 +270,7 @@ def generate_tiled_overlay(img, masks, logger, tile_size=2048, overlap=128):
     colors = np.random.rand(num_labels + 1, 3)
     np.random.seed(None)
 
-    logger.info(f"Generating tiled overlay: shape={img.shape}, tile_size={tile_size}, overlap={overlap}")
+    logger.info(f"Generating tiled overlay: shape={img.shape}, overlay_tile_size={tile_size}, overlay_overlap={overlap}")
     step = tile_size - overlap
     weight = np.zeros((H, W, 1), dtype=np.float32)
 
@@ -623,6 +623,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         debug (bool): If True, enables more verbose logging and saves extra debug images.
     """
 
+
     """SETUP"""
     logger = setup_logger("small_segmentation_overlay", debug=debug)
     output_dir = Path(output_dir).expanduser().resolve()
@@ -634,11 +635,13 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.error(f"Cannot create output folders: {e}")
         return
 
+
     """FIXED PATHS"""
     img_path = output_dir / "preprocessed" / "cropped.tif"
     clahe_path = output_dir / "preprocessed" / "clahe.tif"
     gamma_path = output_dir / "preprocessed" / "gamma.tif"
     mask_path = output_dir / "masks" / "segmentation_masks.npy"
+
 
     """LOAD MAIN IMAGE"""
     if not img_path.exists():
@@ -649,6 +652,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     if img is None:
         return
 
+
     """LOAD MASK"""
     if not mask_path.exists():
         logger.error(f"Segmentation mask not found: {mask_path}")
@@ -658,8 +662,10 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     if masks is None:
         return
 
+
     """SHAPE SYNC"""
     img, masks = match_shapes(img, masks, logger)
+
 
     """CROP CENTER REGION"""
     y0, y1, x0, x1 = choose_crop_region(img, crop_size, logger)
@@ -677,6 +683,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.warning("No mask labels found in the cropped region.")
         return
 
+
     """GENERATE OVERLAY"""
     overlay = create_overlay(img_crop, masks_crop, logger)
     try:
@@ -685,6 +692,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.info(f"Saved overlay to: {overlay_path}")
     except Exception as e:
         logger.warning(f"Could not save overlay: {e}")
+
 
     """OPTIONAL ENHANCEMENT CROPS"""
     clahe_img = None
@@ -708,10 +716,12 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     else:
         logger.info("No Gamma image found.")
 
+
     """SUMMARY PANEL"""
     save_overlay_summary(img_crop, overlay, clahe_img, gamma_img, check_dir, logger, debug=debug)
 
-    """FULL IMAGE OVERLAY"""
+
+    """IMAGE OVERLAY"""
     try:
         logger.info("Creating full-size overlay.")
         full_overlay = generate_tiled_overlay(img, masks, logger)
