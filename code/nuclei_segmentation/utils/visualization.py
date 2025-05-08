@@ -16,7 +16,6 @@ These visualizations help researchers identify segmentation issues such as
 under-segmentation (merged nuclei) or over-segmentation (fragmented nuclei),
 which is particularly important in densely packed regions of injured kidney tissue.
 """
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import io as skio
@@ -133,31 +132,6 @@ def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Pat
         raise PermissionError("No writable visualization directory available.")
 
     return check_dir, debug_dir
-
-
-def find_valid_file(paths: list[str | Path], logger, description="file") -> Path | None:
-    """
-    Attempts to find and return the first valid file from a list.
-
-    Parameters:
-        paths (list): List of path-like objects (str or Path).
-        logger (Logger): Logger instance.
-        description (str): Description of file type for logging.
-
-    Returns:
-        Path or None: First found valid path.
-    """
-    for p in paths:
-        p = Path(p).expanduser().resolve()
-
-        if p.exists():
-            logger.info(f"Found {description}: {p}")
-            return p
-        else:
-            logger.debug(f"Tried {description} path but not found: {p}")
-    logger.error(f"No valid {description} found from list of {len(paths)} candidates.")
-    return None
-
 
 def load_image(image_paths: list[Path], debug_dir: Path, logger) -> np.ndarray | None:
     """
@@ -319,7 +293,7 @@ def generate_tiled_overlay(img, masks, logger, tile_size=2048, overlap=128):
 
     # Normalize to prevent over-blending at overlaps.
     weight = np.clip(weight, 1e-3, None)
-    overlay /= weight
+    overlay = (overlay.astype(np.float32) / weight).astype(np.uint8)
 
     logger.info("Successfully generated tiled overlay.")
     return overlay
@@ -640,20 +614,18 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     """
     Creates a quick visualization of a central or high-content crop from segmentation output.
 
-    This function loads the image and mask, finds a good crop region, generates overlays,
-    and saves both a summary panel and individual inspection panels. Used to quickly
-    check segmentation quality in kidney I/R experiments.
+    This function loads the preprocessed image and final segmentation mask, extracts a central crop,
+    generates overlays (including CLAHE and gamma-corrected versions if available), and saves them.
 
     Parameters:
-    output_dir (str or Path): Directory containing preprocessed image and mask outputs.
-    crop_size (int): Size of the crop in pixels (default: 1024).
-    debug (bool): If True, enables more verbose logging and saves extra debug images.
+        output_dir (str or Path): Directory containing preprocessed image and mask outputs.
+        crop_size (int): Size of the crop in pixels (default: 1024).
+        debug (bool): If True, enables more verbose logging and saves extra debug images.
     """
 
-    # ---------------------- Setup ----------------------
+    """SETUP"""
     logger = _setup_logger("small_segmentation_overlay", debug=debug)
     output_dir = Path(output_dir).expanduser().resolve()
-
     logger.info(f"Running overlay visualization on: {output_dir}")
 
     try:
@@ -662,62 +634,38 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.error(f"Cannot create output folders: {e}")
         return
 
-    # ---------------------- File Search ----------------------
-    preprocessed_paths = [
-        output_dir / "preprocessed" / "preprocessed_image.tif",
-        output_dir / "preprocessed" / "preprocessed_image.tif",
-        output_dir / "preprocessed_image.tif",
-        output_dir / "preprocessed_image.tif"
-    ]
+    """FIXED PATHS"""
+    img_path = output_dir / "preprocessed" / "final.tif"
+    clahe_path = output_dir / "preprocessed" / "clahe.tif"
+    gamma_path = output_dir / "preprocessed" / "gamma.tif"
+    mask_path = output_dir / "masks" / "segmentation_masks.npy"
 
-    clahe_paths = [
-        output_dir / "preprocessed" / "contrast_enhanced_image.tif",
-        output_dir / "contrast_enhanced_image.tif",
-        output_dir / "preprocessed" / "contrast_enhanced_image.tif",
-        output_dir / "contrast_enhanced_image.tif"
-    ]
-
-    gamma_paths = [
-        output_dir / "preprocessed" / "gamma_corrected_image.tif",
-        output_dir / "gamma_corrected_image.tif",
-        output_dir / "preprocessed" / "gamma_corrected_image.tif",
-        output_dir / "gamma_corrected_image.tif"
-    ]
-
-    mask_paths = [
-        output_dir / "masks.npy",
-        output_dir / "masks" / "masks.npy",
-        output_dir / "segmentation_mask_post_watershed.npy",
-        output_dir / "masks" / "segmentation_mask_post_watershed.npy"
-    ]
-
-    # ---------------------- Load Image ----------------------
-    img_path = find_valid_file(preprocessed_paths, logger, "preprocessed image")
-    if img_path is None:
+    """LOAD MAIN IMAGE"""
+    if not img_path.exists():
+        logger.error(f"Preprocessed image not found: {img_path}")
         return
 
     img = load_image([img_path], debug_dir, logger)
     if img is None:
         return
 
-    # ---------------------- Load Mask ----------------------
-    mask_path = find_valid_file(mask_paths, logger, "segmentation mask")
-    if mask_path is None:
+    """LOAD MASK"""
+    if not mask_path.exists():
+        logger.error(f"Segmentation mask not found: {mask_path}")
         return
 
     masks = load_masks([mask_path], debug_dir, logger)
     if masks is None:
         return
 
-    # ---------------------- Sync Shapes ----------------------
+    """SHAPE SYNC"""
     img, masks = match_shapes(img, masks, logger)
 
-    # ---------------------- Crop Region ----------------------
+    """CROP CENTER REGION"""
     y0, y1, x0, x1 = choose_crop_region(img, crop_size, logger)
     img_crop = crop_array(img, y0, y1, x0, x1, name="image", logger=logger)
     masks_crop = crop_array(masks, y0, y1, x0, x1, name="mask", logger=logger)
 
-    # Always save the cropped image
     try:
         skio.imsave(check_dir / "cropped_image.tif", img_crop)
         logger.info(f"Saved cropped image to: {check_dir / 'cropped_image.tif'}")
@@ -729,9 +677,8 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.warning("No mask labels found in the cropped region.")
         return
 
-    # ---------------------- Create Overlay ----------------------
+    """GENERATE OVERLAY"""
     overlay = create_overlay(img_crop, masks_crop, logger)
-
     try:
         overlay_path = check_dir / "central_crop_overlay.tif"
         skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
@@ -739,40 +686,32 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     except Exception as e:
         logger.warning(f"Could not save overlay: {e}")
 
-    # ---------------------- Load Optional Enhancements ----------------------
+    """OPTIONAL ENHANCEMENT CROPS"""
     clahe_img = None
     gamma_img = None
 
-    clahe_path = find_valid_file(clahe_paths, logger, "CLAHE image")
-    if clahe_path:
+    if clahe_path.exists():
         try:
             clahe_img = skio.imread(str(clahe_path))
             clahe_img = crop_array(clahe_img, y0, y1, x0, x1, "CLAHE image", logger)
         except Exception as e:
             logger.warning(f"Failed to load/crop CLAHE image: {e}")
+    else:
+        logger.info("No CLAHE image found.")
 
-    gamma_path = find_valid_file(gamma_paths, logger, "gamma image")
-    if gamma_path:
+    if gamma_path.exists():
         try:
             gamma_img = skio.imread(str(gamma_path))
-            gamma_img = crop_array(gamma_img, y0, y1, x0, x1, "gamma image", logger)
+            gamma_img = crop_array(gamma_img, y0, y1, x0, x1, "Gamma image", logger)
         except Exception as e:
             logger.warning(f"Failed to load/crop gamma image: {e}")
-
-    if clahe_img is not None:
-        logger.info("CLAHE contrast enhancement image successfully loaded and cropped.")
     else:
-        logger.info("No CLAHE image used.")
+        logger.info("No Gamma image found.")
 
-    if gamma_img is not None:
-        logger.info("Gamma correction image successfully loaded and cropped.")
-    else:
-        logger.info("No Gamma Correction image used.")
-
-    # ---------------------- Save Summary ----------------------
+    """SUMMARY PANEL"""
     save_overlay_summary(img_crop, overlay, clahe_img, gamma_img, check_dir, logger, debug=debug)
 
-    # ---------------------- Optional Full Image Overlay ----------------------
+    """FULL IMAGE OVERLAY"""
     try:
         logger.info("Creating full-size overlay.")
         full_overlay = generate_tiled_overlay(img, masks, logger)
