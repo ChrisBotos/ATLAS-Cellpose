@@ -48,7 +48,7 @@ def convert_16bit_to_8bit(image: np.ndarray) -> np.ndarray:
 
 '''GAMMA CORRECTION'''
 
-def adaptive_gamma_correction(image: np.ndarray, min_gamma: float = 1.5, max_gamma: float = 2.5, logger=None) -> np.ndarray:
+def adaptive_gamma_correction(image: np.ndarray, min_gamma: float = 1.9, max_gamma: float = 2.2, logger=None) -> np.ndarray:
     """
     Enhance dim images using adaptive gamma correction.
 
@@ -207,8 +207,8 @@ def preprocess_image(image_path, settings, logger):
                             logger=logger)
         save_image(image, os.path.join(out_dir, "clahe.tif"), logger)
 
-    if settings.get("ENHANCE_DIM", False):
-        image = adaptive_gamma_correction(image, logger=logger)
+    if settings.get("ENHANCE_DIM", False):  #TODO fix bug, this gamma correction does not work anymore, probably load from config bug.
+        image = adaptive_gamma_correction(image, min_gamma=settings.get("min_gamma", 1.9), max_gamma = settings.get("max_gamma", 2.2), logger=logger)
         save_image(image, os.path.join(out_dir, "gamma.tif"), logger)
 
     upscale_factor = settings.get("UPSCALE_FACTOR", 1)

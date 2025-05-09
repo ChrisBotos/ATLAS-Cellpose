@@ -31,23 +31,36 @@ def setup_project_structure():
 
 def load_config(config_path=None):
     """
-    Load INI config, create output dir, return settings and paths.
-    """
+    Load INI config, copy to timestamped results folder, and return parsed settings.
 
+    Args:
+        config_path (str or Path, optional): Path to original INI config file.
+
+    Returns:
+        tuple: (SETTINGS dict, CELLPOSE_PARAMS dict, PROJECT_DIRS dict, Path to copied config).
+    """
     dirs = setup_project_structure()
 
     config_path = config_path or (dirs["configs"] / "nuclei_segmentation_config.ini")
-    config = configparser.ConfigParser()
+
     if not Path(config_path).exists():
-        raise FileNotFoundError(f"Missing config: {config_path}")
-    config.read(config_path)
+        raise FileNotFoundError(f"[CONFIG ERROR] Missing config: {config_path}")
+
+    # Load the original config first just to extract output_dir name.
+    base_config = configparser.ConfigParser()
+    base_config.read(config_path)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    prefix = config.get("General", "output_dir", fallback="iri_results")
-    output_dir = dirs["results"] / f"{prefix}_{timestamp}"
+    name = base_config.get("General", "output_dir", fallback="iri_results")
+    output_dir = dirs["results"] / f"{timestamp}_{name}"
     output_dir.mkdir(exist_ok=True)
 
-    shutil.copy2(config_path, output_dir / "config_used.ini")
+    # Copy config to output dir and reload from there.
+    copied_config_path = output_dir / "config_used.ini"
+    shutil.copy2(config_path, copied_config_path)
+
+    config = configparser.ConfigParser()
+    config.read(copied_config_path)
 
     SETTINGS = {
         "OUTPUT_DIR": output_dir,
@@ -55,7 +68,6 @@ def load_config(config_path=None):
         "UPSCALE_FACTOR": config.getint("General", "upscale_factor", fallback=1),
         "CROP_IMAGE": config.getboolean("General", "crop_image", fallback=False),
         "ENHANCE_CONTRAST": config.getboolean("General", "enhance_contrast", fallback=False),
-        "ENHANCE_DIM": config.getboolean("General", "enhance_dim", fallback=False),
         "GENERATE_OVERLAY": config.getboolean("General", "generate_overlay", fallback=True),
         "USE_EDGE_DETECTION": config.getboolean("EdgeDetection", "use_edge_detection", fallback=False),
         "APPLY_WATERSHED": config.getboolean("Watershed", "apply_watershed", fallback=False),
@@ -65,6 +77,9 @@ def load_config(config_path=None):
         "CROP_BBOX": get_tuple(config, "General", "crop_bbox", default=(0, 1, 0, 1)),
         "CLAHE_CLIPLIMIT": config.getfloat("CLAHE", "cliplimit", fallback=2.0),
         "CLAHE_TILE_GRID_SIZE": get_tuple(config, "CLAHE", "tile_grid_size", default=(8, 8), cast=int),
+        "ENHANCE_DIM": config.getboolean("Gamma_Correction", "ENHANCE_DIM", fallback=False),
+        "MIN_GAMMA": config.getfloat("Gamma_Correction", "min_gamma", fallback=1.9),
+        "MAX_GAMMA": config.getfloat("Gamma_Correction", "max_gamma", fallback=2.2),
         "CANNY_THRESHOLD1": config.getint("EdgeDetection", "canny_threshold1", fallback=50),
         "CANNY_THRESHOLD2": config.getint("EdgeDetection", "canny_threshold2", fallback=150),
         "AREA_THRESHOLD_FOR_WATERSHED": config.getint("Watershed", "area_threshold", fallback=1000),

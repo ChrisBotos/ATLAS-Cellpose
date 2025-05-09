@@ -4,8 +4,6 @@ ENTRYPOINT: Advanced nuclei segmentation pipeline for kidney I/R injury slices.
 """
 
 import traceback
-from pathlib import Path
-from datetime import datetime
 
 from utils.project_setup import load_config
 from utils.logging_utils import setup_logging
@@ -22,7 +20,6 @@ def main():
     """
     try:
         SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
-
 
         logger = setup_logging(SETTINGS["OUTPUT_DIR"], debug_mode=SETTINGS.get("DEBUG_MODE", False))
         snap = setup_debug(SETTINGS)

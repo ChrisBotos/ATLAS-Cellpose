@@ -113,15 +113,6 @@ def load_config(config_path=None):
     # Get current timestamp for output directory naming.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Set up project directories.
-    script_dir = Path(__file__).resolve().parent
-    PROJECT_DIRS = {
-        "root": script_dir,
-        "data": script_dir / "data",
-        "results": script_dir / "results",
-        "configs": script_dir / "configs"
-    }
-
     # Use default config path if none provided.
     if config_path is None:
         config_path = PROJECT_DIRS["configs"] / "nuclei_segmentation_config.ini"
@@ -212,6 +203,15 @@ def load_config(config_path=None):
         CELLPOSE_PARAMS["channels"] = tuple(map(int, config.get("Cellpose", "channels", fallback="0,0").split(',')))
     except ValueError:
         CELLPOSE_PARAMS["channels"] = (0, 0)  # Default: grayscale.
+
+    # Set up project directories.
+    script_dir = Path(__file__).resolve().parent
+    PROJECT_DIRS = {
+        "root": script_dir,
+        "data": script_dir / "data",
+        "results": script_dir / "results",
+        "configs": script_dir / "configs"
+    }
 
     return SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS
 
