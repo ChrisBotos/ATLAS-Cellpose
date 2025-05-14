@@ -77,7 +77,7 @@ def load_config(config_path=None):
         "CROP_BBOX": get_tuple(config, "General", "crop_bbox", default=(0, 1, 0, 1)),
         "CLAHE_CLIPLIMIT": config.getfloat("CLAHE", "cliplimit", fallback=2.0),
         "CLAHE_TILE_GRID_SIZE": get_tuple(config, "CLAHE", "tile_grid_size", default=(8, 8), cast=int),
-        "ENHANCE_DIM": config.getboolean("Gamma_Correction", "ENHANCE_DIM", fallback=False),
+        "enhance_dim": config.getboolean("Gamma_Correction", "enhance_dim", fallback=False),
         "MIN_GAMMA": config.getfloat("Gamma_Correction", "min_gamma", fallback=1.9),
         "MAX_GAMMA": config.getfloat("Gamma_Correction", "max_gamma", fallback=2.2),
         "CANNY_THRESHOLD1": config.getint("EdgeDetection", "canny_threshold1", fallback=50),

@@ -38,7 +38,7 @@ SETTINGS = {
     "UPSCALE_FACTOR": 1,           # e.g., 1 for no upscaling, 4 for 4x upscaling
     "CROP_IMAGE": True,
     "ENHANCE_CONTRAST": True,
-    "ENHANCE_DIM": False,
+    "enhance_dim": False,
     "GENERATE_OVERLAY": False,
     "IMAGE_PATH": "IRI_regist.tif",  # /exports/archive/hg-funcgenom-research/IRI_multimodal_project/Stereo-seq_IRI/
     "CLAHE_CLIPLIMIT": 5.0,
@@ -199,7 +199,7 @@ def preprocess_image(image_path, settings, logger):
         skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.tif"), image)
         logger.info("Applied CLAHE contrast enhancement")
     
-    if settings["ENHANCE_DIM"]:
+    if settings["enhance_dim"]:
         image = adaptive_gamma_correction(image, min_gamma=1.2, max_gamma=1.5, logger=logger)
         skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.tif"), image)
         logger.info("Applied gamma correction")

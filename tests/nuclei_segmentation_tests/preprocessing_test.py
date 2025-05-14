@@ -158,7 +158,7 @@ def test_preprocess_image_pipeline(tmp_path, dummy_16bit_image, dummy_logger):
     settings = {
         "OUTPUT_DIR": str(tmp_path),
         "ENHANCE_CONTRAST": True,
-        "ENHANCE_DIM": True,
+        "enhance_dim": True,
         "CROP_IMAGE": True,
         "CROP_BBOX": (0.1, 0.9, 0.1, 0.9),
         "UPSCALE_FACTOR": 2

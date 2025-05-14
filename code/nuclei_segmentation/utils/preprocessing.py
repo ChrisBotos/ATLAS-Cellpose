@@ -173,6 +173,10 @@ def preprocess_image(image_path, settings, logger):
 
     if logger:
         logger.info(f"Loaded {image_path} with shape {image.shape} and dtype {image.dtype}")
+        # Debug: Print all settings keys to identify case issues
+        logger.info(f"Settings keys: {list(settings.keys())}")
+        logger.info(f"enhance_dim value: {settings.get('enhance_dim', 'NOT FOUND')}")
+        logger.info(f"ENHANCE_DIM value: {settings.get('ENHANCE_DIM', 'NOT FOUND')}")
 
     out_dir = os.path.join(settings["OUTPUT_DIR"], "preprocessed")
     os.makedirs(out_dir, exist_ok=True)
@@ -207,7 +211,7 @@ def preprocess_image(image_path, settings, logger):
                             logger=logger)
         save_image(image, os.path.join(out_dir, "clahe.tif"), logger)
 
-    if settings.get("ENHANCE_DIM", False):  #TODO fix bug, this gamma correction does not work anymore, probably load from config bug.
+    if settings.get("enhance_dim", False):  #TODO fix bug, this gamma correction does not work anymore, probably load from config bug.
         image = adaptive_gamma_correction(image, min_gamma=settings.get("min_gamma", 1.9), max_gamma = settings.get("max_gamma", 2.2), logger=logger)
         save_image(image, os.path.join(out_dir, "gamma.tif"), logger)
 
