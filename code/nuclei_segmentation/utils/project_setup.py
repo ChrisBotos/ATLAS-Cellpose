@@ -75,7 +75,7 @@ def load_config(config_path=None):
         "use_tiling": config.getboolean("tiling", "use_tiling", fallback=True),
         "merge_overlap_threshold": config.getfloat("tiling", "merge_overlap_threshold", fallback=0.3),
         "debug_mode": config.getboolean("debug", "debug_mode", fallback=False),
-        "crop_bbox": get_tuple(config, "general", "crop_bbox", default=(0, 1, 0, 1)),
+        "crop_box": get_tuple(config, "general", "crop_box", default=(0, 1, 0, 1)),
         "clahe_cliplimit": config.getfloat("clahe", "cliplimit", fallback=2.0),
         "clahe_tile_grid_size": get_tuple(config, "clahe", "tile_grid_size", default=(8, 8), cast=int),
         "canny_threshold1": config.getint("edge_detection", "canny_threshold1", fallback=50),

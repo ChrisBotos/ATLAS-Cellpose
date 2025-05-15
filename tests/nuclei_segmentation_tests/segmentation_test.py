@@ -79,10 +79,10 @@ def dummy_settings():
     """settings for tiling and refinement."""
     return {
         "tile_side_length": 64,
-        "TILE_OVERLAP": 8,
-        "USE_TILING": True,
-        "CANNY_THRESHOLD1": 30,
-        "CANNY_THRESHOLD2": 100
+        "tile_overlap": 8,
+        "use_tiling": True,
+        "canny_threshold1": 30,
+        "canny_threshold2": 100
     }
 
 

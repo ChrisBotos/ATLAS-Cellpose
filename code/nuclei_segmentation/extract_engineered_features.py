@@ -6,12 +6,12 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: extract_engineered_features.py.
 Description:
-    Advanced nuclear feature extraction for ischemia-reperfusion kidney injury analysis.
+    Extract comprehensive nuclear features (morphological, intensity, texture, neighborhood,
+    spatial context) from segmented DAPI-stained images using modern libraries and CLI.
 
 Dependencies:
-    • Python >= 3.7.
-    • numpy, pandas, PIL, scipy, scikit-image, joblib.
-    • cupy (optional, for GPU acceleration).
+    • Python >= 3.9.
+    • numpy, pandas, scipy, scikit-image, scikit-learn, Pillow, typer.
 
 Usage:
     python extract_engineered_features.py --image <path/to/image> --mask <path/to/mask> [--output <path/to/output.csv>] [--neighbor_radius <radius>] [--jobs <n_jobs>]
@@ -19,257 +19,313 @@ Usage:
   --image ../../results/an_example_result/preprocessed/cropped.tif \
   --mask  ../../results/an_example_result/masks/segmentation_masks.npy \
   --output ../../results/an_example_result/features.csv \
-  --neighbor_radius 75.0 \
+  --neighbor-radius 75.0 \
   --jobs 6
 
 Positional Arguments:
     None.
 
 Optional Arguments:
-    --image            Path to input grayscale image.
-    --mask             Path to segmentation mask (.npy or image).
-    --output           Output CSV file (default: features.csv).
-    --neighbor_radius  Radius to search for neighboring nuclei in pixels (default: 50.0).
-    --jobs             Number of parallel jobs/CPU cores (default: -1 for all cores).
+    --image             Path to input grayscale image (TIFF).
+    --mask              Path to segmentation mask (NumPy .npy or image file).
+    --output            CSV file to write features (default: features.csv).
+    --neighbor_radius   Radius for neighbor search in pixels (default: 50.0).
+    --jobs              Number of parallel workers (default: CPU count).
 
 Inputs:
-    • Grayscale image of kidney tissue section.
-    • Segmentation mask with labeled nuclei.
+    • Grayscale DAPI image of kidney tissue section.
+    • Labeled segmentation mask of nuclei.
 
 Outputs:
-    • CSV file containing extracted nuclear features including shape metrics, intensity statistics, and neighborhood relationships.
+    • CSV file with one row per nucleus and columns for each feature.
 
 Key Features:
-    • GPU acceleration via CuPy when available.
-    • Parallel processing for faster analysis.
-    • Comprehensive feature extraction including shape, intensity, and neighborhood metrics.
-    • Robust handling of edge cases to prevent NaN values.
-    • Distance mapping to dark regions for contextual analysis.
+    • Modern CLI with Typer for validation and help.
+    • Parallel processing via concurrent.futures.
+    • Full feature suite: morphological (area, perimeter, axes, aspect ratio, circularity,
+      solidity, eccentricity, Feret diameter, roughness, bounding box, fractal dimension),
+      intensity (mean, std, median, skewness, kurtosis, entropy), LBP texture (bins 0–10),
+      neighborhood (k-NN: mean/std area, eccentricity mean, orientation alignment,
+      nearest distance, cluster density/elongation/polarization/area ratio),
+      spatial context (centroid coords, distance to center/edge), distance to dark/sparse regions.
 
 Notes:
-    • This script is optimized for analyzing nuclear morphology changes during kidney I/R injury.
-    • Features extracted are relevant for identifying different cell death mechanisms (apoptosis, pyroptosis, etc.).
+    • Fractal dimension via box-counting on binary mask.
+    • Sparse zones defined as connected low-intensity regions > 64×64 px.
 """
 
-import argparse
-import time
 from pathlib import Path
+import logging
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
 from PIL import Image
-from scipy.ndimage import distance_transform_edt
+from scipy import ndimage
 from scipy.stats import entropy, skew, kurtosis
 from scipy.spatial import cKDTree
+from skimage.feature import local_binary_pattern
 from skimage.measure import regionprops, label
-from joblib import Parallel, delayed
+from sklearn.decomposition import PCA
+import typer
 
-# Attempt GPU acceleration via CuPy.
-try:
-    import cupy as cp
-    xp = cp
-    USE_GPU = True
-    print("Using GPU acceleration with CuPy for faster nuclear feature extraction!")
-except ImportError:
-    xp = np
-    USE_GPU = False
-    print("Using CPU (NumPy) for nuclear feature extraction.")
-
-import logging
+app = typer.Typer()
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
 def compute_dark_distance_map(gray: np.ndarray, threshold: int = 50) -> np.ndarray:
     """
-    Compute Euclidean distance map from dark regions in the grayscale image.
-
-    Args:
-        gray: 2D numpy array of grayscale intensities.
-        threshold: Intensity below which pixels are considered dark.
-
-    Returns:
-        Distance map array of same shape as input.
+    Compute distance from each pixel to nearest dark region (intensity < threshold).
     """
-    mask = gray < threshold
-    return distance_transform_edt(~mask)
+    mask_dark = gray < threshold
+    return ndimage.distance_transform_edt(~mask_dark)
 
 
-def extract_region_intensity(pil_img: Image.Image, region, offset: tuple) -> np.ndarray:
+def compute_sparse_distance_map(
+    gray: np.ndarray,
+    mask: np.ndarray,
+    intensity_threshold: int = 5,
+    min_size: int = 64 * 64,
+) -> np.ndarray:
     """
-    Crop and return the grayscale intensity patch for a region.
-
-    Args:
-        pil_img: Full PIL image in grayscale.
-        region: skimage RegionProperties object.
-        offset: (x_offset, y_offset) for tiled images.
-
-    Returns:
-        2D numpy array of pixel values within region bbox.
+    Compute distance to nearest sparse zone (large low-intensity background regions).
     """
-    minr, minc, maxr, maxc = region.bbox
-    x0, y0 = offset
-    crop = pil_img.crop((minc + x0, minr + y0, maxc + x0, maxr + y0))
-    return np.array(crop)
+    sparse = (gray < intensity_threshold) & (mask == 0)
+    labeled_sparse, num = ndimage.label(sparse)
+    keep = np.zeros_like(sparse)
+    for idx in range(1, num + 1):
+        comp = labeled_sparse == idx
+        if comp.sum() >= min_size:
+            keep |= comp
+    return ndimage.distance_transform_edt(~keep)
 
 
-def compute_features(region, neighbors, dark_map, pil_gray, offset):
+def fractal_dimension(binary_mask: np.ndarray) -> float:
     """
-    Compute shape, intensity, and neighborhood features for one nucleus.
+    Estimate fractal dimension via box-counting method, robust to arbitrary shapes.
+    Returns NaN if shape too small for estimation.
+    """
+    max_dim = min(binary_mask.shape)
+    if max_dim < 2:
+        return np.nan
+    sizes = 2 ** np.arange(int(np.log2(max_dim)), 1, -1)
+    if sizes.size < 2:
+        return np.nan
+
+    counts: List[int] = []
+    for size in sizes:
+        n_rows = int(np.ceil(binary_mask.shape[0] / size))
+        n_cols = int(np.ceil(binary_mask.shape[1] / size))
+        count = 0
+        for i in range(n_rows):
+            for j in range(n_cols):
+                block = binary_mask[i*size:(i+1)*size, j*size:(j+1)*size]
+                if block.any():
+                    count += 1
+        counts.append(count)
+
+    if len(counts) < 2:
+        return np.nan
+
+    coeff = np.polyfit(np.log(sizes), np.log(counts), 1)
+    return float(-coeff[0])
+
+
+def compute_region_features(
+    region: Any,
+    neighbor_data: Dict[str, Any],
+    dark_map: np.ndarray,
+    sparse_map: np.ndarray,
+    gray: np.ndarray,
+    shape: tuple,
+) -> Dict[str, Any]:
+    """
+    Extract features for a single nucleus region.
     """
     cy, cx = region.centroid
-    x_off, y_off = offset
-    cy += y_off
-    cx += x_off
-
-    # Basic shape metrics.
     area = region.area
     perimeter = region.perimeter or np.nan
-    circularity = (4 * np.pi * area / perimeter**2) if perimeter > 0 else np.nan
     major = region.major_axis_length
     minor = region.minor_axis_length
-    aspect_ratio = major / minor if minor > 0 else np.nan
+    aspect_ratio = major / minor if minor else np.nan
+    circularity = (4 * np.pi * area / perimeter**2) if perimeter else np.nan
     solidity = region.solidity
     eccentricity = region.eccentricity
+    feret = getattr(region, 'feret_diameter_max', np.nan)
+    roughness = perimeter / np.sqrt(area) if area else np.nan
+    minr, minc, maxr, maxc = region.bbox
+    bbox_w = maxc - minc
+    bbox_h = maxr - minr
+    frac_dim = fractal_dimension(region.image)
 
-    # Intensity statistics.
-    patch = extract_region_intensity(pil_gray, region, offset)
-    mask = region.image
-    values = patch[mask]
-    intensity = {
-        'mean': float(values.mean()),
-        'std': float(values.std()),
-        'median': float(np.median(values)),
-        'skew': float(skew(values)) if values.size else np.nan,
-        'kurtosis': float(kurtosis(values)) if values.size else np.nan,
-    }
-    hist = np.histogram(values, bins=32)[0]
-    texture_entropy = float(entropy(hist + 1))
+    patch = gray[minr:maxr, minc:maxc]
+    mask_patch = region.image
+    vals = patch[mask_patch]
 
-    # Neighbor stats.
-    n = len(neighbors['centroids'])
-    if n:
-        dists = [
-            np.hypot(cx - c[1] - x_off, cy - c[0] - y_off)
-            for c in neighbors['centroids']
-        ]
-        neighbor_count = n
-        dist_mean, dist_std = float(np.mean(dists)), float(np.std(dists))
-        orientation_diffs = [region.orientation - o for o in neighbors['orientations']]
-        orient_std = float(np.std(orientation_diffs))
+    mean_int = float(vals.mean())
+    std_int = float(vals.std())
+    median_int = float(np.median(vals))
+    skew_int = float(skew(vals)) if vals.size else np.nan
+    kurt_int = float(kurtosis(vals)) if vals.size else np.nan
+    hist = np.histogram(vals, bins=32)[0]
+    tex_ent = float(entropy(hist + 1))
+
+    # Local Binary Patterns: capture micro-texture of chromatin structure—
+    # reflects euchromatin/heterochromatin granularity and edge features.
+    lbp = local_binary_pattern(patch, P=8, R=1, method='uniform')
+    lbp_vals = lbp[mask_patch]
+    lbp_hist, _ = np.histogram(lbp_vals, bins=np.arange(12), density=True)
+
+    centroids = neighbor_data['centroids']
+    areas = neighbor_data['areas']
+    eccs = neighbor_data['eccs']
+    orients = neighbor_data['orients']
+    dists = [np.hypot(cx - x, cy - y) for y, x in centroids]
+    dist_min = float(min(dists)) if dists else 0.0
+    cluster_density = len(dists) / (np.pi * neighbor_data['radius']**2)
+    if centroids:
+        coords = np.array([[x, y] for y, x in centroids])
+        pca = PCA(n_components=2).fit(coords)
+        eig = pca.explained_variance_
+        elong = float(eig[0] / eig[1]) if eig[1] else 0.0
+        cosines = [np.cos(region.orientation - o) for o in orients]
+        pol = float(np.mean(cosines))
     else:
-        neighbor_count = 0
-        dist_mean = dist_std = orient_std = 0.0
+        elong = pol = 0.0
 
-    # Distance to dark regions.
-    h, w = dark_map.shape
+    neigh_mean_area = float(np.mean(areas)) if areas else 0.0
+
+    h, w = shape
+    dist_center = float(np.hypot(cx - w/2, cy - h/2))
+    dist_edge = float(min(cx, cy, w-cx, h-cy))
     iy, ix = int(round(cy)), int(round(cx))
-    if 0 <= iy < h and 0 <= ix < w:
-        dist_to_dark = float(dark_map[iy, ix])
-    else:
-        dist_to_dark = 0.0
+    dist_dark = float(dark_map[iy, ix])
+    dist_sparse = float(sparse_map[iy, ix])
 
-    return {
+    feats = {
         'Label': region.label,
-        'Centroid_Y': cy,
         'Centroid_X': cx,
+        'Centroid_Y': cy,
         'Area': area,
         'Perimeter': perimeter,
-        'Circularity': circularity,
+        'Major_Axis_Length': major,
+        'Minor_Axis_Length': minor,
         'Aspect_Ratio': aspect_ratio,
+        'Circularity': circularity,
         'Eccentricity': eccentricity,
         'Solidity': solidity,
-        'Intensity_Mean': intensity['mean'],
-        'Intensity_Std': intensity['std'],
-        'Intensity_Median': intensity['median'],
-        'Intensity_Skew': intensity['skew'],
-        'Intensity_Kurtosis': intensity['kurtosis'],
-        'Texture_Entropy': texture_entropy,
-        'Neighbor_Count': neighbor_count,
-        'Neighbor_Dist_Mean': dist_mean,
-        'Neighbor_Dist_Std': dist_std,
-        'Neighbor_Orient_Std': orient_std,
-        'Dist_To_Dark': dist_to_dark,
+        'Feret_Diameter': feret,
+        'Roughness_Index': roughness,
+        'Bounding_Box_Width': bbox_w,
+        'Bounding_Box_Height': bbox_h,
+        'Fractal_Dimension': frac_dim,
+        'Intensity_Mean': mean_int,
+        'Intensity_Std': std_int,
+        'Intensity_Median': median_int,
+        'Intensity_Skewness': skew_int,
+        'Intensity_Kurtosis': kurt_int,
+        'Texture_Entropy': tex_ent,
+        'Distance_to_Image_Center': dist_center,
+        'Distance_to_Image_Edge': dist_edge,
+        'Distance_to_Dark_Region': dist_dark,
+        'Distance_to_Sparse_Zone': dist_sparse,
+        'Neighborhood_Mean_Area': neigh_mean_area,
+        'Neighborhood_Std_Area': float(np.std(areas)) if areas else 0.0,
+        'Neighborhood_Eccentricity_Mean': float(np.mean(eccs)) if eccs else 0.0,
+        'Orientation_Alignment_Std': float(np.std([region.orientation - o for o in orients])),
+        'Distance_to_Nearest_Nucleus': dist_min,
+        'Cluster_Density_Index': cluster_density,
+        'Cluster_Elongation': elong,
+        'Cluster_Polarization_Score': pol,
+        'Cluster_Area_Ratio': area / neigh_mean_area if neigh_mean_area else 0.0,
     }
+    for i in range(11):
+        feats[f'LBP_Bin_{i}'] = float(lbp_hist[i] if i < len(lbp_hist) else 0.0)
+
+    return feats
 
 
-def process_mask_regions(mask: np.ndarray, radius: float) -> list:
+def build_neighbors_list(
+    props: List[Any],
+    tree: cKDTree,
+    radius: float,
+) -> List[Dict[str, Any]]:
     """
-    Precompute neighbor info for each region.
-
-    Args:
-        mask: 2D integer array of labeled nuclei.
-        radius: Distance threshold to consider nuclei as neighbors.
-
-    Returns:
-        Tuple of (region properties list, neighbor info list).
+    For each region, collect neighbor centroids, areas, eccentricities, orientations.
     """
-    props = regionprops(mask)
-    centroids = [r.centroid for r in props]
-    tree = cKDTree(centroids)
-    neighbor_list = []
-    for i, c in enumerate(centroids):
-        ids = [j for j in tree.query_ball_point(c, radius) if j != i]
-        neighbor_list.append({
-            'centroids': [centroids[j] for j in ids],
-            'orientations': [props[j].orientation for j in ids]
+    data = []
+    for idx, r in enumerate(props):
+        ids = [i for i in tree.query_ball_point(r.centroid, radius) if i != idx]
+        data.append({
+            'centroids': [props[i].centroid for i in ids],
+            'areas': [props[i].area for i in ids],
+            'eccs': [props[i].eccentricity for i in ids],
+            'orients': [props[i].orientation for i in ids],
+            'radius': radius,
         })
-    return props, neighbor_list
+    return data
 
 
-def extract_features(
+def process_image(
     image_path: Path,
     mask_path: Path,
     output_csv: Path,
-    radius: float,
-    n_jobs: int
+    neighbor_radius: float,
+    jobs: int,
 ) -> pd.DataFrame:
-    """Extract features for all nuclei and save to CSV."""
-    img = Image.open(image_path).convert('L')
-    gray = np.array(img)
-    dark_map = compute_dark_distance_map(gray)
-
-    mask = np.load(mask_path) if mask_path.suffix == '.npy' else np.array(Image.open(mask_path))
-    if not np.issubdtype(mask.dtype, np.integer):
-        mask = label(mask)
-
-    props, neighbors = process_mask_regions(mask, radius)
-
-    logger.info(f"Computing features for {len(props)} regions...")
-    tasks = (
-        delayed(compute_features)(r, neighbors[i], dark_map, img, (0, 0))
-        for i, r in enumerate(props)
+    """
+    Load image and mask, compute context maps, extract features in parallel, write CSV.
+    """
+    gray = np.array(Image.open(image_path).convert('L'))
+    mask_arr = (
+        np.load(mask_path) if mask_path.suffix == '.npy'
+        else np.array(Image.open(mask_path))
     )
-    results = Parallel(n_jobs=n_jobs)(tasks)
+    mask_arr = label(mask_arr)
+
+    dark_map = compute_dark_distance_map(gray)
+    sparse_map = compute_sparse_distance_map(gray, mask_arr)
+
+    props = regionprops(mask_arr)
+    centroids = [r.centroid for r in props]
+    tree = cKDTree(centroids)
+    neighbors = build_neighbors_list(props, tree, neighbor_radius)
+
+    workers = jobs if jobs > 0 else multiprocessing.cpu_count()
+    results: List[Dict[str, Any]] = []
+    with ProcessPoolExecutor(max_workers=workers) as exe:
+        futures = [
+            exe.submit(
+                compute_region_features,
+                props[i], neighbors[i], dark_map, sparse_map, gray, gray.shape,
+            ) for i in range(len(props))
+        ]
+        for fut in as_completed(futures):
+            results.append(fut.result())
 
     df = pd.DataFrame(results)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_csv, index=False)
-    logger.info(f"Saved features to {output_csv}")
+    logger.info(f"Extracted {len(df)} nuclei features to {output_csv}")
     return df
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Extract nuclear features from segmented images.")
-    parser.add_argument("--image", type=Path, required=True, help="Path to input grayscale image.")
-    parser.add_argument("--mask", type=Path, required=True, help="Path to segmentation mask (.npy or image).")
-    parser.add_argument("--output", type=Path, default=Path("features.csv"), help="Output CSV file.")
-    parser.add_argument("--neighbor_radius", type=float, default=50.0,
-                        help="Radius to search for neighboring nuclei (pixels).")
-    parser.add_argument("--jobs", type=int, default=-1, help="Number of parallel jobs (CPU cores).")
-    args = parser.parse_args()
-
-    start = time.time()
-    extract_features(
-        image_path=args.image,
-        mask_path=args.mask,
-        output_csv=args.output,
-        radius=args.neighbor_radius,
-        n_jobs=args.jobs
-    )
-    elapsed = time.time() - start
-    logger.info(f"Total processing time: {elapsed:.2f}s")
+@app.command()
+def extract(
+    image: Path = typer.Option(..., exists=True, help="Input TIFF image."),
+    mask: Path = typer.Option(..., exists=True, help="Segmentation mask (.npy or image)."),
+    output: Path = typer.Option(Path('features.csv'), help="Output CSV path."),
+    neighbor_radius: float = typer.Option(50.0, help="Neighbor search radius."),
+    jobs: int = typer.Option(-1, help="Number of parallel workers."),
+) -> None:
+    """
+    Command: extract features from nuclei and save to CSV.
+    """
+    process_image(image, mask, output, neighbor_radius, jobs)
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    app()

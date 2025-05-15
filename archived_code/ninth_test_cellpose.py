@@ -35,28 +35,28 @@ Image.MAX_IMAGE_PIXELS = 10**9
 # PARAMETERS
 # =============================================================================
 settings = {
-    "UPSCALE_FACTOR": 1,           # e.g., 1 for no upscaling, 4 for 4x upscaling
-    "CROP_IMAGE": True,
-    "ENHANCE_CONTRAST": True,
+    "upscale_factor": 1,           # e.g., 1 for no upscaling, 4 for 4x upscaling
+    "crop_image": True,
+    "enhance_contrast": True,
     "enhance_dim": False,
-    "GENERATE_OVERLAY": False,
-    "IMAGE_PATH": "IRI_regist.tif",  # /exports/archive/hg-funcgenom-research/IRI_multimodal_project/Stereo-seq_IRI/
-    "CLAHE_CLIPLIMIT": 5.0,
-    "CLAHE_TILE_GRID_SIZE": (32, 32),
-    "OUTPUT_DIR": "iri_results_small_0d09-12_5cl_32x32",
+    "generate_overlay": False,
+    "image_path": "IRI_regist.tif",  # /exports/archive/hg-funcgenom-research/IRI_multimodal_project/Stereo-seq_IRI/
+    "clahe_cliplimit": 5.0,
+    "clahe_tile_grid_size": (32, 32),
+    "output_dir": "iri_results_small_0d09-12_5cl_32x32",
     # Switches for optional steps:
-    "USE_EDGE_DETECTION": False,  # Toggle Canny-based refinement on/off
-    "APPLY_WATERSHED": False,      # Apply local watershed to large lumps
-    "USE_TILING": False,            # Toggle tiling on/off
+    "use_edge_detection": False,  # Toggle Canny-based refinement on/off
+    "apply_watershed": False,      # Apply local watershed to large lumps
+    "use_tiling": False,            # Toggle tiling on/off
     # Watershed splitting settings:
-    "AREA_THRESHOLD_FOR_WATERSHED": 1000,  # min area to consider the region "fused"
-    "LOCAL_MAXIMA_FOOTPRINT": (3, 3),      # footprint for local maxima detection in watershed splitting
+    "area_threshold_for_watershed": 1000,  # min area to consider the region "fused"
+    "local_maxima_footprint": (3, 3),      # footprint for local maxima detection in watershed splitting
     # Edge detection thresholds:
-    "CANNY_THRESHOLD1": 50,
-    "CANNY_THRESHOLD2": 150,
+    "canny_threshold1": 50,
+    "canny_threshold2": 150,
     # Tiling settings:
     "tile_side_length": 2**11,  # Pixels.
-    "TILE_OVERLAP": 0.1,             # Must be a fraction (e.g., 0.1 for 10%).
+    "tile_overlap": 0.1,             # Must be a fraction (e.g., 0.1 for 10%).
     # Small overlay settings:
     "SMALL_OVERLAY_SIZE": 1024
 }
@@ -170,38 +170,38 @@ def preprocess_image(image_path, settings, logger):
     # Convert 16-bit to 8-bit if necessary
     if image.dtype == np.uint16:
         image = convert_16bit_to_8bit(image)
-        cv2.imwrite(os.path.join(settings["OUTPUT_DIR"], "converted_8bit.tif"), image)
+        cv2.imwrite(os.path.join(settings["output_dir"], "converted_8bit.tif"), image)
         logger.info("Converted 16-bit to 8-bit")
     
     if image.ndim == 3:
         image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
         logger.info("Converted to grayscale")
     
-    if settings["CROP_IMAGE"]:
+    if settings["crop_image"]:
         h, w = image.shape
         image = image[int(8*h//16): int(8.2*h//16), int(12*w//16): int(12.2*w//16)]
         logger.info(f"Cropped image to shape: {image.shape}")
     
-    if settings["UPSCALE_FACTOR"] > 1:
+    if settings["upscale_factor"] > 1:
         image = cv2.resize(image, None,
-                           fx=settings["UPSCALE_FACTOR"],
-                           fy=settings["UPSCALE_FACTOR"],
+                           fx=settings["upscale_factor"],
+                           fy=settings["upscale_factor"],
                            interpolation=cv2.INTER_LINEAR)
         logger.info(f"Upscaled image to: {image.shape}")
     
-    skio.imsave(os.path.join(settings["OUTPUT_DIR"], "preprocessed_image.tif"), image)
+    skio.imsave(os.path.join(settings["output_dir"], "preprocessed_image.tif"), image)
     logger.info("Saved preprocessed grayscale image")
     
-    if settings["ENHANCE_CONTRAST"]:
-        clahe = cv2.createCLAHE(clipLimit=settings["CLAHE_CLIPLIMIT"],
-                                tileGridSize=settings["CLAHE_TILE_GRID_SIZE"])
+    if settings["enhance_contrast"]:
+        clahe = cv2.createCLAHE(clipLimit=settings["clahe_cliplimit"],
+                                tileGridSize=settings["clahe_tile_grid_size"])
         image = clahe.apply(image)
-        skio.imsave(os.path.join(settings["OUTPUT_DIR"], "contrast_enhanced_image.tif"), image)
+        skio.imsave(os.path.join(settings["output_dir"], "contrast_enhanced_image.tif"), image)
         logger.info("Applied CLAHE contrast enhancement")
     
     if settings["enhance_dim"]:
         image = adaptive_gamma_correction(image, min_gamma=1.2, max_gamma=1.5, logger=logger)
-        skio.imsave(os.path.join(settings["OUTPUT_DIR"], "gamma_corrected_image.tif"), image)
+        skio.imsave(os.path.join(settings["output_dir"], "gamma_corrected_image.tif"), image)
         logger.info("Applied gamma correction")
     
     return image
@@ -304,10 +304,10 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     """
     h, w = image.shape
     tile_side_length = settings["tile_side_length"]
-    overlap = settings["TILE_OVERLAP"]
+    overlap = settings["tile_overlap"]
 
     # Check if tiling is necessary.
-    if not settings["USE_TILING"] or (tile_side_length >= h and tile_side_length >= w):
+    if not settings["use_tiling"] or (tile_side_length >= h and tile_side_length >= w):
         # Process the entire image as a single tile.
         logger.info("Tiling is disabled or unnecessary. Processing the entire image as a single tile.")
         image = image[..., None]  # Add channel axis.
@@ -368,8 +368,8 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
     """Refine segmentation masks using Canny edge detection."""
     logger.info("Applying edge detection based refinement to the segmentation mask")
     edges = cv2.Canny(image,
-                      threshold1=settings.get("CANNY_THRESHOLD1", 50),
-                      threshold2=settings.get("CANNY_THRESHOLD2", 150))
+                      threshold1=settings.get("canny_threshold1", 50),
+                      threshold2=settings.get("canny_threshold2", 150))
     kernel = np.ones((3, 3), np.uint8)
     dilated_edges = cv2.dilate(edges, kernel, iterations=1)
     binary_mask = (masks > 0).astype(np.uint8) * 255
@@ -434,12 +434,12 @@ def generate_overlay(image, masks, flows, output_dir, logger):
 # MAIN FUNCTION
 # =============================================================================
 def main():
-    output_dir = settings["OUTPUT_DIR"]
+    output_dir = settings["output_dir"]
     os.makedirs(output_dir, exist_ok=True)
     logger = setup_logging(output_dir)
     
     # 1. Preprocess the image.
-    image = preprocess_image(settings["IMAGE_PATH"], settings, logger)
+    image = preprocess_image(settings["image_path"], settings, logger)
     
     # 2. Segment image by tiling or as a single tile.
     model = models.Cellpose(model_type=CELLPOSE_PARAMS["model_type"],
@@ -458,17 +458,17 @@ def main():
     logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
     
     # 3. Optionally refine segmentation using edge detection.
-    if settings["USE_EDGE_DETECTION"]:
+    if settings["use_edge_detection"]:
         masks = refine_segmentation_with_edges(image, masks, settings, logger)
         skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.tif"), masks.astype(np.uint16))
         logger.info("Saved refined segmentation mask after edge detection")
     
     # 4. Optionally apply watershed splitting to large fused nuclei.
-    if settings["APPLY_WATERSHED"]:
+    if settings["apply_watershed"]:
         lumps_split_mask = identify_and_split_fused_labels(
             masks,
-            min_area=settings["AREA_THRESHOLD_FOR_WATERSHED"],
-            footprint=settings["LOCAL_MAXIMA_FOOTPRINT"],
+            min_area=settings["area_threshold_for_watershed"],
+            footprint=settings["local_maxima_footprint"],
             logger=logger
         )
         skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.tif"), lumps_split_mask.astype(np.uint16))
@@ -476,11 +476,11 @@ def main():
         masks = lumps_split_mask
 
     # 5. Optionally generate overlay visualization.
-    if settings["GENERATE_OVERLAY"]:
+    if settings["generate_overlay"]:
         generate_overlay(image, masks, flows, output_dir, logger)
     
     # 6. Create a small overlay snippet (cropped) for quick review.
-    small_segmentation_overlay(output_dir, crop_size=settings["SMALL_OVERLAY_SIZE"] * settings["UPSCALE_FACTOR"])
+    small_segmentation_overlay(output_dir, crop_size=settings["SMALL_OVERLAY_SIZE"] * settings["upscale_factor"])
     
 if __name__ == "__main__":
     main()

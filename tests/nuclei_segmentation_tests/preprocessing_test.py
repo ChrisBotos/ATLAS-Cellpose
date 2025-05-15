@@ -185,12 +185,12 @@ def test_preprocess_image_pipeline(tmp_path, dummy_16bit_image, dummy_logger):
     imsave(image_path, dummy_16bit_image)
 
     settings = {
-        "OUTPUT_DIR": str(tmp_path),
-        "ENHANCE_CONTRAST": True,
+        "output_dir": str(tmp_path),
+        "enhance_contrast": True,
         "enhance_dim": True,
-        "CROP_IMAGE": True,
-        "CROP_BBOX": (0.1, 0.9, 0.1, 0.9),
-        "UPSCALE_FACTOR": 2
+        "crop_image": True,
+        "crop_box": (0.1, 0.9, 0.1, 0.9),
+        "upscale_factor": 2
     }
 
     result = preprocessing.preprocess_image(str(image_path), settings, dummy_logger)

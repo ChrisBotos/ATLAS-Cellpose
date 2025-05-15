@@ -97,6 +97,14 @@ def merge_tiles_with_weighted_overlap(tile_stack, slices, image_shape, overlap, 
         np.ndarray: Merged array, shape (C, H, W) or (H, W).
     """
     H, W = image_shape
+    
+    # Handle empty tile stack
+    if not tile_stack:
+        if logger:
+            logger.warning("Empty tile stack provided to merge_tiles_with_weighted_overlap")
+        # Return zeros with appropriate shape
+        return np.zeros(image_shape, dtype=np.float32)
+        
     sample = tile_stack[0]
 
     # Standardize input format

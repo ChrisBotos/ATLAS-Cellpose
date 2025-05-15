@@ -209,8 +209,8 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
 
     # Apply Canny edge detection
     edges = cv2.Canny(image,
-                      threshold1=settings.get("CANNY_THRESHOLD1", 50),
-                      threshold2=settings.get("CANNY_THRESHOLD2", 150))
+                      threshold1=settings.get("canny_threshold1", 50),
+                      threshold2=settings.get("canny_threshold2", 150))
 
     # Dilate edges to ensure they fully separate touching nuclei
     kernel = np.ones((3, 3), np.uint8)

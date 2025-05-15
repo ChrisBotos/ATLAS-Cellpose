@@ -57,7 +57,7 @@ def dummy_logger():
 
 @pytest.fixture
 def dummy_settings():
-    return {"MERGE_OVERLAP_THRESHOLD": 0.3}
+    return {"merge_overlap_threshold": 0.3}
 
 
 def test_split_and_reconstruct_identity(dummy_logger):
@@ -185,7 +185,7 @@ def test_merge_masks_overlap_without_visual(dummy_logger):
     """
     import cv2
 
-    settings = {"MERGE_OVERLAP_THRESHOLD": 0.3}
+    settings = {"merge_overlap_threshold": 0.3}
     H, W, overlap = 64, 128, 16
     image_shape = (H, W)
 
@@ -283,16 +283,16 @@ def test_feather_mask_properties():
     assert np.all(mask[1:overlap, w//2] >= mask[0:overlap-1, w//2]), "Values should increase from edge to center"
     assert np.all(mask[h//2, 1:overlap] >= mask[h//2, 0:overlap-1]), "Values should increase from edge to center"
 
-    # Test case 2: Rectangular mask
+    # Test case 2: Rectangular mask.
     h2, w2, overlap2 = 80, 120, 15
     mask2 = feather_mask(h2, w2, overlap2)
     assert mask2.shape == (h2, w2), "Mask should have requested dimensions"
 
-    # Test case 3: Overlap larger than half the dimension
+    # Test case 3: Overlap larger than half the dimension.
     h3, w3, overlap3 = 30, 30, 20
     mask3 = feather_mask(h3, w3, overlap3)
 
-    # Overlap should be capped at half the dimension
+    # Overlap should be capped at half the dimension.
     effective_overlap = min(overlap3, h3 // 2)
     assert mask3[0, w3//2] <= mask3[effective_overlap, w3//2], "Values should increase from edge to center"
     assert mask3[h3-1, w3//2] <= mask3[h3-effective_overlap-1, w3//2], "Values should increase from edge to center"

@@ -29,6 +29,3 @@ results*/
 dist/
 build/
 *.egg-info/
-
-# Archived code.
-archived_code/

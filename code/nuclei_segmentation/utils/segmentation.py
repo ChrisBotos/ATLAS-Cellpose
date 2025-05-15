@@ -20,7 +20,7 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     - model: Initialized Cellpose model.
     - image (np.ndarray): Grayscale input image, shape (H, W), dtype uint8 or float32.
     - cellpose_params (dict): Parameters for Cellpose evaluation.
-    - settings (dict): Includes tile_side_length, TILE_OVERLAP, USE_TILING.
+    - settings (dict): Includes tile_side_length, tile_overlap, use_tiling.
     - logger: Logger instance for status reporting.
 
     Returns:
@@ -30,9 +30,22 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
     """
 
     height, width = image.shape
-    tile_size = settings["tile_side_length"]
-    overlap = int(tile_size * settings["tile_overlap"])
-    use_tiling = settings["use_tiling"] and (height > tile_size or width > tile_size)
+    tile_size = settings.get("tile_side_length")
+    
+    # If tile_overlap is a number between 0 and 1, treat it as a fraction.
+    # Otherwise, treat it as a pixel count.
+    tile_overlap = settings.get("tile_overlap")
+    if isinstance(tile_overlap, (int, float)) and 0 <= tile_overlap <= 1:
+        overlap = int(tile_size * tile_overlap)
+    else:
+        overlap = int(tile_overlap)  # Assume it's already in pixels
+        
+    # Ensure overlap is reasonable (not larger than tile_size/2).
+    if overlap > tile_size // 2:
+        logger.warning(f"Overlap {overlap} is larger than half the tile size {tile_size // 2}, clamping to {tile_size // 2}.")
+    overlap = min(overlap, tile_size // 2)
+    
+    use_tiling = settings.get("use_tiling") and (height > tile_size or width > tile_size)
 
     logger.info(f"Segmentation initiated. Image shape: {image.shape}. Tiling: {use_tiling}")
 

@@ -97,28 +97,28 @@ def apply_clahe(image: np.ndarray, clip_limit: float = 2.0, tile_grid_size: tupl
 
 '''CROPPING UTILS'''
 
-def crop_image(image: np.ndarray, crop_bbox, logger=None) -> np.ndarray:
+def crop_image(image: np.ndarray, crop_box, logger=None) -> np.ndarray:
     """
     Crop image to a user-defined bounding box.
 
     Args:
         image (np.ndarray): Input image.
-        crop_bbox: Tuple of (y0, y1, x0, x1), either relative (0–1) or absolute.
+        crop_box: Tuple of (y0, y1, x0, x1), either relative (0–1) or absolute.
         logger: Logger object.
 
     Returns:
         np.ndarray: Cropped image.
     """
     h, w = image.shape
-    y0, y1, x0, x1 = crop_bbox
+    y0, y1, x0, x1 = crop_box
 
-    if all(0 <= val <= 1 for val in crop_bbox):
+    if all(0 <= val <= 1 for val in crop_box):
         y0, y1 = int(y0 * h), int(y1 * h)
         x0, x1 = int(x0 * w), int(x1 * w)
         if logger:
             logger.info(f"Cropping with relative bbox: ({y0}:{y1}, {x0}:{x1})")
     else:
-        y0, y1, x0, x1 = map(int, crop_bbox)
+        y0, y1, x0, x1 = map(int, crop_box)
         if logger:
             logger.info(f"Cropping with absolute bbox: ({y0}:{y1}, {x0}:{x1})")
 
@@ -178,7 +178,7 @@ def preprocess_image(image_path, settings, logger):
     os.makedirs(out_dir, exist_ok=True)
 
     if settings.get("crop_image", False):
-        crop_box = settings.get("crop_bbox", (0, 1, 0, 1))
+        crop_box = settings.get("crop_box", (0, 1, 0, 1))
         if isinstance(crop_box, str):
             crop_box = [float(x.strip()) for x in crop_box.split(',')]
         image = crop_image(image, crop_box, logger)
