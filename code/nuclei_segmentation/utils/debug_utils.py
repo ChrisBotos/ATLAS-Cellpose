@@ -33,11 +33,11 @@ def setup_debug(settings):
     Creates a Snapshotter instance if debugging is enabled.
 
     Args:
-        settings (dict): Settings dictionary that may include 'DEBUG_MODE' and 'OUTPUT_DIR'.
+        settings (dict): settings dictionary that may include 'debug_mode' and 'output_dir'.
 
     Returns:
         Snapshotter or None: Debug snapshotter if enabled, else None.
     """
-    if settings.get("DEBUG_MODE", False):
-        return Snapshotter(settings["OUTPUT_DIR"])
+    if settings.get("debug_mode", False):
+        return Snapshotter(settings["output_dir"])
     return None

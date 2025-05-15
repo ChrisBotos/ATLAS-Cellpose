@@ -34,7 +34,7 @@ Image.MAX_IMAGE_PIXELS = 10**9
 # =============================================================================
 # PARAMETERS
 # =============================================================================
-SETTINGS = {
+settings = {
     "UPSCALE_FACTOR": 1,           # e.g., 1 for no upscaling, 4 for 4x upscaling
     "CROP_IMAGE": True,
     "ENHANCE_CONTRAST": True,
@@ -98,7 +98,7 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_0
     return int(max_batch)
 
 # Example usage (tile_side_length=2048 → ~4.2M pixels):
-tile_pixels = SETTINGS["tile_side_length"]**2
+tile_pixels = settings["tile_side_length"]**2
 CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 
 # =============================================================================
@@ -126,7 +126,7 @@ def setup_logging(output_dir):
     logger.addHandler(ch)
     
     logger.info("===== Cellpose Segmentation Log =====")
-    for k, v in SETTINGS.items():
+    for k, v in settings.items():
         logger.info(f"{k}: {v}")
     
     return logger
@@ -434,12 +434,12 @@ def generate_overlay(image, masks, flows, output_dir, logger):
 # MAIN FUNCTION
 # =============================================================================
 def main():
-    output_dir = SETTINGS["OUTPUT_DIR"]
+    output_dir = settings["OUTPUT_DIR"]
     os.makedirs(output_dir, exist_ok=True)
     logger = setup_logging(output_dir)
     
     # 1. Preprocess the image.
-    image = preprocess_image(SETTINGS["IMAGE_PATH"], SETTINGS, logger)
+    image = preprocess_image(settings["IMAGE_PATH"], settings, logger)
     
     # 2. Segment image by tiling or as a single tile.
     model = models.Cellpose(model_type=CELLPOSE_PARAMS["model_type"],
@@ -449,7 +449,7 @@ def main():
     if CELLPOSE_PARAMS["gpu"]:
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
     
-    masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
+    masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, settings, logger)
     
     # Save the merged mask and flows.
     np.save(os.path.join(output_dir, "masks.npy"), masks)
@@ -458,17 +458,17 @@ def main():
     logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
     
     # 3. Optionally refine segmentation using edge detection.
-    if SETTINGS["USE_EDGE_DETECTION"]:
-        masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
+    if settings["USE_EDGE_DETECTION"]:
+        masks = refine_segmentation_with_edges(image, masks, settings, logger)
         skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.tif"), masks.astype(np.uint16))
         logger.info("Saved refined segmentation mask after edge detection")
     
     # 4. Optionally apply watershed splitting to large fused nuclei.
-    if SETTINGS["APPLY_WATERSHED"]:
+    if settings["APPLY_WATERSHED"]:
         lumps_split_mask = identify_and_split_fused_labels(
             masks,
-            min_area=SETTINGS["AREA_THRESHOLD_FOR_WATERSHED"],
-            footprint=SETTINGS["LOCAL_MAXIMA_FOOTPRINT"],
+            min_area=settings["AREA_THRESHOLD_FOR_WATERSHED"],
+            footprint=settings["LOCAL_MAXIMA_FOOTPRINT"],
             logger=logger
         )
         skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.tif"), lumps_split_mask.astype(np.uint16))
@@ -476,11 +476,11 @@ def main():
         masks = lumps_split_mask
 
     # 5. Optionally generate overlay visualization.
-    if SETTINGS["GENERATE_OVERLAY"]:
+    if settings["GENERATE_OVERLAY"]:
         generate_overlay(image, masks, flows, output_dir, logger)
     
     # 6. Create a small overlay snippet (cropped) for quick review.
-    small_segmentation_overlay(output_dir, crop_size=SETTINGS["SMALL_OVERLAY_SIZE"] * SETTINGS["UPSCALE_FACTOR"])
+    small_segmentation_overlay(output_dir, crop_size=settings["SMALL_OVERLAY_SIZE"] * settings["UPSCALE_FACTOR"])
     
 if __name__ == "__main__":
     main()

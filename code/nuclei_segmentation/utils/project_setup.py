@@ -5,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 import torch
 
-
 def setup_project_structure():
     """
     Create standard project directories if missing.
@@ -37,7 +36,7 @@ def load_config(config_path=None):
         config_path (str or Path, optional): Path to original INI config file.
 
     Returns:
-        tuple: (SETTINGS dict, CELLPOSE_PARAMS dict, PROJECT_DIRS dict, Path to copied config).
+        tuple: (settings dict, CELLPOSE_PARAMS dict, PROJECT_DIRS dict).
     """
     dirs = setup_project_structure()
 
@@ -46,66 +45,68 @@ def load_config(config_path=None):
     if not Path(config_path).exists():
         raise FileNotFoundError(f"[CONFIG ERROR] Missing config: {config_path}")
 
-    # Load the original config first just to extract output_dir name.
     base_config = configparser.ConfigParser()
     base_config.read(config_path)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = base_config.get("General", "output_dir", fallback="iri_results")
+    name = base_config.get("general", "output_dir", fallback="iri_results")
     output_dir = dirs["results"] / f"{timestamp}_{name}"
     output_dir.mkdir(exist_ok=True)
 
-    # Copy config to output dir and reload from there.
     copied_config_path = output_dir / "config_used.ini"
     shutil.copy2(config_path, copied_config_path)
 
     config = configparser.ConfigParser()
     config.read(copied_config_path)
 
-    SETTINGS = {
-        "OUTPUT_DIR": output_dir,
-        "IMAGE_PATH": resolve_path(config.get("General", "image_path"), dirs["data"]),
-        "UPSCALE_FACTOR": config.getint("General", "upscale_factor", fallback=1),
-        "CROP_IMAGE": config.getboolean("General", "crop_image", fallback=False),
-        "ENHANCE_CONTRAST": config.getboolean("General", "enhance_contrast", fallback=False),
-        "GENERATE_OVERLAY": config.getboolean("General", "generate_overlay", fallback=True),
-        "USE_EDGE_DETECTION": config.getboolean("EdgeDetection", "use_edge_detection", fallback=False),
-        "APPLY_WATERSHED": config.getboolean("Watershed", "apply_watershed", fallback=False),
-        "USE_TILING": config.getboolean("Tiling", "use_tiling", fallback=True),
-        "MERGE_OVERLAP_THRESHOLD": config.getfloat("Tiling", "merge_overlap_threshold", fallback=0.3),
-        "DEBUG_MODE": config.getboolean("Debug", "debug_mode", fallback=False),
-        "CROP_BBOX": get_tuple(config, "General", "crop_bbox", default=(0, 1, 0, 1)),
-        "CLAHE_CLIPLIMIT": config.getfloat("CLAHE", "cliplimit", fallback=2.0),
-        "CLAHE_TILE_GRID_SIZE": get_tuple(config, "CLAHE", "tile_grid_size", default=(8, 8), cast=int),
-        "enhance_dim": config.getboolean("Gamma_Correction", "enhance_dim", fallback=False),
-        "MIN_GAMMA": config.getfloat("Gamma_Correction", "min_gamma", fallback=1.9),
-        "MAX_GAMMA": config.getfloat("Gamma_Correction", "max_gamma", fallback=2.2),
-        "CANNY_THRESHOLD1": config.getint("EdgeDetection", "canny_threshold1", fallback=50),
-        "CANNY_THRESHOLD2": config.getint("EdgeDetection", "canny_threshold2", fallback=150),
-        "AREA_THRESHOLD_FOR_WATERSHED": config.getint("Watershed", "area_threshold", fallback=1000),
-        "LOCAL_MAXIMA_FOOTPRINT": get_tuple(config, "Watershed", "local_maxima_footprint", default=(3, 3), cast=int),
-        "tile_side_length": config.getint("Tiling", "tile_side_length", fallback=1024),
-        "TILE_OVERLAP": config.getfloat("Tiling", "tile_overlap", fallback=0.1),
-        "SMALL_OVERLAY_SIZE": config.getint("Overlay", "small_overlay_size", fallback=1024),
+    # Main settings.
+    settings = {
+        "output_dir": output_dir,
+        "image_path": resolve_path(config.get("general", "image_path"), dirs["data"]),
+        "upscale_factor": config.getint("general", "upscale_factor", fallback=1),
+        "crop_image": config.getboolean("general", "crop_image", fallback=False),
+        "enhance_contrast": config.getboolean("general", "enhance_contrast", fallback=False),
+        "enhance_dim": config.getboolean("gamma_correction", "enhance_dim", fallback=False),
+        "min_gamma": config.getfloat("gamma_correction", "min_gamma", fallback=1.9),
+        "max_gamma": config.getfloat("gamma_correction", "max_gamma", fallback=2.2),
+        "generate_overlay": config.getboolean("general", "generate_overlay", fallback=True),
+        "use_edge_detection": config.getboolean("edge_detection", "use_edge_detection", fallback=False),
+        "apply_watershed": config.getboolean("watershed", "apply_watershed", fallback=False),
+        "use_tiling": config.getboolean("tiling", "use_tiling", fallback=True),
+        "merge_overlap_threshold": config.getfloat("tiling", "merge_overlap_threshold", fallback=0.3),
+        "debug_mode": config.getboolean("debug", "debug_mode", fallback=False),
+        "crop_bbox": get_tuple(config, "general", "crop_bbox", default=(0, 1, 0, 1)),
+        "clahe_cliplimit": config.getfloat("clahe", "cliplimit", fallback=2.0),
+        "clahe_tile_grid_size": get_tuple(config, "clahe", "tile_grid_size", default=(8, 8), cast=int),
+        "canny_threshold1": config.getint("edge_detection", "canny_threshold1", fallback=50),
+        "canny_threshold2": config.getint("edge_detection", "canny_threshold2", fallback=150),
+        "area_threshold_for_watershed": config.getint("watershed", "area_threshold", fallback=1000),
+        "local_maxima_footprint": get_tuple(config, "watershed", "local_maxima_footprint", default=(3, 3), cast=int),
+        "tile_side_length": config.getint("tiling", "tile_side_length", fallback=1024),
+        "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.1),
+        "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),
     }
 
+    # Cellpose-specific settings.
     CELLPOSE_PARAMS = {
-        "model_type": config.get("Cellpose", "model_type", fallback="nuclei"),
-        "gpu": config.getboolean("Cellpose", "gpu", fallback=True) and torch.cuda.is_available(),
-        "diameter": config.getint("Cellpose", "diameter", fallback=0),
-        "flow_threshold": config.getfloat("Cellpose", "flow_threshold", fallback=0.4),
-        "cellprob_threshold": config.getfloat("Cellpose", "cellprob_threshold", fallback=0.0),
-        "resample": config.getboolean("Cellpose", "resample", fallback=True),
-        "stitch_threshold": config.getfloat("Cellpose", "stitch_threshold", fallback=0.4),
-        "channels": get_tuple(config, "Cellpose", "channels", default=(0, 0), cast=int),
-        "batch_size": 1,
+        "model_type": config.get("cellpose", "model_type", fallback="nuclei"),
+        "gpu": config.getboolean("cellpose", "gpu", fallback=True) and torch.cuda.is_available(),
+        "diameter": config.getint("cellpose", "diameter", fallback=0),
+        "flow_threshold": config.getfloat("cellpose", "flow_threshold", fallback=0.4),
+        "cellprob_threshold": config.getfloat("cellpose", "cellprob_threshold", fallback=0.0),
+        "resample": config.getboolean("cellpose", "resample", fallback=True),
+        "stitch_threshold": config.getfloat("cellpose", "stitch_threshold", fallback=0.4),
+        "channels": get_tuple(config, "cellpose", "channels", default=(0, 0), cast=int),
+        "batch_size": choose_batch_size(settings.get("tile_side_length")**2),
     }
 
-    return SETTINGS, CELLPOSE_PARAMS, dirs
+    return settings, CELLPOSE_PARAMS, dirs
 
 
 def resolve_path(path_str, data_dir):
-    """Ensure absolute image path, fallback to data dir if needed."""
+    """
+    Ensure absolute image path, fallback to data directory if needed.
+    """
     path = Path(path_str)
     if path.is_absolute():
         return path
@@ -114,6 +115,9 @@ def resolve_path(path_str, data_dir):
 
 
 def get_tuple(config, section, option, default, cast=float):
+    """
+    Parse a comma-separated config option into a tuple.
+    """
     try:
         return tuple(cast(v.strip()) for v in config.get(section, option).split(","))
     except Exception:
@@ -121,7 +125,9 @@ def get_tuple(config, section, option, default, cast=float):
 
 
 def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem=150_000_000):
-    """Estimate batch size from available GPU memory."""
+    """
+    Estimate batch size from available GPU memory.
+    """
     if not torch.cuda.is_available():
         return 1
     props = torch.cuda.get_device_properties(0)

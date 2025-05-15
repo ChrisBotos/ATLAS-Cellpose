@@ -49,7 +49,7 @@ def dummy_cellpose_params():
 
 @pytest.fixture
 def dummy_settings():
-    """Settings for tiling and refinement."""
+    """settings for tiling and refinement."""
     return {
         "tile_side_length": 64,
         "TILE_OVERLAP": 8,

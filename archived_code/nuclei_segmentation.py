@@ -103,7 +103,7 @@ def load_config(config_path=None):
         config_path: Path to the configuration INI file. If None, uses the default config.
 
     Returns:
-        tuple: (SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS) dictionaries containing all
+        tuple: (settings, CELLPOSE_PARAMS, PROJECT_DIRS) dictionaries containing all
                configuration parameters needed for the pipeline.
 
     Raises:
@@ -128,7 +128,7 @@ def load_config(config_path=None):
         raise ValueError(f"Error parsing configuration file: {e}")
 
     # Parse settings from config with default values for optional parameters.
-    SETTINGS = {
+    settings = {
         "IMAGE_PATH": config.get("General", "image_path"),
         "OUTPUT_DIR": PROJECT_DIRS["results"] / f"{config.get('General', 'output_dir')}_{timestamp}",
         "UPSCALE_FACTOR": config.getint("General", "upscale_factor", fallback=1),
@@ -145,46 +145,46 @@ def load_config(config_path=None):
 
     # Parse optional settings with try/except to provide defaults.
     try:
-        SETTINGS["CROP_BBOX"] = tuple(map(float, config.get("General", "crop_bbox").split(',')))
+        settings["CROP_BBOX"] = tuple(map(float, config.get("General", "crop_bbox").split(',')))
     except (configparser.NoOptionError, ValueError):
-        SETTINGS["CROP_BBOX"] = (0, 1, 0, 1)  # Default: full image.
+        settings["CROP_BBOX"] = (0, 1, 0, 1)  # Default: full image.
 
     try:
-        SETTINGS["CLAHE_CLIPLIMIT"] = config.getfloat("CLAHE", "cliplimit", fallback=2.0)
-        SETTINGS["CLAHE_TILE_GRID_SIZE"] = tuple(map(int, config.get("CLAHE", "tile_grid_size", fallback="8,8").split(',')))
+        settings["CLAHE_CLIPLIMIT"] = config.getfloat("CLAHE", "cliplimit", fallback=2.0)
+        settings["CLAHE_TILE_GRID_SIZE"] = tuple(map(int, config.get("CLAHE", "tile_grid_size", fallback="8,8").split(',')))
     except (configparser.NoSectionError, ValueError):
-        SETTINGS["CLAHE_CLIPLIMIT"] = 2.0
-        SETTINGS["CLAHE_TILE_GRID_SIZE"] = (8, 8)
+        settings["CLAHE_CLIPLIMIT"] = 2.0
+        settings["CLAHE_TILE_GRID_SIZE"] = (8, 8)
 
     try:
-        SETTINGS["CANNY_THRESHOLD1"] = config.getint("EdgeDetection", "canny_threshold1", fallback=50)
-        SETTINGS["CANNY_THRESHOLD2"] = config.getint("EdgeDetection", "canny_threshold2", fallback=150)
+        settings["CANNY_THRESHOLD1"] = config.getint("EdgeDetection", "canny_threshold1", fallback=50)
+        settings["CANNY_THRESHOLD2"] = config.getint("EdgeDetection", "canny_threshold2", fallback=150)
     except configparser.NoSectionError:
-        SETTINGS["CANNY_THRESHOLD1"] = 50
-        SETTINGS["CANNY_THRESHOLD2"] = 150
+        settings["CANNY_THRESHOLD1"] = 50
+        settings["CANNY_THRESHOLD2"] = 150
 
     try:
-        SETTINGS["AREA_THRESHOLD_FOR_WATERSHED"] = config.getint("Watershed", "area_threshold", fallback=1000)
-        SETTINGS["LOCAL_MAXIMA_FOOTPRINT"] = tuple(map(int, config.get("Watershed", "local_maxima_footprint", fallback="3,3").split(',')))
+        settings["AREA_THRESHOLD_FOR_WATERSHED"] = config.getint("Watershed", "area_threshold", fallback=1000)
+        settings["LOCAL_MAXIMA_FOOTPRINT"] = tuple(map(int, config.get("Watershed", "local_maxima_footprint", fallback="3,3").split(',')))
     except configparser.NoSectionError:
-        SETTINGS["AREA_THRESHOLD_FOR_WATERSHED"] = 1000
-        SETTINGS["LOCAL_MAXIMA_FOOTPRINT"] = (3, 3)
+        settings["AREA_THRESHOLD_FOR_WATERSHED"] = 1000
+        settings["LOCAL_MAXIMA_FOOTPRINT"] = (3, 3)
 
     try:
-        SETTINGS["tile_side_length"] = config.getint("Tiling", "tile_side_length", fallback=1024)
-        SETTINGS["TILE_OVERLAP"] = config.getfloat("Tiling", "tile_overlap", fallback=0.1)
+        settings["tile_side_length"] = config.getint("Tiling", "tile_side_length", fallback=1024)
+        settings["TILE_OVERLAP"] = config.getfloat("Tiling", "tile_overlap", fallback=0.1)
     except configparser.NoSectionError:
-        SETTINGS["tile_side_length"] = 1024
-        SETTINGS["TILE_OVERLAP"] = 0.1
+        settings["tile_side_length"] = 1024
+        settings["TILE_OVERLAP"] = 0.1
 
     try:
-        SETTINGS["SMALL_OVERLAY_SIZE"] = config.getint("Overlay", "small_overlay_size", fallback=1024)
+        settings["SMALL_OVERLAY_SIZE"] = config.getint("Overlay", "small_overlay_size", fallback=1024)
     except configparser.NoSectionError:
-        SETTINGS["SMALL_OVERLAY_SIZE"] = 1024
+        settings["SMALL_OVERLAY_SIZE"] = 1024
 
     # Ensure image path is absolute.
-    if not os.path.isabs(SETTINGS["IMAGE_PATH"]):
-        SETTINGS["IMAGE_PATH"] = PROJECT_DIRS["data"] / SETTINGS["IMAGE_PATH"]
+    if not os.path.isabs(settings["IMAGE_PATH"]):
+        settings["IMAGE_PATH"] = PROJECT_DIRS["data"] / settings["IMAGE_PATH"]
 
     # Parse Cellpose parameters with defaults.
     CELLPOSE_PARAMS = {
@@ -213,10 +213,10 @@ def load_config(config_path=None):
         "configs": script_dir / "configs"
     }
 
-    return SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS
+    return settings, CELLPOSE_PARAMS, PROJECT_DIRS
 
 # Load config values from file.
-SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
+settings, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
 
 
 # =============================================================================
@@ -256,7 +256,7 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem_per_batch=150_0
 
 
 # Calculate optimal batch size based on tile dimensions.
-tile_pixels = SETTINGS["tile_side_length"] ** 2
+tile_pixels = settings["tile_side_length"] ** 2
 CELLPOSE_PARAMS["batch_size"] = choose_batch_size(tile_pixels)
 
 
@@ -1174,27 +1174,27 @@ def generate_overlay(image, masks, flows, output_dir, logger):
 def main():
     try:
         # Load configuration settings for the segmentation pipeline.
-        SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
+        settings, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
 
         # Create output directory for storing results and visualizations.
-        output_dir = SETTINGS["OUTPUT_DIR"]
+        output_dir = settings["OUTPUT_DIR"]
         os.makedirs(output_dir, exist_ok=True)
 
         # Set up logging system for tracking progress and debugging.
-        logger = setup_logging(output_dir, debug_mode=SETTINGS.get("DEBUG_MODE", False))
+        logger = setup_logging(output_dir, debug_mode=settings.get("DEBUG_MODE", False))
         logger.info("===== Cellpose Segmentation Pipeline Started =====")
 
         # Log configuration details for reproducibility.
-        logger.info(f"Image path: {SETTINGS['IMAGE_PATH']}.")
+        logger.info(f"Image path: {settings['IMAGE_PATH']}.")
         logger.info(f"Output directory: {output_dir}.")
-        logger.info(f"Using tiling: {SETTINGS.get('USE_TILING', False)}.")
-        if SETTINGS.get('USE_TILING', False):
-            logger.info(f"Tile size: {SETTINGS.get('tile_side_length', 'Not specified')}.")
-            logger.info(f"Tile overlap: {SETTINGS.get('TILE_OVERLAP', 'Not specified')}.")
+        logger.info(f"Using tiling: {settings.get('USE_TILING', False)}.")
+        if settings.get('USE_TILING', False):
+            logger.info(f"Tile size: {settings.get('tile_side_length', 'Not specified')}.")
+            logger.info(f"Tile overlap: {settings.get('TILE_OVERLAP', 'Not specified')}.")
 
         # Verify image path exists before proceeding.
-        if not os.path.exists(SETTINGS["IMAGE_PATH"]):
-            logger.error(f"Image file not found: {SETTINGS['IMAGE_PATH']}.")
+        if not os.path.exists(settings["IMAGE_PATH"]):
+            logger.error(f"Image file not found: {settings['IMAGE_PATH']}.")
             return 1
 
         # Back up the configuration file for reproducibility.
@@ -1204,7 +1204,7 @@ def main():
 
         # 1. Preprocess the image to optimize for nuclei detection.
         logger.info("Preprocessing image...")
-        image = preprocess_image(SETTINGS["IMAGE_PATH"], SETTINGS, logger)
+        image = preprocess_image(settings["IMAGE_PATH"], settings, logger)
 
         # 2. Initialize Cellpose model for deep learning-based segmentation.
         logger.info("Initializing Cellpose model...")
@@ -1225,7 +1225,7 @@ def main():
 
         # 3. Run segmentation on the preprocessed image.
         logger.info("Running segmentation...")
-        masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
+        masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, settings, logger)
 
         # 4. Save results.
         logger.info("Saving segmentation results...")
@@ -1251,19 +1251,19 @@ def main():
         logger.info(f"Saved segmentation mask and flows. Total cells detected: {total_cells}")
 
         # 5. Optional: Edge detection refinement.
-        if SETTINGS.get("USE_EDGE_DETECTION", False):
+        if settings.get("USE_EDGE_DETECTION", False):
             logger.info("Applying edge detection refinement...")
-            masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
+            masks = refine_segmentation_with_edges(image, masks, settings, logger)
             skio.imsave(os.path.join(output_dir, "refined_segmentation_mask.tif"), masks.astype(np.uint16))
             logger.info("Saved refined segmentation mask after edge detection.")
 
         # 6. Optional: Watershed splitting.
-        if SETTINGS.get("APPLY_WATERSHED", False):
+        if settings.get("APPLY_WATERSHED", False):
             logger.info("Applying watershed splitting to large objects...")
             lumps_split_mask = identify_and_split_fused_labels(
                 masks,
-                min_area=SETTINGS.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
-                footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
+                min_area=settings.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
+                footprint=settings.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
                 logger=logger
             )
             skio.imsave(os.path.join(output_dir, "segmentation_mask_post_watershed.tif"),
@@ -1273,13 +1273,13 @@ def main():
             logger.info("Saved watershed-processed segmentation mask.")
 
         # 7. Optional: Generate overlay visualization.
-        if SETTINGS.get("GENERATE_OVERLAY", False):
+        if settings.get("GENERATE_OVERLAY", False):
             logger.info("Generating overlay visualization...")
             generate_overlay(image, masks, flows, output_dir, logger)
 
         # 8. Create a small overlay snippet (cropped) for quick review.
         logger.info("Generating small overlay snippet...")
-        small_segmentation_overlay(output_dir, crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1))
+        small_segmentation_overlay(output_dir, crop_size=settings.get("SMALL_OVERLAY_SIZE", 512) * settings.get("UPSCALE_FACTOR", 1))
         logger.info("Small overlay snippet generated successfully.")
 
         logger.info("===== Cellpose Segmentation Pipeline Completed Successfully =====")

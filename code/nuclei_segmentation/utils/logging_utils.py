@@ -95,18 +95,18 @@ def setup_debug(settings):
     diagnosing segmentation issues and understanding the pipeline's behavior.
 
     Args:
-        settings: Dictionary containing configuration settings including DEBUG_MODE.
+        settings: Dictionary containing configuration settings including debug_mode.
 
     Returns:
         function: A function for saving debug images with automatic normalization.
                  Returns the input array to allow inline use in processing chains.
     """
-    if not settings.get("DEBUG_MODE", False):
+    if not settings.get("debug_mode", False):
         # Return a no-op function if debug mode is disabled for efficiency.
         return lambda tag, arr: arr
 
     # Create debug directory within output directory.
-    debug_dir = os.path.join(settings["OUTPUT_DIR"], "debug")
+    debug_dir = os.path.join(settings["output_dir"], "debug")
     os.makedirs(debug_dir, exist_ok=True)
 
     def snap(tag, arr):

@@ -153,7 +153,7 @@ def merge_masks(mask_tiles, slices, image_shape, overlap, logger, settings, debu
         image_shape (tuple): Full image size.
         overlap (int): Tile overlap used.
         logger: Logger.
-        settings (dict): {'MERGE_OVERLAP_THRESHOLD': float}
+        settings (dict): {'merge_overlap_threshold': float}
         debug_snap (callable): Optional snapshot function.
 
     Returns:
@@ -161,7 +161,7 @@ def merge_masks(mask_tiles, slices, image_shape, overlap, logger, settings, debu
     """
     merged = np.zeros(image_shape, dtype=np.uint16)
     next_id = 1
-    ratio_threshold = settings.get("MERGE_OVERLAP_THRESHOLD", 0.3)
+    ratio_threshold = settings.get("merge_overlap_threshold", 0.3)
 
     for tile, (ys, xs) in zip(mask_tiles, slices):
         if tile.max() == 0:

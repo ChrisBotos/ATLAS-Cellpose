@@ -19,13 +19,13 @@ def main():
         int: 0 on success, 1 on failure.
     """
     try:
-        SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
+        settings, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
 
-        logger = setup_logging(SETTINGS["OUTPUT_DIR"], debug_mode=SETTINGS.get("DEBUG_MODE", False))
-        snap = setup_debug(SETTINGS)
+        logger = setup_logging(settings["output_dir"], debug_mode=settings.get("debug_mode", False))
+        snap = setup_debug(settings)
 
         logger.info("==== Kidney I/R Nuclei Segmentation Pipeline Started ====")
-        return run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap)
+        return run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap)
 
     except Exception as e:
         print(f"[FATAL ERROR] {e}")

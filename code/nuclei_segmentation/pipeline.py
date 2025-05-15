@@ -15,10 +15,10 @@ from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_m
 from utils.visualization import small_segmentation_overlay
 
 
-def log_config(logger, SETTINGS, CELLPOSE_PARAMS):
-    if SETTINGS.get("DEBUG_MODE", False):
-        logger.debug("=== SETTINGS ===")
-        for k, v in SETTINGS.items():
+def log_config(logger, settings, CELLPOSE_PARAMS):
+    if settings.get("debug_mode", False):
+        logger.debug("=== settings ===")
+        for k, v in settings.items():
             logger.debug(f"{k}: {v}")
         logger.debug("=== CELLPOSE ===")
         for k, v in CELLPOSE_PARAMS.items():
@@ -57,19 +57,19 @@ def save_outputs(masks, flows, output_dir, logger):
     logger.info("Segmentation results saved.")
 
 
-def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
-    if SETTINGS.get("USE_EDGE_DETECTION", False):
+def apply_postprocessing(image, masks, settings, output_dir, logger):
+    if settings.get("use_edge_detection", False):
         logger.info("Running edge refinement...")
-        masks = refine_segmentation_with_edges(image, masks, SETTINGS, logger)
+        masks = refine_segmentation_with_edges(image, masks, settings, logger)
         skio.imsave(Path(output_dir) / "refined_segmentation_masks.tif", masks.astype(np.uint16))
 
-    if SETTINGS.get("APPLY_WATERSHED", False):
+    if settings.get("apply_watershed", False):
         logger.info("Applying watershed...")
         try:
             masks = apply_watershed_to_mask(
                 masks,
-                min_area=SETTINGS.get("AREA_THRESHOLD_FOR_WATERSHED", 1000),
-                footprint=SETTINGS.get("LOCAL_MAXIMA_FOOTPRINT", (3, 3)),
+                min_area=settings.get("area_threshold_for_watershed", 1000),
+                footprint=settings.get("local_maxima_footprint", (3, 3)),
                 logger=logger
             )
             skio.imsave(Path(output_dir) / "segmentation_masks_post_watershed.tif", masks.astype(np.uint16))
@@ -81,36 +81,36 @@ def apply_postprocessing(image, masks, SETTINGS, output_dir, logger):
     return masks
 
 
-def generate_overlays(image, masks, flows, output_dir, SETTINGS, logger):
+def generate_overlays(image, masks, flows, output_dir, settings, logger):
     try:
         small_segmentation_overlay(
             output_dir,
-            crop_size=SETTINGS.get("SMALL_OVERLAY_SIZE", 512) * SETTINGS.get("UPSCALE_FACTOR", 1),
-            debug=SETTINGS.get("DEBUG_MODE", False)
+            crop_size=settings.get("small_overlay_size", 512) * settings.get("upscale_factor", 1),
+            debug=settings.get("debug_mode", False)
         )
     except Exception as e:
         logger.warning(f"Overlay generation failed: {e}")
         logger.debug(traceback.format_exc())
 
 
-def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap=None):
+def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, snap=None):
     """
     Orchestrates the full segmentation pipeline for nuclear masks from DAPI-stained images.
 
     This includes preprocessing, tiling-aware Cellpose segmentation, optional refinement,
-    and visualization generation. All outputs are stored in SETTINGS["OUTPUT_DIR"].
+    and visualization generation. All outputs are stored in settings["output_dir"].
 
     Returns:
         int: 0 if successful, 1 otherwise.
     """
     try:
         # Log current configuration.
-        log_config(logger, SETTINGS, CELLPOSE_PARAMS)
+        log_config(logger, settings, CELLPOSE_PARAMS)
 
         # Normalize paths early.
-        image_path = Path(SETTINGS["IMAGE_PATH"]).expanduser().resolve()
-        output_dir = Path(SETTINGS["OUTPUT_DIR"]).expanduser().resolve()
-        SETTINGS["OUTPUT_DIR"] = str(output_dir)  # Ensure all downstream functions use the same path.
+        image_path = Path(settings["image_path"]).expanduser().resolve()
+        output_dir = Path(settings["output_dir"]).expanduser().resolve()
+        settings["output_dir"] = str(output_dir)  # Ensure all downstream functions use the same path.
 
         # Check image exists.
         if not image_path.exists():
@@ -121,14 +121,14 @@ def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         logger.info(f"Output directory: {output_dir}")
 
         # Step 1: Image preprocessing (CLAHE, cropping etc.).
-        image = preprocess_image(image_path, SETTINGS, logger)
+        image = preprocess_image(image_path, settings, logger)
 
         # Step 2: Load Cellpose model (with GPU if available).
         model = setup_model(CELLPOSE_PARAMS, logger)
 
         # Step 3: Segmentation.
         logger.info("Running Cellpose segmentation...")
-        masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, SETTINGS, logger)
+        masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, settings, logger)
 
         if masks is None or masks.size == 0:
             logger.error("No segmentation masks returned. Aborting.")
@@ -140,10 +140,10 @@ def run_segmentation_pipeline(SETTINGS, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         save_outputs(masks, flows, output_dir, logger)
 
         # Step 5: Postprocess with edge refinement and/or watershed.
-        masks = apply_postprocessing(image, masks, SETTINGS, output_dir, logger)
+        masks = apply_postprocessing(image, masks, settings, output_dir, logger)
 
         # Step 6: Overlay generation (cropped + full).
-        generate_overlays(image, masks, flows, output_dir, SETTINGS, logger)
+        generate_overlays(image, masks, flows, output_dir, settings, logger)
 
         # Step 7: Optional debug snapshot.
         if snap:

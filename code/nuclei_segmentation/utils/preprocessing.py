@@ -173,16 +173,12 @@ def preprocess_image(image_path, settings, logger):
 
     if logger:
         logger.info(f"Loaded {image_path} with shape {image.shape} and dtype {image.dtype}")
-        # Debug: Print all settings keys to identify case issues
-        logger.info(f"Settings keys: {list(settings.keys())}")
-        logger.info(f"enhance_dim value: {settings.get('enhance_dim', 'NOT FOUND')}")
-        logger.info(f"ENHANCE_DIM value: {settings.get('ENHANCE_DIM', 'NOT FOUND')}")
 
-    out_dir = os.path.join(settings["OUTPUT_DIR"], "preprocessed")
+    out_dir = os.path.join(settings["output_dir"], "preprocessed")
     os.makedirs(out_dir, exist_ok=True)
 
-    if settings.get("CROP_IMAGE", False):
-        crop_box = settings.get("CROP_BBOX", (0, 1, 0, 1))
+    if settings.get("crop_image", False):
+        crop_box = settings.get("crop_bbox", (0, 1, 0, 1))
         if isinstance(crop_box, str):
             crop_box = [float(x.strip()) for x in crop_box.split(',')]
         image = crop_image(image, crop_box, logger)
@@ -204,18 +200,18 @@ def preprocess_image(image_path, settings, logger):
 
     save_image(image, os.path.join(out_dir, "grayscale.tif"), logger)
 
-    if settings.get("ENHANCE_CONTRAST", False):
+    if settings.get("enhance_contrast", False):
         image = apply_clahe(image,
-                            clip_limit=settings.get("CLAHE_CLIPLIMIT", 2.0),
-                            tile_grid_size=settings.get("CLAHE_TILE_GRID_SIZE", (8, 8)),
+                            clip_limit=settings.get("clahe_cliplimit", 2.0),
+                            tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
                             logger=logger)
         save_image(image, os.path.join(out_dir, "clahe.tif"), logger)
 
-    if settings.get("enhance_dim", False):  #TODO fix bug, this gamma correction does not work anymore, probably load from config bug.
+    if settings.get("enhance_dim", False):
         image = adaptive_gamma_correction(image, min_gamma=settings.get("min_gamma", 1.9), max_gamma = settings.get("max_gamma", 2.2), logger=logger)
         save_image(image, os.path.join(out_dir, "gamma.tif"), logger)
 
-    upscale_factor = settings.get("UPSCALE_FACTOR", 1)
+    upscale_factor = settings.get("upscale_factor", 1)
     if upscale_factor > 1:
         image = cv2.resize(image, None, fx=upscale_factor, fy=upscale_factor, interpolation=cv2.INTER_LINEAR)
         logger.info(f"Upscaled image to shape {image.shape}")

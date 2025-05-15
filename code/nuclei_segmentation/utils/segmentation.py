@@ -31,8 +31,8 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
 
     height, width = image.shape
     tile_size = settings["tile_side_length"]
-    overlap = int(tile_size * settings["TILE_OVERLAP"])
-    use_tiling = settings["USE_TILING"] and (height > tile_size or width > tile_size)
+    overlap = int(tile_size * settings["tile_overlap"])
+    use_tiling = settings["use_tiling"] and (height > tile_size or width > tile_size)
 
     logger.info(f"Segmentation initiated. Image shape: {image.shape}. Tiling: {use_tiling}")
 
@@ -133,7 +133,7 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
     Parameters:
     - image (np.ndarray): Grayscale image, shape (H, W), dtype uint8 or float32.
     - masks (np.ndarray): Binary or label mask, shape (H, W), dtype uint16.
-    - settings (dict): Contains 'CANNY_THRESHOLD1', 'CANNY_THRESHOLD2'.
+    - settings (dict): Contains 'canny_threshold1', 'canny_threshold2'.
     - logger: Logger instance.
 
     Returns:
@@ -146,8 +146,8 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
         image = image[:h, :w]
         masks = masks[:h, :w]
 
-    t1 = settings.get("CANNY_THRESHOLD1", 50)
-    t2 = settings.get("CANNY_THRESHOLD2", 150)
+    t1 = settings.get("canny_threshold1", 50)
+    t2 = settings.get("canny_threshold2", 150)
 
     edges = cv2.Canny(image, threshold1=t1, threshold2=t2)
     dilated_edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
