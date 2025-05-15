@@ -1,5 +1,40 @@
 """
-PIPELINE: Modular segmentation flow using Cellpose3 with DAPI-stained nuclear features.
+Author: Christos Botos.
+Affiliation: Leiden University Medical Center
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
+Script Name: pipeline.py.
+Description:
+    Modular segmentation flow using Cellpose3 with DAPI-stained nuclear features.
+
+Dependencies:
+    • Python >= 3.7.
+    • numpy, skimage, torch, cellpose.
+    • Custom utility modules for preprocessing, segmentation, watershed, and visualization.
+
+Usage:
+    Not meant to be run directly. Imported by runner.py.
+
+Inputs:
+    • DAPI-stained images of kidney tissue sections.
+    • Configuration settings for segmentation parameters.
+
+Outputs:
+    • Segmentation masks as .npy and .tif files.
+    • Flow fields from Cellpose as .npz files.
+    • Optional refined masks with edge detection and watershed.
+    • Visualization overlays for quality control.
+
+Key Features:
+    • Modular pipeline architecture for flexible processing.
+    • GPU acceleration when available.
+    • Tiling support for large images.
+    • Post-processing with edge refinement and watershed.
+    • Comprehensive logging and error handling.
+
+Notes:
+    • This module is part of the nuclei segmentation package for kidney I/R injury analysis.
+    • It implements the core segmentation workflow but is not meant to be run directly.
 """
 
 import traceback

@@ -1,9 +1,36 @@
-"""TEST MODULE FOR segmentation.py FUNCTIONS
+#!/usr/bin/env python3
+"""
+Author: Christos Botos.
+Affiliation: Leiden University Medical Center
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Includes unit tests for:
-- run_single_pass_cellpose
-- run_cellpose_on_tiles
-- refine_segmentation_with_edges
+Script Name: segmentation_test.py.
+Description:
+    Test suite for nuclei segmentation functions using Cellpose.
+
+Dependencies:
+    • Python >= 3.7.
+    • numpy, pytest.
+    • Custom segmentation utilities from the nuclei_segmentation package.
+
+Usage:
+    python -m pytest tests/nuclei_segmentation_tests/segmentation_test.py -v
+
+Inputs:
+    • None (tests run on generated test data).
+
+Outputs:
+    • Test results indicating pass/fail status.
+
+Key Features:
+    • Tests for Cellpose model integration with mocked models.
+    • Tests for tiled segmentation processing.
+    • Tests for edge-based refinement of segmentation masks.
+    • Tests for handling various image dimensions and configurations.
+
+Notes:
+    • These tests verify the correct behavior of segmentation functions without requiring actual GPU resources.
+    • Includes tests for both single-pass and tiled segmentation approaches.
 """
 
 import sys

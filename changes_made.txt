@@ -22,3 +22,9 @@ Now the tiles start from the top left, so they may cover smaller areas on the bo
 - Created a .gitignore file.
 - Created a README.md file.
 - Created a requirements.txt file.
+
+6) Fixed a lot of bugs and created test files for all scripts in the code directory, for example:
+- Parallel running problems.
+- Gamma Correction bug.
+
+7) Created signatures and explanations at the top of all scripts.

@@ -1,22 +1,62 @@
 #!/usr/bin/env python3
 """
-Advanced nuclear feature extraction for ischemia-reperfusion kidney injury analysis.
+Author: Christos Botos.
+Affiliation: Leiden University Medical Center
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-This script performs robust morphological and intensity-based feature extraction
-from segmented nuclei in kidney tissue sections. It supports GPU acceleration,
-parallel processing, optional tiling for large images, and comprehensive neighbor-
-based statistics. Results are saved to CSV and optionally visualized.
+Script Name: extract_engineered_features.py.
+Description:
+    Advanced nuclear feature extraction for ischemia-reperfusion kidney injury analysis.
+
+Dependencies:
+    • Python >= 3.7.
+    • numpy, pandas, PIL, scipy, scikit-image, joblib.
+    • cupy (optional, for GPU acceleration).
+
+Usage:
+    python extract_engineered_features.py --image <path/to/image> --mask <path/to/mask> [--output <path/to/output.csv>] [--neighbor_radius <radius>] [--jobs <n_jobs>]
+    python extract_engineered_features.py \
+  --image ../../results/an_example_result/preprocessed/cropped.tif \
+  --mask  ../../results/an_example_result/masks/segmentation_masks.npy \
+  --output ../../results/an_example_result/features.csv \
+  --neighbor_radius 75.0 \
+  --jobs 6
+
+Positional Arguments:
+    None.
+
+Optional Arguments:
+    --image            Path to input grayscale image.
+    --mask             Path to segmentation mask (.npy or image).
+    --output           Output CSV file (default: features.csv).
+    --neighbor_radius  Radius to search for neighboring nuclei in pixels (default: 50.0).
+    --jobs             Number of parallel jobs/CPU cores (default: -1 for all cores).
+
+Inputs:
+    • Grayscale image of kidney tissue section.
+    • Segmentation mask with labeled nuclei.
+
+Outputs:
+    • CSV file containing extracted nuclear features including shape metrics, intensity statistics, and neighborhood relationships.
+
+Key Features:
+    • GPU acceleration via CuPy when available.
+    • Parallel processing for faster analysis.
+    • Comprehensive feature extraction including shape, intensity, and neighborhood metrics.
+    • Robust handling of edge cases to prevent NaN values.
+    • Distance mapping to dark regions for contextual analysis.
+
+Notes:
+    • This script is optimized for analyzing nuclear morphology changes during kidney I/R injury.
+    • Features extracted are relevant for identifying different cell death mechanisms (apoptosis, pyroptosis, etc.).
 """
 
 import argparse
-import os
-import gc
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from PIL import Image
 from scipy.ndimage import distance_transform_edt
 from scipy.stats import entropy, skew, kurtosis
@@ -24,14 +64,16 @@ from scipy.spatial import cKDTree
 from skimage.measure import regionprops, label
 from joblib import Parallel, delayed
 
-# Attempt GPU acceleration via CuPy
+# Attempt GPU acceleration via CuPy.
 try:
     import cupy as cp
     xp = cp
     USE_GPU = True
+    print("Using GPU acceleration with CuPy for faster nuclear feature extraction!")
 except ImportError:
     xp = np
     USE_GPU = False
+    print("Using CPU (NumPy) for nuclear feature extraction.")
 
 import logging
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -77,9 +119,10 @@ def compute_features(region, neighbors, dark_map, pil_gray, offset):
     """
     cy, cx = region.centroid
     x_off, y_off = offset
-    cy += y_off; cx += x_off
+    cy += y_off
+    cx += x_off
 
-    # Basic shape metrics
+    # Basic shape metrics.
     area = region.area
     perimeter = region.perimeter or np.nan
     circularity = (4 * np.pi * area / perimeter**2) if perimeter > 0 else np.nan
@@ -89,7 +132,7 @@ def compute_features(region, neighbors, dark_map, pil_gray, offset):
     solidity = region.solidity
     eccentricity = region.eccentricity
 
-    # Intensity statistics
+    # Intensity statistics.
     patch = extract_region_intensity(pil_gray, region, offset)
     mask = region.image
     values = patch[mask]
@@ -103,10 +146,13 @@ def compute_features(region, neighbors, dark_map, pil_gray, offset):
     hist = np.histogram(values, bins=32)[0]
     texture_entropy = float(entropy(hist + 1))
 
-    # Neighbor stats
+    # Neighbor stats.
     n = len(neighbors['centroids'])
     if n:
-        dists = [np.hypot(cx - c[1] - x_off, cy - c[0] - y_off) for c in neighbors['centroids']]
+        dists = [
+            np.hypot(cx - c[1] - x_off, cy - c[0] - y_off)
+            for c in neighbors['centroids']
+        ]
         neighbor_count = n
         dist_mean, dist_std = float(np.mean(dists)), float(np.std(dists))
         orientation_diffs = [region.orientation - o for o in neighbors['orientations']]
@@ -115,7 +161,7 @@ def compute_features(region, neighbors, dark_map, pil_gray, offset):
         neighbor_count = 0
         dist_mean = dist_std = orient_std = 0.0
 
-    # Distance to dark regions
+    # Distance to dark regions.
     h, w = dark_map.shape
     iy, ix = int(round(cy)), int(round(cx))
     if 0 <= iy < h and 0 <= ix < w:
@@ -150,6 +196,13 @@ def compute_features(region, neighbors, dark_map, pil_gray, offset):
 def process_mask_regions(mask: np.ndarray, radius: float) -> list:
     """
     Precompute neighbor info for each region.
+
+    Args:
+        mask: 2D integer array of labeled nuclei.
+        radius: Distance threshold to consider nuclei as neighbors.
+
+    Returns:
+        Tuple of (region properties list, neighbor info list).
     """
     props = regionprops(mask)
     centroids = [r.centroid for r in props]

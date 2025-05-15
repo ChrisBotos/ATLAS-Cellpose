@@ -1,4 +1,36 @@
-"""TEST: Full pipeline integration (mocked Cellpose, real I/O)."""
+#!/usr/bin/env python3
+"""
+Author: Christos Botos.
+Affiliation: Leiden University Medical Center
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
+Script Name: pipeline_test.py.
+Description:
+    Test suite for the nuclei segmentation pipeline with mocked Cellpose and real I/O.
+
+Dependencies:
+    • Python >= 3.7.
+    • numpy, pytest, scikit-image.
+    • Nuclei segmentation pipeline module.
+
+Usage:
+    python -m pytest tests/nuclei_segmentation_tests/pipeline_test.py -v
+
+Inputs:
+    • None (tests generate temporary test data).
+
+Outputs:
+    • Test results indicating pass/fail status.
+
+Key Features:
+    • Integration tests for the full segmentation pipeline.
+    • Tests with mocked Cellpose model to avoid GPU dependencies.
+    • Verification of pipeline outputs and error handling.
+
+Notes:
+    • These tests verify the integration of various components in the nuclei segmentation pipeline.
+    • Uses temporary directories for test data to avoid affecting the real file system.
+"""
 
 import sys
 import os

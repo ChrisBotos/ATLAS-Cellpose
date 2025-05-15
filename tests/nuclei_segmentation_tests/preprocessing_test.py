@@ -1,7 +1,36 @@
-"""TESTING MODULE FOR preprocessing.py UTILITIES
+#!/usr/bin/env python3
+"""
+Author: Christos Botos.
+Affiliation: Leiden University Medical Center
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Covers preprocessing functions: bit-depth conversion, gamma correction, CLAHE, cropping, saving,
-and the full image preprocessing pipeline used in kidney I/R spatial omics data.
+Script Name: preprocessing_test.py.
+Description:
+    Test suite for image preprocessing utilities used in nuclei segmentation.
+
+Dependencies:
+    • Python >= 3.7.
+    • numpy, pytest, scikit-image.
+    • Custom preprocessing utilities from the nuclei_segmentation package.
+
+Usage:
+    python -m pytest tests/nuclei_segmentation_tests/preprocessing_test.py -v
+
+Inputs:
+    • None (tests run on generated test data).
+
+Outputs:
+    • Test results indicating pass/fail status.
+
+Key Features:
+    • Tests for bit-depth conversion and normalization.
+    • Tests for gamma correction and contrast enhancement (CLAHE).
+    • Tests for image cropping and border handling.
+    • Tests for the full preprocessing pipeline used in kidney I/R spatial omics data.
+
+Notes:
+    • These tests verify the correct behavior of image preprocessing functions essential for accurate nuclei segmentation.
+    • Covers both individual functions and their integration in the preprocessing pipeline.
 """
 
 '''Import statements and test framework.'''

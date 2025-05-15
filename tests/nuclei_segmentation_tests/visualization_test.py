@@ -1,4 +1,37 @@
-"""TESTING MODULE FOR visualization.py UTILITIES"""
+#!/usr/bin/env python3
+"""
+Author: Christos Botos.
+Affiliation: Leiden University Medical Center
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
+Script Name: visualization_test.py.
+Description:
+    Test suite for visualization utilities used in nuclei segmentation.
+
+Dependencies:
+    • Python >= 3.7.
+    • numpy, pytest, PIL.
+    • Custom visualization utilities from the nuclei_segmentation package.
+
+Usage:
+    python -m pytest tests/nuclei_segmentation_tests/visualization_test.py -v
+
+Inputs:
+    • None (tests run on generated test data).
+
+Outputs:
+    • Test results indicating pass/fail status.
+
+Key Features:
+    • Tests for overlay generation with various parameters.
+    • Tests for color mapping and visualization of segmentation masks.
+    • Tests for handling different image and mask dimensions.
+    • Tests for visualization utilities with temporary file outputs.
+
+Notes:
+    • These tests verify the correct behavior of visualization functions used for quality control in the segmentation pipeline.
+    • Uses temporary directories to avoid affecting the real file system.
+"""
 
 '''Import statements and test framework.'''
 import os
@@ -42,7 +75,7 @@ def test_overlay_empty_mask_shape_preserved():
 
     dummy_img = np.random.randint(0, 255, size=(64, 64), dtype=np.uint8)
     dummy_mask = np.zeros((64, 64), dtype=np.uint8)
-    logger = visualization._setup_logger("test_empty_mask")
+    logger = visualization.setup_logger("test_empty_mask")
 
     overlay = visualization.create_overlay(dummy_img, dummy_mask, logger)
 
@@ -66,7 +99,7 @@ def test_overlay_brightness_correction_triggers():
     mask = np.zeros_like(dark_img)
     mask[30:90, 30:90] = 1  # Add a mask object to force overlay logic
 
-    logger = visualization._setup_logger("test_brightness_correction")
+    logger = visualization.setup_logger("test_brightness_correction")
 
     overlay = visualization.create_overlay(dark_img, mask, logger)
 
@@ -89,7 +122,7 @@ def test_overlay_large_image_forces_manual_overlay():
     mask = np.zeros_like(large_img)
     mask[1000:1500, 1000:1500] = 1  # One large object
 
-    logger = visualization._setup_logger("test_large_image")
+    logger = visualization.setup_logger("test_large_image")
 
     overlay = visualization.create_overlay(large_img, mask, logger)
 
@@ -112,7 +145,7 @@ def test_overlay_with_float_input_and_mask():
     mask = np.zeros((100, 100), dtype=np.uint8)
     mask[25:75, 25:75] = 1
 
-    logger = visualization._setup_logger("test_float_input")
+    logger = visualization.setup_logger("test_float_input")
 
     overlay = visualization.create_overlay(float_img, mask, logger)
 
@@ -135,7 +168,7 @@ def test_overlay_handles_mask_overlay_crash(monkeypatch):
     dummy_mask = np.zeros((128, 128), dtype=np.uint8)
     dummy_mask[32:96, 32:96] = 1
 
-    logger = visualization._setup_logger("test_overlay_crash")
+    logger = visualization.setup_logger("test_overlay_crash")
 
     # Patch Cellpose plot function to raise.
     def fake_crash(*args, **kwargs):
