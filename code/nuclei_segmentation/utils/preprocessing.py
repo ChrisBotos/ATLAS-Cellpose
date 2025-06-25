@@ -32,7 +32,7 @@ def convert_16bit_to_8bit(image: np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: 8-bit grayscale image.
     """
-    if image.dtype != np.uint16:
+    if image.dtype != np.uint32:
         return image
 
     p_low, p_high = np.percentile(image, (0.5, 99.5))
@@ -188,7 +188,7 @@ def preprocess_image(image_path, settings, logger):
         image = image[:, :, :3]
         logger.info("Removed alpha channel.")
 
-    if image.dtype == np.uint16:
+    if image.dtype == np.uint32:
         image = convert_16bit_to_8bit(image)
         logger.info("Converted from 16-bit to 8-bit.")
 

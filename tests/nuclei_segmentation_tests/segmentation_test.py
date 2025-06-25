@@ -56,7 +56,7 @@ def dummy_image():
 @pytest.fixture
 def dummy_mask():
     """Return a binary mask with a square object."""
-    mask = np.zeros((128, 128), dtype=np.uint16)
+    mask = np.zeros((128, 128), dtype=np.uint32)
     mask[32:96, 32:96] = 1
     return mask
 
@@ -99,7 +99,7 @@ def mock_model():
     def fake_eval(image, **kwargs):
         h, w = image.shape[:2]
         return (
-            np.ones((h, w), dtype=np.uint16),  # fake masks per tile size
+            np.ones((h, w), dtype=np.uint32),  # fake masks per tile size
             [np.zeros((2, h, w)), np.zeros((h, w))],  # dummy flow_xy, cellprob
             None  # ignored extra outputs
         )
@@ -119,7 +119,7 @@ def test_run_single_pass_cellpose(dummy_image, dummy_cellpose_params, dummy_logg
     """
     mask, flows, count = segmentation.run_single_pass_cellpose(mock_model, dummy_image, dummy_cellpose_params, dummy_logger)
     assert mask.shape == dummy_image.shape
-    assert mask.dtype == np.uint16
+    assert mask.dtype == np.uint32
     assert isinstance(flows, list) and len(flows) == 3
     assert flows[0].shape == (2, 128, 128)
     assert flows[1].shape == (128, 128)
@@ -134,7 +134,7 @@ def test_run_cellpose_on_tiles(dummy_image, dummy_cellpose_params, dummy_setting
     """
     mask, flows, count = segmentation.run_cellpose_on_tiles(mock_model, dummy_image, dummy_cellpose_params, dummy_settings, dummy_logger)
     assert mask.shape == dummy_image.shape
-    assert mask.dtype == np.uint16
+    assert mask.dtype == np.uint32
     assert isinstance(flows, list) and flows[0].shape == (2, 128, 128)
     assert count > 0
 

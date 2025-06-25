@@ -186,7 +186,7 @@ def merge_masks(mask_tiles, slices, image_shape, overlap, logger, settings, debu
         np.ndarray: Final merged mask of shape (H, W), dtype uint16.
     """
     H, W = image_shape
-    merged = np.zeros((H, W), dtype=np.uint16)
+    merged = np.zeros((H, W), dtype=np.uint32)
 
     # Track global sizes of each label for accurate ratio calculation.
     label_sizes = {}

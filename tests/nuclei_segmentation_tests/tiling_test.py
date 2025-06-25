@@ -203,8 +203,8 @@ def test_merge_masks_overlap_without_visual(dummy_logger):
         (slice(0, 64), slice(64, 128)),
     ]
 
-    tile1 = np.zeros((64, 64), dtype=np.uint16)
-    tile2 = np.zeros((64, 64), dtype=np.uint16)
+    tile1 = np.zeros((64, 64), dtype=np.uint32)
+    tile2 = np.zeros((64, 64), dtype=np.uint32)
 
     cv2.circle(tile1, (48, 32), 12, 1, -1)
     cv2.circle(tile2, (16, 32), 12, 2, -1)
@@ -231,7 +231,7 @@ def test_merge_masks_isolated_labels(dummy_logger, dummy_settings):
         (slice(64, 128), slice(64, 128)),
     ]
 
-    tiles = [np.zeros((64, 64), dtype=np.uint16) for _ in range(4)]
+    tiles = [np.zeros((64, 64), dtype=np.uint32) for _ in range(4)]
     tiles[3][10:30, 10:30] = 7
 
     # Use dummy_logger for logging instead of settings dict
@@ -261,7 +261,7 @@ def test_merge_masks_transitive_merge(dummy_logger):
     # Create tile masks with slight offsets to chain-connect.
     tiles = []
     for i, (ys, xs) in enumerate(slices):
-        tile = np.zeros((H, 10), dtype=np.uint16)
+        tile = np.zeros((H, 10), dtype=np.uint32)
         # Draw a vertical bar near the overlap boundary.
         x_start = 6 if i == 0 else (6 if i == 1 else 0)
         x_end = x_start + 4
@@ -334,8 +334,8 @@ def test_merge_masks_threshold_extremes(dummy_logger):
         (slice(0, H), slice(tile_w - overlap, tile_w*2 - overlap)),
     ]
 
-    tile1 = np.zeros((H, tile_w), dtype=np.uint16)
-    tile2 = np.zeros((H, tile_w), dtype=np.uint16)
+    tile1 = np.zeros((H, tile_w), dtype=np.uint32)
+    tile2 = np.zeros((H, tile_w), dtype=np.uint32)
     # Each bar spans 2 columns so they overlap by 1 column
     tile1[:, 1:3] = 1
     tile2[:, 0:2] = 1

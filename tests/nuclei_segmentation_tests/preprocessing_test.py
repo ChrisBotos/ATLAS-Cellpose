@@ -56,7 +56,7 @@ def dummy_16bit_image():
     Returns:
         np.ndarray: Simulated 16-bit image with gradient intensities.
     """
-    image = np.linspace(1000, 60000, num=128*128, dtype=np.uint16).reshape((128, 128))
+    image = np.linspace(1000, 60000, num=128*128, dtype=np.uint32).reshape((128, 128))
     return image
 
 

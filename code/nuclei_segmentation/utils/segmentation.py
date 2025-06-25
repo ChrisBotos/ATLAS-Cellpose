@@ -78,17 +78,17 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
             logger.info(f"  ↪ Detected {num_cells} nuclei.")
             total_cells += num_cells
 
-            mask_tiles.append(masks.astype(np.uint16))
+            mask_tiles.append(masks.astype(np.uint32))
             flow_xy_tiles.append(flows[0])  # shape (2, H, W)
             cellprob_tiles.append(flows[1])  # shape (H, W)
 
         except Exception as e:
             logger.error(f"  ✗ Tile {i + 1} failed: {e}")
-            mask_tiles.append(np.zeros_like(tile, dtype=np.uint16))
+            mask_tiles.append(np.zeros_like(tile, dtype=np.uint32))
             flow_xy_tiles.append(np.zeros((2, *tile.shape), dtype=np.float32))
             cellprob_tiles.append(np.zeros(tile.shape, dtype=np.float32))
 
-    merged_masks = merge_masks(mask_tiles, slices, image.shape, overlap, logger, settings).astype(np.uint16)
+    merged_masks = merge_masks(mask_tiles, slices, image.shape, overlap, logger, settings).astype(np.uint32)
     merged_flow_xy = merge_tiles_with_weighted_overlap(flow_xy_tiles, slices, image.shape, overlap, logger)
     merged_cellprob = merge_tiles_with_weighted_overlap(cellprob_tiles, slices, image.shape, overlap, logger)
 
@@ -128,12 +128,12 @@ def run_single_pass_cellpose(model, image, cellpose_params, logger):
 
         num_cells = np.max(masks)
         logger.info(f"Detected {num_cells} nuclei in full image.")
-        return masks.astype(np.uint16), [flows[0], flows[1], None], num_cells
+        return masks.astype(np.uint32), [flows[0], flows[1], None], num_cells
 
     except Exception as e:
         logger.error(f"✗ Cellpose failed on full image: {e}")
         return (
-            np.zeros_like(image, dtype=np.uint16),
+            np.zeros_like(image, dtype=np.uint32),
             [np.zeros((2, *image.shape), dtype=np.float32), np.zeros(image.shape, dtype=np.float32), None],
             0,
         )

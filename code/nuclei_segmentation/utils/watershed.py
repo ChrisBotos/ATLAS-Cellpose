@@ -53,7 +53,7 @@ def apply_watershed_to_mask(masks, min_area=1000, footprint=(3, 3), logger=None)
     if masks.size == 0:
         if logger:
             logger.error("Empty mask provided to watershed function")
-        return np.zeros((1, 1), dtype=np.uint16)  # Return minimal empty mask
+        return np.zeros((1, 1), dtype=np.uint32)  # Return minimal empty mask
 
     if masks.max() == 0:
         if logger:
@@ -61,7 +61,7 @@ def apply_watershed_to_mask(masks, min_area=1000, footprint=(3, 3), logger=None)
         return masks  # Return original mask as there's nothing to process
 
     # Initialize an empty mask to store the refined segmentation results
-    final_mask = np.zeros_like(masks, dtype=np.uint16)
+    final_mask = np.zeros_like(masks, dtype=np.uint32)
 
     try:
         # Extract properties of all labeled regions in the input mask

@@ -86,7 +86,9 @@ def save_outputs(masks, flows, output_dir, logger):
     flows_dir.mkdir(parents=True, exist_ok=True)
 
     np.save(masks_dir / "segmentation_masks.npy", masks)
-    skio.imsave(masks_dir / "segmentation_masks.tif", masks.astype(np.uint16))
+    skio.imsave(str(masks_dir / "segmentation_masks.tif"),
+                masks,
+                plugin = 'tifffile')
     np.savez(flows_dir / "flows.npz", flow0=flows[0], flow1=flows[1], cellprob=flows[2])
 
     logger.info("Segmentation results saved.")
@@ -96,7 +98,7 @@ def apply_postprocessing(image, masks, settings, output_dir, logger):
     if settings.get("use_edge_detection", False):
         logger.info("Running edge refinement...")
         masks = refine_segmentation_with_edges(image, masks, settings, logger)
-        skio.imsave(Path(output_dir) / "refined_segmentation_masks.tif", masks.astype(np.uint16))
+        skio.imsave(Path(output_dir) / "refined_segmentation_masks.tif", masks.astype(np.uint32))
 
     if settings.get("apply_watershed", False):
         logger.info("Applying watershed...")
@@ -107,7 +109,7 @@ def apply_postprocessing(image, masks, settings, output_dir, logger):
                 footprint=settings.get("local_maxima_footprint", (3, 3)),
                 logger=logger
             )
-            skio.imsave(Path(output_dir) / "segmentation_masks_post_watershed.tif", masks.astype(np.uint16))
+            skio.imsave(Path(output_dir) / "segmentation_masks_post_watershed.tif", masks.astype(np.uint32))
             np.save(Path(output_dir) / "segmentation_masks_post_watershed.npy", masks)
         except Exception as e:
             logger.error(f"Watershed error: {e}")
