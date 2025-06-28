@@ -29,3 +29,6 @@ results*/
 dist/
 build/
 *.egg-info/
+
+# Specific test created directories.
+tests/nuclei_segmentation_tests/tile_merge_viz*/
