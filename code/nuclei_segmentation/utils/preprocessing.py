@@ -230,6 +230,9 @@ def preprocess_image(image_path, settings, logger):
         img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         logger.warning("Converted multi-channel TIFF to single-channel grayscale.")
 
+    out_dir = Path(settings["output_dir"]) / "preprocessed"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     # ── Optional cropping happens on the mem-map directly ───────────────────
     if settings.get("crop_image", False):
         crop_box = settings.get("crop_box", (0, 1, 0, 1))
@@ -238,8 +241,6 @@ def preprocess_image(image_path, settings, logger):
         img = crop_image(img, crop_box, logger)  # Still mem-mapped slice.
 
         # Save a quick preview of the cropped ROI for human QC.
-        out_dir = Path(settings["output_dir"]) / "preprocessed"
-        out_dir.mkdir(parents=True, exist_ok=True)
         skio.imsave(out_dir / "cropped.tif", img, plugin="tifffile")
 
     H, W = img.shape[:2]
