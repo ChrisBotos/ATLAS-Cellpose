@@ -19,7 +19,7 @@ import cv2
 from skimage import io as skio
 import tifffile as tiff
 import tempfile
-
+from pathlib import Path
 
 '''BIT DEPTH CONVERSION'''
 
@@ -258,7 +258,7 @@ def preprocess_image(image_path, settings, logger):
         tile = img[y0:y1, x0:x1]
 
         # 1. Bit-depth.
-        tile_u8 = convert_16bit_to_8bit(tile, logger=logger)
+        tile_u8 = convert_to_8bit(tile, logger=logger)
 
         # 2. Optional CLAHE.
         if settings.get("enhance_contrast", False):
