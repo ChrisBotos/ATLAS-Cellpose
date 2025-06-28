@@ -227,7 +227,7 @@ def preprocess_image(image_path, settings, logger):
     logger.info(f"Raw TIFF → ndim={img.ndim}, shape={img.shape}, dtype={img.dtype}")
     if img.ndim == 3:
         # Assume channels last; if channels first, swapaxes first.
-        img = cv2.cvtColor(img.ndim, cv2.COLOR_RGB2GRAY)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
         logger.warning("Converted multi-channel TIFF to single-channel grayscale.")
 
     # ── Optional cropping happens on the mem-map directly ───────────────────
@@ -277,8 +277,6 @@ def preprocess_image(image_path, settings, logger):
                 tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
                 logger=logger,
             )
-            skio.imsave(out_dir / "clahe.tif", tile_u8)
-            logger.info(f"Wrote CLAHE-only image to {out_dir / 'clahe.tif'}")
 
         # 3. Optional gamma.
         if settings.get("enhance_dim", False):
@@ -288,13 +286,34 @@ def preprocess_image(image_path, settings, logger):
                 max_gamma=settings.get("max_gamma", 2.2),
                 logger=logger,
             )
-            skio.imsave(out_dir / "gamma.tif", tile_u8)
-            logger.info(f"Wrote gamma-corrected image to {out_dir / 'gamma.tif'}")
 
         out_mm[y0:y1, x0:x1] = tile_u8  # Write-back.
 
     out_mm.flush()                       # Ensure data hits disk.
     img_u8 = np.asarray(out_mm)          # Cheap view; no copy.
+
+    # Full-slide CLAHE (once, not per tile)
+    if settings.get("enhance_contrast", False):
+        clahe_full = apply_clahe(
+            img_u8,
+            clip_limit=settings.get("clahe_cliplimit", 2.0),
+            tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
+            logger=logger,
+        )
+        skio.imsave(out_dir / "clahe.tif", clahe_full)
+        logger.info(f"Wrote CLAHE-only image to {out_dir / 'clahe.tif'}")
+
+    # Full-slide Gamma (once, on the CLAHE image if available)
+    if settings.get("enhance_dim", False):
+        base = clahe_full if "clahe_full" in locals() else img_u8
+        gamma_full = adaptive_gamma_correction(
+            base,
+            min_gamma=settings.get("min_gamma", 1.9),
+            max_gamma=settings.get("max_gamma", 2.2),
+            logger=logger,
+        )
+        skio.imsave(out_dir / "gamma.tif", gamma_full)
+        logger.info(f"Wrote gamma-corrected image to {out_dir / 'gamma.tif'}")
 
     factor = float(settings.get("upscale_factor", 1))
     if factor > 1.0:
@@ -312,6 +331,7 @@ def preprocess_image(image_path, settings, logger):
 
         scratch.cleanup()
         return img_up
+
 
     # Save once for downstream modules.
     out_dir = Path(settings["output_dir"]) / "preprocessed"
