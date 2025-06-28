@@ -26,63 +26,52 @@ from pathlib import Path
 def convert_to_8bit(
     image: np.ndarray,
     *,
+    p_low: float | None = None,
+    p_high: float | None = None,
     sample_fraction: float = 0.01,
-    logger=None
+    logger=None,
 ) -> np.ndarray:
     """
-    Convert 16-/32-bit microscopy frames to uint8 with percentile scaling.
+    Convert 16-/32-bit microscopy frames to uint8.
 
-    • Supports uint16 *and* uint32 input.  
-    • Uses random sampling so that > 10 GB slides do **not** have to be read
-      entirely just to compute percentiles.
-
-    Parameters
-    ----------
-    image : np.ndarray
-        Input frame (uint16 / uint32 / uint8).
-    sample_fraction : float, optional
-        Fraction of pixels to draw when estimating the 0.5 / 99.5 percentiles.
-    logger : logging.Logger or None
-        Optional logger for status output.
-
-    Returns
-    -------
-    np.ndarray
-        8-bit image (uint8).  Returns the *original* array unchanged if it is
-        already <= 8 bit.
+    • If *p_low*/*p_high* are provided, they are used verbatim (deterministic).
+    • Otherwise the 0.5 / 99.5 percentiles are estimated from a random subset.
     """
     if image.dtype == np.uint8:
-        return image  # Nothing to do.
+        return image
 
     if image.dtype not in (np.uint16, np.uint32):
-        raise TypeError(
-            f"Unsupported dtype {image.dtype}. Expected uint8/16/32."
-        )
+        raise TypeError(f"Unsupported dtype {image.dtype}. Expected uint8/16/32.")
 
-    # ── Percentile estimation on a small random subset ──────────────────────
-    total_px = image.size
-    rng = np.random.default_rng(0)
+    # Percentile estimation (only when caller did not supply them).
+    if (p_low is None) or (p_high is None):
+        total_px = image.size
+        rng = np.random.default_rng(0)
 
-    if sample_fraction < 1.0:
-        n_samples = max(10_000, int(total_px * sample_fraction))
-        idx = rng.choice(total_px, n_samples, replace=False)
-        sample = image.reshape(-1)[idx]
+        if sample_fraction < 1.0:
+            n_samples = max(10_000, int(total_px * sample_fraction))
+            idx = rng.choice(total_px, n_samples, replace=False)
+            sample = image.reshape(-1)[idx]
+        else:
+            sample = image
+
+        p_low, p_high = np.percentile(sample, (0.5, 99.5))
+        if logger:
+            logger.debug(
+                f"[16→8] sampled p0.5={p_low:.1f}, p99.5={p_high:.1f} "
+                f"(n={sample.size:,})"
+            )
     else:
-        sample = image  # Fallback (tests / small frames).
+        if logger:
+            logger.debug(
+                f"[16→8] using global p0.5={p_low:.1f}, p99.5={p_high:.1f}"
+            )
 
-    p_low, p_high = np.percentile(sample, (0.5, 99.5))
-    if logger:
-        logger.debug(
-            f"[16→8 bit] p0.5={p_low:.1f}, p99.5={p_high:.1f} "
-            f"(sample n={sample.size:,})"
-        )
-
-    if p_high <= p_low:                      # Degenerate contrast.
+    if p_high <= p_low:
         p_low, p_high = int(image.min()), int(image.max())
         if p_high <= p_low:
             return np.zeros_like(image, dtype=np.uint8)
 
-    # ── Scale & cast ────────────────────────────────────────────────────────
     img_f32 = (image.astype(np.float32) - p_low) / (p_high - p_low)
     img_u8 = np.clip(img_f32, 0, 1) * 255
     return img_u8.astype(np.uint8)
@@ -192,9 +181,6 @@ def save_image(image: np.ndarray, path: str, logger=None):
         if logger:
             logger.error(f"Failed to save {path}: {e}")
 
-
-'''MAIN PIPELINE'''
-
 '''MAIN PIPELINE'''
 
 def _lazy_tiff_memmap(path: str, logger):
@@ -230,12 +216,19 @@ def preprocess_image(image_path, settings, logger):
     """
     STREAMING version that keeps peak RSS <~2-4 GB even for 80k×80k slides.
     """
+
     image_path = str(image_path)
     if image_path.lower().endswith((".tif", ".tiff")):
         img = _lazy_tiff_memmap(image_path, logger)
     else:
         img = skio.imread(image_path)     # Non-TIFF formats.
         logger.warning("Non-TIFF input read fully into RAM.")
+
+    logger.info(f"Raw TIFF → ndim={img.ndim}, shape={img.shape}, dtype={img.dtype}")
+    if img.ndim == 3:
+        # Assume channels last; if channels first, swapaxes first.
+        img = cv2.cvtColor(img.ndim, cv2.COLOR_RGB2GRAY)
+        logger.warning("Converted multi-channel TIFF to single-channel grayscale.")
 
     # ── Optional cropping happens on the mem-map directly ───────────────────
     if settings.get("crop_image", False):
@@ -244,10 +237,22 @@ def preprocess_image(image_path, settings, logger):
             crop_box = [float(x.strip()) for x in crop_box.split(',')]
         img = crop_image(img, crop_box, logger)  # Still mem-mapped slice.
 
+        # Save a quick preview of the cropped ROI for human QC.
+        out_dir = Path(settings["output_dir"]) / "preprocessed"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        skio.imsave(out_dir / "cropped.tif", img, plugin="tifffile")
+
     H, W = img.shape[:2]
     logger.info(f"Working shape post-crop: {H}×{W}, dtype={img.dtype}")
 
-    # ── Tile-wise 16→8 bit conversion, CLAHE & gamma (if requested) ─────────
+    # ── one-off global 0.5 / 99.5 % for deterministic scaling ────────────────
+    flat = img.reshape(-1)
+    stride = max(1, flat.size // 1_000_000)  # ~1 M evenly spaced samples
+    sample = flat[::stride]
+    p_low, p_high = np.percentile(sample, (0.5, 99.5))
+    logger.info(f"[global 16→8] p0.5={p_low:.1f}, p99.5={p_high:.1f}")
+
+    # ── Tile-wise 8 bit conversion, CLAHE & gamma (if requested) ─────────
     tile_px  = settings.get("tile_side_length", 8192)
     overlap  = int(tile_px * 0.05)
     scratch  = tempfile.TemporaryDirectory(prefix="iri_pre_")
@@ -262,7 +267,7 @@ def preprocess_image(image_path, settings, logger):
         tile = img[y0:y1, x0:x1]
 
         # 1. Bit-depth.
-        tile_u8 = convert_to_8bit(tile, logger=logger)
+        tile_u8 = convert_to_8bit(tile, p_low=p_low, p_high=p_high, logger=logger)
 
         # 2. Optional CLAHE.
         if settings.get("enhance_contrast", False):
@@ -272,6 +277,8 @@ def preprocess_image(image_path, settings, logger):
                 tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
                 logger=logger,
             )
+            skio.imsave(out_dir / "clahe.tif", tile_u8)
+            logger.info(f"Wrote CLAHE-only image to {out_dir / 'clahe.tif'}")
 
         # 3. Optional gamma.
         if settings.get("enhance_dim", False):
@@ -281,6 +288,8 @@ def preprocess_image(image_path, settings, logger):
                 max_gamma=settings.get("max_gamma", 2.2),
                 logger=logger,
             )
+            skio.imsave(out_dir / "gamma.tif", tile_u8)
+            logger.info(f"Wrote gamma-corrected image to {out_dir / 'gamma.tif'}")
 
         out_mm[y0:y1, x0:x1] = tile_u8  # Write-back.
 

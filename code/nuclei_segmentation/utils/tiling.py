@@ -113,8 +113,6 @@ def split_image_into_tiles(
             yield tile, (slice(y0, y1), slice(x0, x1))
 
 
-"""Weighted merge for continuous outputs."""
-
 """Feather-blend a stack of continuous tiles into one full-resolution array."""
 
 def _memmap_array(shape, dtype, logger):
@@ -125,6 +123,7 @@ def _memmap_array(shape, dtype, logger):
     os.close(fd)                           # We only need the path.
     logger.debug(f"Allocated memmap: {path}  shape={shape}  dtype={dtype}")
     return np.memmap(path, mode="w+", dtype=dtype, shape=shape)
+
 
 def merge_tiles_with_weighted_overlap(
     tile_stack: Sequence[np.ndarray],
@@ -138,70 +137,73 @@ def merge_tiles_with_weighted_overlap(
     mem_threshold_gb: float = 4.0,
 ) -> np.ndarray:
     """
-    Identical API but automatically mem-maps the accumulators when the target
-    array would exceed *mem_threshold_gb* in FP32.
+    Feather-blend a sequence of overlapping tiles into one float32 canvas.
 
-    Returns a **numpy.memmap** when mem-mapping was used, otherwise a plain
-    ndarray.  Callers can treat both identically.
+    Handles both greyscale (H×W) and multichannel (C×H×W or H×W×C) tiles.
+    Greyscale tiles are promoted to (1,H,W) internally so broadcasting is safe.
     """
     if not tile_stack:
         return np.zeros(image_shape, dtype=np.float32)
 
-    H, W = image_shape
     sample = tile_stack[0]
+    H, W = image_shape
 
-    # ── Decide whether to mem-map ───────────────────────────────────────────
-    bytes_needed = H * W * 4  # weights array; field may be ×C.
-    maybe_memmap = bytes_needed > mem_threshold_gb * 1024**3
-
-    if sample.ndim == 2:                         # Scalar field.
-        is_2d = True
-        C = 1
-    elif sample.ndim == 3:
-        is_2d = False
-        C = sample.shape[0] if (channel_axis in (0, None)) else sample.shape[2]
+    # Detect channel axis / count.
+    if sample.ndim == 2:
+        channel_axis = None
+        n_chan = 1
     else:
-        raise ValueError("Tiles must be 2-D or 3-D arrays.")
+        if channel_axis is None:
+            if 3 in sample.shape:
+                channel_axis = sample.shape.index(3)
+            elif 4 in sample.shape:
+                channel_axis = sample.shape.index(4)
+            else:
+                channel_axis = 0
+        n_chan = sample.shape[channel_axis]
 
-    if maybe_memmap:
-        field = _memmap_array((C, H, W) if not is_2d else (H, W),
-                              dtype=np.float32, logger=logger)
-        weights = _memmap_array((H, W), dtype=np.float32, logger=logger)
-    else:
-        field = np.zeros((C, H, W) if not is_2d else (H, W), dtype=np.float32)
-        weights = np.zeros((H, W), dtype=np.float32)
+    # Memory-aware allocator (RAM or memmap).
+    def _allocate(shape: Tuple[int, ...]) -> np.ndarray:
+        bytes_needed = np.prod(shape, dtype=np.int64) * 4   # float32
+        if bytes_needed > mem_threshold_gb * (1024**3):
+            return _memmap_array(shape, dtype=np.float32, logger=logger)
+        return np.zeros(shape, dtype=np.float32)
 
-    # ── Normal processing identical below ──────────────────────────────────
-    tiles_proc = tile_stack
-    if not is_2d and channel_axis == 2:
-        tiles_proc = [t.transpose(2, 0, 1) for t in tile_stack]  # → CHW
+    # Always work CHW internally (even greyscale → (1,H,W)).
+    field   = _allocate((n_chan if n_chan > 1 else 1, H, W))
+    weights = _allocate((H, W))
 
-    for tile, (ys, xs) in zip(tiles_proc, slices):
+    def _tile_to_chw(tile: np.ndarray) -> np.ndarray:
+        if tile.ndim == 2:
+            return tile.astype(np.float32)[None, ...]
+        if channel_axis == 0:
+            return tile.astype(np.float32)
+        return np.moveaxis(tile, channel_axis, 0).astype(np.float32)
+
+    # Accumulate.
+    for tile_raw, (ys, xs) in zip(tile_stack, slices):
         y0, y1 = ys.start, ys.stop
         x0, x1 = xs.start, xs.stop
-        h, w = y1 - y0, x1 - x0
+        h, w   = y1 - y0, x1 - x0
 
+        tile_chw = _tile_to_chw(tile_raw)
         mask = feather_mask(h, w, overlap).astype(np.float32)
-        mask[mask == 0.0] = 1e-6
+        mask[mask == 0.0] = 1e-6          # avoid div-by-zero later
 
-        if is_2d:
-            field[y0:y1, x0:x1]  += tile * mask
-        else:
-            field[:, y0:y1, x0:x1] += tile * mask
-        weights[y0:y1, x0:x1] += mask
+        field[:, y0:y1, x0:x1] += tile_chw * mask
+        weights[y0:y1, x0:x1]  += mask
 
-    eps = 1e-6
-    if is_2d:
-        np.divide(field, weights.clip(min=eps), out=field)
-        if debug_snap is not None:
-            debug_snap("merge_weights", weights)
+    field /= weights.clip(min=1e-6)[None, ...]
+
+    if debug_snap is not None:
+        debug_snap("merge_weights", weights)
+
+    # Restore original channel layout.
+    if n_chan == 1:
+        return field[0]
+    if channel_axis == 0:
         return field
-    else:
-        np.divide(field, weights.clip(min=eps)[None, ...], out=field)
-        if debug_snap is not None:
-            debug_snap("merge_weights", weights)
-        return field[0] if field.shape[0] == 1 else field
-
+    return np.moveaxis(field, 0, channel_axis)
 
 
 '''Instance-mask fusion with QC overlays.'''
@@ -224,6 +226,10 @@ def merge_masks(
       diagnostic PNGs in ``<output_dir>/tile_merge_viz/``.
     """
 
+    logger.info("merge_masks settings: overlap_threshold=%.2f, border_rule=ON", settings["merge_overlap_threshold"])
+    total_objs = sum(np.unique(t, return_counts=True)[1].size - 1 for t in mask_tiles)
+    logger.info("  → total input objects across all tiles = %d", total_objs)
+
     H, W = image_shape
     merged = np.zeros((H, W), dtype=np.uint32)
     next_gid = 1
@@ -233,7 +239,7 @@ def merge_masks(
     viz_dir = out_dir / "tile_merge_viz"
     viz_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Pre-merge overlay ──────────────────────────────────────────
+    # Pre-merge overlay.
     before  = np.zeros((H, W, 3), dtype=np.float32)
     weights = np.zeros((H, W),     dtype=np.float32)
     rng = np.random.default_rng(0)
@@ -305,7 +311,7 @@ def merge_masks(
                 # Asymmetric OR ratio test (same as before).
                 if (ov_area / area_local) >= thr or (ov_area / area_gid) >= thr:
 
-                    # ── Apply border rule ───────────────────────────────
+                    # Apply border rule 
                     if local_border ^ gid_border:          # exactly one touches
                         if local_border:
                             kill_local = True               # delete local stub
@@ -318,7 +324,7 @@ def merge_masks(
                         chosen_gid = gid
                         border_touch[gid] = local_border or gid_border
                         break
-                    # ────────────────────────────────────────────────────
+                    # 
 
             if kill_local:
                 if logger:
@@ -333,7 +339,7 @@ def merge_masks(
 
             roi[local_mask] = chosen_gid
 
-    # ── Post-merge overlay ────────────────────────────────────────
+    # Post-merge overlay 
     cmap = rng.random((next_gid + 1, 3))
     after = cmap[merged]
     plt.imsave(viz_dir / "after_merge_overlay.png", np.clip(after, 0.0, 1.0))
@@ -342,4 +348,10 @@ def merge_masks(
         debug_snap("merged_mask", merged)
 
     logger.info("Mask fusion produced %d unique IDs.", next_gid - 1)
+
+    uniq, counts = np.unique(merged, return_counts=True)
+    logger.info("  → total objects after merge      = %d", uniq.size - 1)
+    removed = total_objs - (uniq.size - 1)
+    logger.info("  → objects removed by merge rules = %d", removed)
+
     return merged
