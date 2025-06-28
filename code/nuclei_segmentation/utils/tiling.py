@@ -193,10 +193,15 @@ def merge_tiles_with_weighted_overlap(
     eps = 1e-6
     if is_2d:
         np.divide(field, weights.clip(min=eps), out=field)
+        if debug_snap is not None:
+            debug_snap("merge_weights", weights)
         return field
     else:
         np.divide(field, weights.clip(min=eps)[None, ...], out=field)
+        if debug_snap is not None:
+            debug_snap("merge_weights", weights)
         return field[0] if field.shape[0] == 1 else field
+
 
 
 '''Instance-mask fusion with QC overlays.'''

@@ -217,6 +217,10 @@ def _tile_iter(h, w, tile=8192, overlap=0):
     """
     Generate (y0,y1,x0,x1) windows that cover the image without padding.
     """
+    if tile >= h and tile >= w:
+        yield 0, h, 0, w
+        return
+
     step = tile - overlap
     for y0 in range(0, h, step):
         for x0 in range(0, w, step):
@@ -233,15 +237,15 @@ def preprocess_image(image_path, settings, logger):
         img = skio.imread(image_path)     # Non-TIFF formats.
         logger.warning("Non-TIFF input read fully into RAM.")
 
-    H, W = img.shape[:2]
-    logger.info(f"Input shape: {H}×{W}, dtype={img.dtype}")
-
     # ── Optional cropping happens on the mem-map directly ───────────────────
     if settings.get("crop_image", False):
         crop_box = settings.get("crop_box", (0, 1, 0, 1))
         if isinstance(crop_box, str):
             crop_box = [float(x.strip()) for x in crop_box.split(',')]
         img = crop_image(img, crop_box, logger)  # Still mem-mapped slice.
+
+    H, W = img.shape[:2]
+    logger.info(f"Working shape post-crop: {H}×{W}, dtype={img.dtype}")
 
     # ── Tile-wise 16→8 bit conversion, CLAHE & gamma (if requested) ─────────
     tile_px  = settings.get("tile_side_length", 8192)
@@ -283,10 +287,27 @@ def preprocess_image(image_path, settings, logger):
     out_mm.flush()                       # Ensure data hits disk.
     img_u8 = np.asarray(out_mm)          # Cheap view; no copy.
 
+    factor = float(settings.get("upscale_factor", 1))
+    if factor > 1.0:
+        new_h = int(round(img_u8.shape[0] * factor))
+        new_w = int(round(img_u8.shape[1] * factor))
+        img_up = cv2.resize(img_u8, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+        logger.info(f"Upscaled pre-processed image → {img_up.shape} (factor={factor:g})")
+
+        # Save both the native-res and the up-scaled version for traceability.
+        out_dir = Path(settings["output_dir"]) / "preprocessed"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        skio.imsave(out_dir / "final.tif", img_u8)
+        skio.imsave(out_dir / "upscaled.tif", img_up)
+
+        scratch.cleanup()
+        return img_up
+
     # Save once for downstream modules.
     out_dir = Path(settings["output_dir"]) / "preprocessed"
     out_dir.mkdir(parents=True, exist_ok=True)
-    skio.imsave(out_dir / "final.tif", img_u8, plugin="tifffile")
+    skio.imsave(out_dir / "final.tif", img_u8)
     logger.info(f"Wrote pre-processed slide to {out_dir/'final.tif'}")
 
     scratch.cleanup()
