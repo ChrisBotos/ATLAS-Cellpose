@@ -28,3 +28,8 @@ Now the tiles start from the top left, so they may cover smaller areas on the bo
 - Gamma Correction bug.
 
 7) Created signatures and explanations at the top of all scripts.
+
+8) Improved memory allocation by not loading the whole image into the RAM and loading tiles separately.
+
+9) Greatly improved tiling and introduced a new merging rule where if only one mask touches a tile border it is not merged with the other but removed.
+

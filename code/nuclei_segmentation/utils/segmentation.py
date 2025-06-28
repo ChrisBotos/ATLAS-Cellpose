@@ -1,65 +1,106 @@
 """
-NUCLEI SEGMENTATION FOR 2D IMAGES.
+NUCLEI SEGMENTATION FOR 2D IMAGES (REFactored).
 
-This module provides:
-1. Cellpose segmentation (with optional tiling to handle large fields of view).
-2. Canny edge-based postprocessing for refinement of connected or poorly separated nuclei.
+Author: Christos Botos.
+Affiliation: Institute of Molecular Biology and Biotechnology.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
+Description:
+    Wrapper functions to run Cellpose on large histological images with square
+    tiling, optional merging, and diagnostic logging.  This version syncs with
+    the **backwards‑compatible** tiling utilities (split_image_into_tiles,
+    merge_tiles_with_weighted_overlap, merge_masks) introduced in 2025‑06‑28.
+
+Key Updates:
+    • Calls split_image_into_tiles with explicit ``tile_h, tile_w`` arguments
+      to avoid positional ambiguity (tile_h = tile_w = tile_size).
+    • Passes ``logger=logger`` as keyword to merge_tiles_with_weighted_overlap
+      to match its updated signature.
+    • Adds type hints and full‑stop comments for clarity.
 """
 
+from __future__ import annotations
+
+from typing import Tuple, List
+
 import numpy as np
-import cv2
 
-from .tiling import split_image_into_tiles, merge_masks, merge_tiles_with_weighted_overlap
+from .tiling import (
+    split_image_into_tiles,
+    merge_masks,
+    merge_tiles_with_weighted_overlap,
+)
 
 
-def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
-    """
-    Segment a large 2D grayscale image using Cellpose with optional tiling.
+# -----------------------------------------------------------------------------
+# Core function.
+# -----------------------------------------------------------------------------
+
+def run_cellpose_on_tiles(
+    model,
+    image: np.ndarray,
+    cellpose_params: dict,
+    settings: dict,
+    logger,
+) -> Tuple[np.ndarray, List[np.ndarray], int]:
+    """Segment *image* with optional tiling and return merged results.
 
     Parameters:
-    - model: Initialized Cellpose model.
-    - image (np.ndarray): Grayscale input image, shape (H, W), dtype uint8 or float32.
-    - cellpose_params (dict): Parameters for Cellpose evaluation.
-    - settings (dict): Includes tile_side_length, tile_overlap, use_tiling.
-    - logger: Logger instance for status reporting.
+        model:   Pre‑loaded Cellpose model.
+        image:   2‑D grayscale array (H×W).
+        cellpose_params: Dict of Cellpose hyper‑parameters.
+        settings: Dict with tiling keys ``tile_side_length``, ``tile_overlap``,
+                  and boolean ``use_tiling``.
+        logger:  Logger for status output.
 
     Returns:
-    - masks (np.ndarray): Label image, shape (H, W), dtype uint16.
-    - flows (list of np.ndarray): [flow_xy (2,H,W), cellprob (H,W), None].
-    - total_cells (int): Total number of detected nuclei.
+        masks (H×W uint32), [flow_xy, cellprob, None], total_cells.
     """
 
-    height, width = image.shape
-    tile_size = settings.get("tile_side_length")
-    
-    # If tile_overlap is a number between 0 and 1, treat it as a fraction.
-    # Otherwise, treat it as a pixel count.
-    tile_overlap = settings.get("tile_overlap")
-    if isinstance(tile_overlap, (int, float)) and 0 <= tile_overlap <= 1:
-        overlap = int(tile_size * tile_overlap)
-    else:
-        overlap = int(tile_overlap)  # Assume it's already in pixels
-        
-    # Ensure overlap is reasonable (not larger than tile_size/2).
-    if overlap > tile_size // 2:
-        logger.warning(f"Overlap {overlap} is larger than half the tile size {tile_size // 2}, clamping to {tile_size // 2}.")
-    overlap = min(overlap, tile_size // 2)
-    
-    use_tiling = settings.get("use_tiling") and (height > tile_size or width > tile_size)
+    H, W = image.shape
+    tile_size: int = settings.get("tile_side_length")
 
-    logger.info(f"Segmentation initiated. Image shape: {image.shape}. Tiling: {use_tiling}")
+    # Interpret overlap: percentage or pixel count.
+    overlap_cfg = settings.get("tile_overlap")
+    if isinstance(overlap_cfg, (int, float)) and 0 <= overlap_cfg <= 1:
+        overlap = int(tile_size * overlap_cfg)
+    else:
+        overlap = int(overlap_cfg)
+    overlap = min(overlap, tile_size // 2)  # Clamp.
+
+    use_tiling: bool = settings.get("use_tiling") and (H > tile_size or W > tile_size)
+    logger.info("Segmentation initiated. Image shape: %s. Tiling: %s.", image.shape, use_tiling)
+
+    # ──────────────────────────────────────────────────────────────
+    # 1.  Fallback: single‑pass mode.
+    # ──────────────────────────────────────────────────────────────
 
     if not use_tiling:
-        return run_single_pass_cellpose(model, image, cellpose_params, logger)
+        return _run_single_pass_cellpose(model, image, cellpose_params, logger)
 
-    tiles, slices = split_image_into_tiles(image, tile_size, overlap, logger)
-    logger.info(f"Tiling produced {len(tiles)} subregions.")
+    # ──────────────────────────────────────────────────────────────
+    # 2.  Tile the image (explicit tile_h, tile_w interface).
+    # ──────────────────────────────────────────────────────────────
 
-    mask_tiles, flow_xy_tiles, cellprob_tiles = [], [], []
+    tile_iter = split_image_into_tiles(image, tile_size, tile_size, overlap, logger)
+
+    # Materialise once; keeps the streaming API, but we still want random access later.
+    tiles, slices = zip(*tile_iter)  # tiles -> tuple, slices -> tuple
+    tiles = list(tiles)
+    slices = list(slices)
+
+    logger.info("Tiling produced %d subregions.", len(tiles))
+
+    mask_tiles: List[np.ndarray] = []
+    flow_xy_tiles: List[np.ndarray] = []
+    cellprob_tiles: List[np.ndarray] = []
+
     total_cells = 0
-
-    for i, tile in enumerate(tiles):
-        logger.info(f"→ Segmenting tile {i + 1}/{len(tiles)} — shape: {tile.shape}, mean intensity: {tile.mean():.2f}")
+    for idx, tile in enumerate(tiles):
+        logger.info(
+            "→ Segmenting tile %d/%d — shape=%s, mean=%.2f.",
+            idx + 1, len(tiles), tile.shape, tile.mean()
+        )
 
         try:
             masks, flows, *_ = model.eval(
@@ -74,44 +115,58 @@ def run_cellpose_on_tiles(model, image, cellpose_params, settings, logger):
                 do_3D=False,
             )
 
-            num_cells = np.max(masks)
-            logger.info(f"  ↪ Detected {num_cells} nuclei.")
+            num_cells = int(masks.max())
+            logger.info("  ↪ Detected %d nuclei.", num_cells)
             total_cells += num_cells
 
-            mask_tiles.append(masks.astype(np.uint32))
+            '''Convert Cellpose output to safe uint32 masks.'''
+            if masks is None:  # Cellpose found 0 nuclei.
+                tile_mask = np.zeros(tile.shape[-2:],  # Works for HW or CHW tiles.
+                                     dtype=np.uint32)
+            else:
+                tile_mask = masks.astype(np.uint32)
+
+            mask_tiles.append(tile_mask)  # ← use tile_mask from now on.
             flow_xy_tiles.append(flows[0])  # shape (2, H, W)
             cellprob_tiles.append(flows[1])  # shape (H, W)
 
-        except Exception as e:
-            logger.error(f"  ✗ Tile {i + 1} failed: {e}")
+        except Exception as exc:
+            logger.error("  ✗ Tile %d failed: %s", idx + 1, exc)
             mask_tiles.append(np.zeros_like(tile, dtype=np.uint32))
             flow_xy_tiles.append(np.zeros((2, *tile.shape), dtype=np.float32))
             cellprob_tiles.append(np.zeros(tile.shape, dtype=np.float32))
 
-    merged_masks = merge_masks(mask_tiles, slices, image.shape, overlap, logger, settings).astype(np.uint32)
-    merged_flow_xy = merge_tiles_with_weighted_overlap(flow_xy_tiles, slices, image.shape, overlap, logger)
-    merged_cellprob = merge_tiles_with_weighted_overlap(cellprob_tiles, slices, image.shape, overlap, logger)
+    # ──────────────────────────────────────────────────────────────
+    # 3.  Merge results.
+    # ──────────────────────────────────────────────────────────────
+
+    merged_masks = merge_masks(
+        mask_tiles, slices, image.shape, overlap, logger, settings
+    ).astype(np.uint32)
+
+    merged_flow_xy = merge_tiles_with_weighted_overlap(
+        flow_xy_tiles, slices, image.shape, overlap, logger=logger
+    )
+    merged_cellprob = merge_tiles_with_weighted_overlap(
+        cellprob_tiles, slices, image.shape, overlap, logger=logger
+    )
 
     return merged_masks, [merged_flow_xy, merged_cellprob, None], total_cells
 
 
-def run_single_pass_cellpose(model, image, cellpose_params, logger):
-    """
-    Run Cellpose segmentation on a single grayscale image.
+# -----------------------------------------------------------------------------
+# Helper: single‑pass Cellpose call.
+# -----------------------------------------------------------------------------
 
-    Parameters:
-    - model: Cellpose model.
-    - image (np.ndarray): Grayscale image, shape (H, W), dtype uint8 or float32.
-    - cellpose_params (dict): Parameters for Cellpose evaluation.
-    - logger: Logger instance.
+def _run_single_pass_cellpose(
+    model,
+    image: np.ndarray,
+    cellpose_params: dict,
+    logger,
+) -> Tuple[np.ndarray, List[np.ndarray], int]:
+    """Run Cellpose on the full image without tiling."""
 
-    Returns:
-    - masks (np.ndarray): Label image, dtype uint16.
-    - flows (list): [flow_xy (2,H,W), cellprob (H,W), None].
-    - total_cells (int): Number of labeled cells.
-    """
-
-    logger.info("Running full-image Cellpose segmentation (no tiling).")
+    logger.info("Running full‑image Cellpose segmentation (no tiling).")
 
     try:
         masks, flows, *_ = model.eval(
@@ -126,49 +181,18 @@ def run_single_pass_cellpose(model, image, cellpose_params, logger):
             do_3D=False,
         )
 
-        num_cells = np.max(masks)
-        logger.info(f"Detected {num_cells} nuclei in full image.")
+        num_cells = int(masks.max())
+        logger.info("Detected %d nuclei in full image.", num_cells)
         return masks.astype(np.uint32), [flows[0], flows[1], None], num_cells
 
-    except Exception as e:
-        logger.error(f"✗ Cellpose failed on full image: {e}")
+    except Exception as exc:
+        logger.error("✗ Cellpose failed on full image: %s", exc)
         return (
             np.zeros_like(image, dtype=np.uint32),
-            [np.zeros((2, *image.shape), dtype=np.float32), np.zeros(image.shape, dtype=np.float32), None],
+            [
+                np.zeros((2, *image.shape), dtype=np.float32),
+                np.zeros(image.shape, dtype=np.float32),
+                None,
+            ],
             0,
         )
-
-
-def refine_segmentation_with_edges(image, masks, settings, logger):
-    """
-    Refine segmentation by subtracting strong edges from mask interior.
-
-    Parameters:
-    - image (np.ndarray): Grayscale image, shape (H, W), dtype uint8 or float32.
-    - masks (np.ndarray): Binary or label mask, shape (H, W), dtype uint16.
-    - settings (dict): Contains 'canny_threshold1', 'canny_threshold2'.
-    - logger: Logger instance.
-
-    Returns:
-    - labeled (np.ndarray): Connected component-labeled refined mask.
-    """
-
-    if image.shape != masks.shape:
-        logger.warning(f"Shape mismatch. Cropping masks and image to minimum common area.")
-        h, w = min(image.shape[0], masks.shape[0]), min(image.shape[1], masks.shape[1])
-        image = image[:h, :w]
-        masks = masks[:h, :w]
-
-    t1 = settings.get("canny_threshold1", 50)
-    t2 = settings.get("canny_threshold2", 150)
-
-    edges = cv2.Canny(image, threshold1=t1, threshold2=t2)
-    dilated_edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
-
-    binary_mask = (masks > 0).astype(np.uint8)
-    cleaned_mask = np.logical_and(binary_mask, dilated_edges == 0).astype(np.uint8)
-
-    n_labels, labeled = cv2.connectedComponents(cleaned_mask)
-
-    logger.info(f"Edge-refined segmentation yielded {n_labels - 1} connected regions.")
-    return labeled
