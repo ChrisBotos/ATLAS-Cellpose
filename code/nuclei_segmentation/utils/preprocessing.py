@@ -14,36 +14,78 @@ This module provides:
 This is for the preprocessing pipeline of spatial omics kidney data across I/R injury timepoints.
 """
 
-import os
 import numpy as np
 import cv2
 from skimage import io as skio
+import tifffile as tiff
+import tempfile
 
 
 '''BIT DEPTH CONVERSION'''
 
-def convert_16bit_to_8bit(image: np.ndarray) -> np.ndarray:
+def convert_to_8bit(
+    image: np.ndarray,
+    *,
+    sample_fraction: float = 0.01,
+    logger=None
+) -> np.ndarray:
     """
-    Convert a 16-bit image to 8-bit using percentile-based dynamic range scaling.
+    Convert 16-/32-bit microscopy frames to uint8 with percentile scaling.
 
-    Args:
-        image (np.ndarray): 16-bit grayscale image.
+    • Supports uint16 *and* uint32 input.  
+    • Uses random sampling so that > 10 GB slides do **not** have to be read
+      entirely just to compute percentiles.
 
-    Returns:
-        np.ndarray: 8-bit grayscale image.
+    Parameters
+    ----------
+    image : np.ndarray
+        Input frame (uint16 / uint32 / uint8).
+    sample_fraction : float, optional
+        Fraction of pixels to draw when estimating the 0.5 / 99.5 percentiles.
+    logger : logging.Logger or None
+        Optional logger for status output.
+
+    Returns
+    -------
+    np.ndarray
+        8-bit image (uint8).  Returns the *original* array unchanged if it is
+        already <= 8 bit.
     """
-    if image.dtype != np.uint32:
-        return image
+    if image.dtype == np.uint8:
+        return image  # Nothing to do.
 
-    p_low, p_high = np.percentile(image, (0.5, 99.5))
+    if image.dtype not in (np.uint16, np.uint32):
+        raise TypeError(
+            f"Unsupported dtype {image.dtype}. Expected uint8/16/32."
+        )
 
-    if p_high - p_low <= 0:
-        p_low, p_high = image.min(), image.max()
-        if p_high - p_low <= 0:
+    # ── Percentile estimation on a small random subset ──────────────────────
+    total_px = image.size
+    rng = np.random.default_rng(0)
+
+    if sample_fraction < 1.0:
+        n_samples = max(10_000, int(total_px * sample_fraction))
+        idx = rng.choice(total_px, n_samples, replace=False)
+        sample = image.reshape(-1)[idx]
+    else:
+        sample = image  # Fallback (tests / small frames).
+
+    p_low, p_high = np.percentile(sample, (0.5, 99.5))
+    if logger:
+        logger.debug(
+            f"[16→8 bit] p0.5={p_low:.1f}, p99.5={p_high:.1f} "
+            f"(sample n={sample.size:,})"
+        )
+
+    if p_high <= p_low:                      # Degenerate contrast.
+        p_low, p_high = int(image.min()), int(image.max())
+        if p_high <= p_low:
             return np.zeros_like(image, dtype=np.uint8)
 
-    normalized = np.clip((image - p_low) / (p_high - p_low), 0, 1)
-    return (normalized * 255).astype(np.uint8)
+    # ── Scale & cast ────────────────────────────────────────────────────────
+    img_f32 = (image.astype(np.float32) - p_low) / (p_high - p_low)
+    img_u8 = np.clip(img_f32, 0, 1) * 255
+    return img_u8.astype(np.uint8)
 
 
 '''GAMMA CORRECTION'''
@@ -153,70 +195,99 @@ def save_image(image: np.ndarray, path: str, logger=None):
 
 '''MAIN PIPELINE'''
 
-def preprocess_image(image_path, settings, logger):
+'''MAIN PIPELINE'''
+
+def _lazy_tiff_memmap(path: str, logger):
     """
-    Complete preprocessing pipeline.
-
-    Args:
-        image_path (str): Path to input image.
-        settings (dict): Dictionary of preprocessing settings.
-        logger: Logger for messages.
-
-    Returns:
-        np.ndarray: Final processed image.
+    Return a numpy.memmap view of the first page of a TIFF – no full read.
     """
     try:
-        image = skio.imread(image_path)
+        with tiff.TiffFile(path) as tif:
+            page = tif.series[0]          # Assumes single-page WSI / slide.
+            arr  = page.asarray(out='memmap')
+            logger.info(
+                f"Lazy-mapped TIFF: {arr.shape} {arr.dtype} @ {arr.nbytes/1e9:.1f} GB"
+            )
+            return arr
     except Exception as e:
-        logger.error(f"Failed to read image {image_path}: {e}")
-        raise RuntimeError("Image loading failed.") from e
+        logger.error(f"TIFF mem-map failed: {e}")
+        raise
 
-    if logger:
-        logger.info(f"Loaded {image_path} with shape {image.shape} and dtype {image.dtype}")
+def _tile_iter(h, w, tile=8192, overlap=0):
+    """
+    Generate (y0,y1,x0,x1) windows that cover the image without padding.
+    """
+    step = tile - overlap
+    for y0 in range(0, h, step):
+        for x0 in range(0, w, step):
+            yield y0, min(y0 + tile, h), x0, min(x0 + tile, w)
 
-    out_dir = os.path.join(settings["output_dir"], "preprocessed")
-    os.makedirs(out_dir, exist_ok=True)
+def preprocess_image(image_path, settings, logger):
+    """
+    STREAMING version that keeps peak RSS <~2-4 GB even for 80k×80k slides.
+    """
+    image_path = str(image_path)
+    if image_path.lower().endswith((".tif", ".tiff")):
+        img = _lazy_tiff_memmap(image_path, logger)
+    else:
+        img = skio.imread(image_path)     # Non-TIFF formats.
+        logger.warning("Non-TIFF input read fully into RAM.")
 
+    H, W = img.shape[:2]
+    logger.info(f"Input shape: {H}×{W}, dtype={img.dtype}")
+
+    # ── Optional cropping happens on the mem-map directly ───────────────────
     if settings.get("crop_image", False):
         crop_box = settings.get("crop_box", (0, 1, 0, 1))
         if isinstance(crop_box, str):
             crop_box = [float(x.strip()) for x in crop_box.split(',')]
-        image = crop_image(image, crop_box, logger)
-        save_image(image, os.path.join(out_dir, "cropped.tif"), logger)
+        img = crop_image(img, crop_box, logger)  # Still mem-mapped slice.
 
-    if image.ndim == 3 and image.shape[-1] == 4:
-        image = image[:, :, :3]
-        logger.info("Removed alpha channel.")
+    # ── Tile-wise 16→8 bit conversion, CLAHE & gamma (if requested) ─────────
+    tile_px  = settings.get("tile_side_length", 8192)
+    overlap  = int(tile_px * 0.05)
+    scratch  = tempfile.TemporaryDirectory(prefix="iri_pre_")
+    out_mm   = np.memmap(
+        Path(scratch.name) / "eight_bit.dat",
+        dtype=np.uint8,
+        mode="w+",
+        shape=(img.shape[0], img.shape[1]),
+    )
 
-    if image.dtype == np.uint32:
-        image = convert_16bit_to_8bit(image)
-        logger.info("Converted from 16-bit to 8-bit.")
+    for y0, y1, x0, x1 in _tile_iter(H, W, tile_px, overlap):
+        tile = img[y0:y1, x0:x1]
 
-    save_image(image, os.path.join(out_dir, "eight_bit.tif"), logger)
+        # 1. Bit-depth.
+        tile_u8 = convert_16bit_to_8bit(tile, logger=logger)
 
-    if image.ndim == 3:
-        image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-        logger.info("Converted RGB to grayscale.")
+        # 2. Optional CLAHE.
+        if settings.get("enhance_contrast", False):
+            tile_u8 = apply_clahe(
+                tile_u8,
+                clip_limit=settings.get("clahe_cliplimit", 2.0),
+                tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
+                logger=logger,
+            )
 
-    save_image(image, os.path.join(out_dir, "grayscale.tif"), logger)
+        # 3. Optional gamma.
+        if settings.get("enhance_dim", False):
+            tile_u8 = adaptive_gamma_correction(
+                tile_u8,
+                min_gamma=settings.get("min_gamma", 1.9),
+                max_gamma=settings.get("max_gamma", 2.2),
+                logger=logger,
+            )
 
-    if settings.get("enhance_contrast", False):
-        image = apply_clahe(image,
-                            clip_limit=settings.get("clahe_cliplimit", 2.0),
-                            tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
-                            logger=logger)
-        save_image(image, os.path.join(out_dir, "clahe.tif"), logger)
+        out_mm[y0:y1, x0:x1] = tile_u8  # Write-back.
 
-    if settings.get("enhance_dim", False):
-        image = adaptive_gamma_correction(image, min_gamma=settings.get("min_gamma", 1.9), max_gamma = settings.get("max_gamma", 2.2), logger=logger)
-        save_image(image, os.path.join(out_dir, "gamma.tif"), logger)
+    out_mm.flush()                       # Ensure data hits disk.
+    img_u8 = np.asarray(out_mm)          # Cheap view; no copy.
 
-    upscale_factor = settings.get("upscale_factor", 1)
-    if upscale_factor > 1:
-        image = cv2.resize(image, None, fx=upscale_factor, fy=upscale_factor, interpolation=cv2.INTER_LINEAR)
-        logger.info(f"Upscaled image to shape {image.shape}")
-        save_image(image, os.path.join(out_dir, "upscaled.tif"), logger)
+    # Save once for downstream modules.
+    out_dir = Path(settings["output_dir"]) / "preprocessed"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    skio.imsave(out_dir / "final.tif", img_u8, plugin="tifffile")
+    logger.info(f"Wrote pre-processed slide to {out_dir/'final.tif'}")
 
-    save_image(image, os.path.join(out_dir, "final.tif"), logger)
-
-    return image
+    scratch.cleanup()
+    return img_u8

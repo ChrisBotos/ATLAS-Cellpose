@@ -84,14 +84,14 @@ def dummy_logger():
 
 """TESTS"""
 
-def test_convert_16bit_to_8bit(dummy_16bit_image):
+def test_convert_to_8bit(dummy_16bit_image):
     """
     Validates correct percentile-based rescaling of 16-bit to 8-bit.
 
     Args:
         dummy_16bit_image (np.ndarray): High-dynamic-range simulated image.
     """
-    out = preprocessing.convert_16bit_to_8bit(dummy_16bit_image)
+    out = preprocessing.convert_to_8bit(dummy_16bit_image)
     assert out.dtype == np.uint8
     assert out.shape == dummy_16bit_image.shape
     assert out.max() <= 255 and out.min() >= 0
