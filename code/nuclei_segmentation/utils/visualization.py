@@ -637,7 +637,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
 
 
     """FIXED PATHS"""
-    img_path = output_dir / "preprocessed" / "cropped.tif"
+    img_path = output_dir / "preprocessed" / "first.tig"
     clahe_path = output_dir / "preprocessed" / "clahe.tif"
     gamma_path = output_dir / "preprocessed" / "gamma.tif"
     mask_path = output_dir / "masks" / "segmentation_masks.npy"

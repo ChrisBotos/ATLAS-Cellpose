@@ -16,7 +16,7 @@ Dependencies:
 Usage:
     python extract_engineered_features.py --image <path/to/image> --mask <path/to/mask> [--output <path/to/output.csv>] [--neighbor_radius <radius>] [--jobs <n_jobs>]
     python extract_engineered_features.py \
-  --image ../../results/an_example_result/preprocessed/cropped.tif \
+  --image ../../results/an_example_result/preprocessed/first.tig \
   --mask  ../../results/an_example_result/masks/segmentation_masks.npy \
   --output ../../results/an_example_result/features.csv \
   --neighbor-radius 75.0 \

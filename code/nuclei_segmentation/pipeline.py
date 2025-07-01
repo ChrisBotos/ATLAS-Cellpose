@@ -79,19 +79,32 @@ def setup_model(CELLPOSE_PARAMS, logger):
 
 def save_outputs(masks, flows, output_dir, logger):
     output_dir = Path(output_dir)
-    masks_dir = output_dir / "masks"
+    masks_dir  = output_dir / "masks"
+    flows_dir  = output_dir / "flows"
     masks_dir.mkdir(parents=True, exist_ok=True)
-
-    flows_dir = output_dir / "flows"
     flows_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(masks_dir / "segmentation_masks.npy", masks)
-    skio.imsave(str(masks_dir / "segmentation_masks.tif"),
-                masks,
-                plugin = 'tifffile')
-    np.savez(flows_dir / "flows.npz", flow0=flows[0], flow1=flows[1], cellprob=flows[2])
+    """Masks"""
+    dest_npy = masks_dir / "segmentation_masks.npy"
+    if isinstance(masks, np.memmap):
+        if Path(masks.filename).resolve() != dest_npy.resolve():
+            np.save(dest_npy, np.asarray(masks, copy=False))
+    else:
+        np.save(dest_npy, masks)
 
-    logger.info("Segmentation results saved.")
+    try:
+        tif_path = masks_dir / "segmentation_masks.tif"
+        skio.imsave(tif_path, masks.astype(np.uint32), plugin="tifffile")
+    except Exception as e:
+        logger.warning(f"Could not write large TIFF: {e}")
+
+    """Flows (optional)"""
+    if flows and all(f is not None for f in flows):
+        np.savez(flows_dir / "flows.npz",
+                 flow0=flows[0], flow1=flows[1], cellprob=flows[2])
+    else:
+        logger.info("Flows were disabled; skipping flow output.")
+
 
 
 def apply_postprocessing(image, masks, settings, output_dir, logger):

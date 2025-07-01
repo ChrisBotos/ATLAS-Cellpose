@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from typing import Tuple, List
 
+from numpy.lib.format import open_memmap
+from pathlib import Path
 import numpy as np
 
 from .tiling import (
@@ -36,75 +38,127 @@ from .tiling import (
 # Core function.
 # -----------------------------------------------------------------------------
 
+
 def run_cellpose_on_tiles(
     model,
     image: np.ndarray,
     cellpose_params: dict,
     settings: dict,
     logger,
-) -> Tuple[np.ndarray, List[np.ndarray], int]:
-    """Segment *image* with optional tiling and return merged results.
-
-    Parameters:
-        model:   Pre‑loaded Cellpose model.
-        image:   2‑D grayscale array (H×W).
-        cellpose_params: Dict of Cellpose hyper‑parameters.
-        settings: Dict with tiling keys ``tile_side_length``, ``tile_overlap``,
-                  and boolean ``use_tiling``.
-        logger:  Logger for status output.
-
-    Returns:
-        masks (H×W uint32), [flow_xy, cellprob, None], total_cells.
+) -> Tuple[np.memmap, List[None], int]:
     """
+    Author: Christos Botos.
+    Affiliation: Institute of Molecular Biology and Biotechnology.
+    Contact: botoschristos@gmail.com
 
-    H, W = image.shape
-    tile_size: int = settings.get("tile_side_length")
+    Function Name
+    -------------
+    run_cellpose_on_tiles
 
-    # Interpret overlap: percentage or pixel count.
-    overlap_cfg = settings.get("tile_overlap")
-    if isinstance(overlap_cfg, (int, float)) and 0 <= overlap_cfg <= 1:
-        overlap = int(tile_size * overlap_cfg)
+    Description
+    -----------
+    Segment *image* with Cellpose, optionally in a tiled fashion, while
+    streaming the resulting mask directly to an on-disk NumPy mem-map.
+    This keeps peak RAM usage essentially constant, even for very
+    large slides.
+
+    Parameters
+    ----------
+    model : cellpose.models.Cellpose
+        A pre-loaded Cellpose model.
+    image : np.ndarray
+        Two-dimensional grayscale image of shape (H, W).
+    cellpose_params : dict
+        Hyper-parameters forwarded to ``model.eval``.
+    settings : dict
+        Must contain the keys:
+            • output_dir (str | Path) – Results root directory.
+            • tile_side_length (int) – Square tile edge length in pixels.
+            • tile_overlap (int | float) – Overlap (pixels or fraction).
+            • use_tiling (bool, optional) – Force/disable tiling.
+    logger : logging.Logger
+        Logger for status and diagnostics.
+
+    Returns
+    -------
+    Tuple[np.memmap, List[None], int]
+        masks_mm : np.memmap
+            On-disk (H × W) uint32 segmentation mask.
+        [None, None, None]
+            Placeholder for Cellpose flows (disabled to save memory).
+        total_cells : int
+            Total number of labelled objects.
+    """
+    # ------------------------------------------------------------------ #
+    #                         Disk-backed mask                           #
+    # ------------------------------------------------------------------ #
+    masks_dir = Path(settings["output_dir"]) / "masks"
+    masks_dir.mkdir(parents=True, exist_ok=True)
+
+    H, W = map(int, image.shape)
+    masks_mm = open_memmap(
+        filename=str(masks_dir / "tile_masks.tmp"),   # ← temporary file
+        mode="w+",
+        dtype=np.uint32,
+        shape=(H, W),
+    )
+
+    # ------------------------------------------------------------------ #
+    #                       Tiling geometry                              #
+    # ------------------------------------------------------------------ #
+    tile_size = int(settings["tile_side_length"])
+    ov_cfg = settings["tile_overlap"]
+
+    if isinstance(ov_cfg, (int, float)) and 0 <= ov_cfg <= 1:
+        overlap = int(tile_size * ov_cfg)
     else:
-        overlap = int(overlap_cfg)
-    overlap = min(overlap, tile_size // 2)  # Clamp.
+        overlap = int(ov_cfg)
+    overlap = min(overlap, tile_size // 2)     # Never exceed half a tile.
 
-    use_tiling: bool = settings.get("use_tiling") and (H > tile_size or W > tile_size)
-    logger.info("Segmentation initiated. Image shape: %s. Tiling: %s.", image.shape, use_tiling)
+    auto_tiling = H > tile_size or W > tile_size
+    use_tiling = settings.get("use_tiling", True) and auto_tiling
 
-    # ──────────────────────────────────────────────────────────────
-    # 1.  Fallback: single‑pass mode.
-    # ──────────────────────────────────────────────────────────────
+    logger.info(
+        "Segmentation initiated – image shape %s.  Tiling enabled: %s.",
+        image.shape, use_tiling,
+    )
 
+    # ------------------------------------------------------------------ #
+    #               Fast path: single-pass on the full image             #
+    # ------------------------------------------------------------------ #
     if not use_tiling:
-        return _run_single_pass_cellpose(model, image, cellpose_params, logger)
+        masks, _, total_cells = _run_single_pass_cellpose(
+            model, image, cellpose_params, logger
+        )
+        masks_mm[:] = masks.astype(np.uint32)
+        masks_mm.flush()
+        return masks_mm, [None, None, None], total_cells
 
-    # ──────────────────────────────────────────────────────────────
-    # 2.  Tile the image (explicit tile_h, tile_w interface).
-    # ──────────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------ #
+    #                  Slow path: tiled segmentation                      #
+    # ------------------------------------------------------------------ #
+    tile_iter = split_image_into_tiles(
+        img=image,
+        tile_h=tile_size,
+        tile_w=tile_size,
+        overlap=overlap,
+        logger=logger,
+    )
+    tiles, slices = zip(*tile_iter)
+    n_tiles = len(tiles)
+    logger.info("Tiling produced %d sub-regions.", n_tiles)
 
-    tile_iter = split_image_into_tiles(image, tile_size, tile_size, overlap, logger)
-
-    # Materialise once; keeps the streaming API, but we still want random access later.
-    tiles, slices = zip(*tile_iter)  # tiles -> tuple, slices -> tuple
-    tiles = list(tiles)
-    slices = list(slices)
-
-    logger.info("Tiling produced %d subregions.", len(tiles))
-
-    mask_tiles: List[np.ndarray] = []
-    flow_xy_tiles: List[np.ndarray] = []
-    cellprob_tiles: List[np.ndarray] = []
-
+    next_gid = 1
     total_cells = 0
-    for idx, tile in enumerate(tiles):
+
+    for idx, (tile, (ys, xs)) in enumerate(zip(tiles, slices), start=1):
         logger.info(
             "→ Segmenting tile %d/%d — shape=%s, mean=%.2f.",
-            idx + 1, len(tiles), tile.shape, tile.mean()
+            idx, n_tiles, tile.shape, tile.mean(),
         )
-
         try:
-            masks, flows, *_ = model.eval(
-                tile[..., None],
+            masks, *_ = model.eval(
+                tile[..., None],                         # Add dummy channel.
                 diameter=cellpose_params["diameter"],
                 channels=cellpose_params["channels"],
                 flow_threshold=cellpose_params["flow_threshold"],
@@ -115,44 +169,33 @@ def run_cellpose_on_tiles(
                 do_3D=False,
             )
 
-            num_cells = int(masks.max())
-            logger.info("  ↪ Detected %d nuclei.", num_cells)
-            total_cells += num_cells
-
-            '''Convert Cellpose output to safe uint32 masks.'''
-            if masks is None:  # Cellpose found 0 nuclei.
-                tile_mask = np.zeros(tile.shape[-2:],  # Works for HW or CHW tiles.
-                                     dtype=np.uint32)
+            # Cellpose returns None when nothing is found.
+            if masks is None:
+                tile_mask = np.zeros(tile.shape, dtype=np.uint32)
             else:
                 tile_mask = masks.astype(np.uint32)
 
-            mask_tiles.append(tile_mask)  # ← use tile_mask from now on.
-            flow_xy_tiles.append(flows[0])  # shape (2, H, W)
-            cellprob_tiles.append(flows[1])  # shape (H, W)
+            # Vectorised relabelling: make every tile label globally unique.
+            subview = masks_mm[ys, xs]
+            non_zero = tile_mask != 0
+            n_labels_tile = int(tile_mask.max())
 
-        except Exception as exc:
-            logger.error("  ✗ Tile %d failed: %s", idx + 1, exc)
-            mask_tiles.append(np.zeros_like(tile, dtype=np.uint32))
-            flow_xy_tiles.append(np.zeros((2, *tile.shape), dtype=np.float32))
-            cellprob_tiles.append(np.zeros(tile.shape, dtype=np.float32))
+            if n_labels_tile:
+                tile_mask[non_zero] += next_gid
+                next_gid += n_labels_tile
+                total_cells += n_labels_tile
+                subview[non_zero] = tile_mask[non_zero]
 
-    # ──────────────────────────────────────────────────────────────
-    # 3.  Merge results.
-    # ──────────────────────────────────────────────────────────────
+            logger.info("  ↪ Detected %d cells.", n_labels_tile)
 
-    merged_masks = merge_masks(
-        mask_tiles, slices, image.shape, overlap, logger, settings
-    ).astype(np.uint32)
+        except Exception as exc:  # noqa: BLE001  (broad except is intentional here)
+            logger.error("  ✗ Tile %d failed: %s", idx, exc)
 
-    merged_flow_xy = merge_tiles_with_weighted_overlap(
-        flow_xy_tiles, slices, image.shape, overlap, logger=logger
-    )
-    merged_cellprob = merge_tiles_with_weighted_overlap(
-        cellprob_tiles, slices, image.shape, overlap, logger=logger
-    )
+    masks_mm.flush()
+    logger.info("Finished writing %d total cells to disk.", total_cells)
 
-    return merged_masks, [merged_flow_xy, merged_cellprob, None], total_cells
-
+    # We deliberately drop the flow arrays to keep memory usage low.
+    return masks_mm, [None, None, None], total_cells
 
 # -----------------------------------------------------------------------------
 # Helper: single‑pass Cellpose call.

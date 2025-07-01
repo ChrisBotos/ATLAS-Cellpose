@@ -240,8 +240,8 @@ def preprocess_image(image_path, settings, logger):
             crop_box = [float(x.strip()) for x in crop_box.split(',')]
         img = crop_image(img, crop_box, logger)  # Still mem-mapped slice.
 
-        # Save a quick preview of the cropped ROI for human QC.
-        skio.imsave(out_dir / "cropped.tif", img, plugin="tifffile")
+    # Save a quick preview of the cropped ROI for human QC.
+    skio.imsave(out_dir / "first.tig", img, plugin="tifffile")
 
     H, W = img.shape[:2]
     logger.info(f"Working shape post-crop: {H}×{W}, dtype={img.dtype}")
