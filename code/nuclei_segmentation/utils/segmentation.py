@@ -33,6 +33,49 @@ from .tiling import (
     merge_tiles_with_weighted_overlap,
 )
 
+# -----------------------------------------------------------------------------
+# Helper: single‑pass Cellpose call.
+# -----------------------------------------------------------------------------
+
+def _run_single_pass_cellpose(
+    model,
+    image: np.ndarray,
+    cellpose_params: dict,
+    logger,
+) -> Tuple[np.ndarray, List[np.ndarray], int]:
+    """Run Cellpose on the full image without tiling."""
+
+    logger.info("Running full‑image Cellpose segmentation (no tiling).")
+
+    try:
+        masks, flows, *_ = model.eval(
+            image[..., None],
+            diameter=cellpose_params["diameter"],
+            channels=cellpose_params["channels"],
+            flow_threshold=cellpose_params["flow_threshold"],
+            cellprob_threshold=cellpose_params["cellprob_threshold"],
+            resample=cellpose_params["resample"],
+            augment=False,
+            batch_size=cellpose_params["batch_size"],
+            do_3D=False,
+        )
+
+        num_cells = int(masks.max())
+        logger.info("Detected %d nuclei in full image.", num_cells)
+        return masks.astype(np.uint32), [flows[0], flows[1], None], num_cells
+
+    except Exception as exc:
+        logger.error("✗ Cellpose failed on full image: %s", exc)
+        return (
+            np.zeros_like(image, dtype=np.uint32),
+            [
+                np.zeros((2, *image.shape), dtype=np.float32),
+                np.zeros(image.shape, dtype=np.float32),
+                None,
+            ],
+            0,
+        )
+
 
 # -----------------------------------------------------------------------------
 # Core function.
@@ -135,7 +178,7 @@ def run_cellpose_on_tiles(
         return masks_mm, [None, None, None], total_cells
 
     # ------------------------------------------------------------------ #
-    #                  Slow path: tiled segmentation                      #
+    #                  Slow path: tiled segmentation                     #
     # ------------------------------------------------------------------ #
     tile_iter = split_image_into_tiles(
         img=image,
@@ -150,6 +193,10 @@ def run_cellpose_on_tiles(
 
     next_gid = 1
     total_cells = 0
+
+    # Prepare lists for merging after segmentation
+    mask_tiles = []
+    tile_slices = []
 
     for idx, (tile, (ys, xs)) in enumerate(zip(tiles, slices), start=1):
         logger.info(
@@ -176,66 +223,44 @@ def run_cellpose_on_tiles(
                 tile_mask = masks.astype(np.uint32)
 
             # Vectorised relabelling: make every tile label globally unique.
-            subview = masks_mm[ys, xs]
             non_zero = tile_mask != 0
             n_labels_tile = int(tile_mask.max())
 
             if n_labels_tile:
                 tile_mask[non_zero] += next_gid
+                masks_mm[ys, xs][non_zero] = tile_mask[non_zero]
                 next_gid += n_labels_tile
                 total_cells += n_labels_tile
-                subview[non_zero] = tile_mask[non_zero]
 
             logger.info("  ↪ Detected %d cells.", n_labels_tile)
+
+            # Append tile mask and slice for later merging
+            mask_tiles.append(tile_mask.copy())
+            tile_slices.append((ys, xs))
 
         except Exception as exc:  # noqa: BLE001  (broad except is intentional here)
             logger.error("  ✗ Tile %d failed: %s", idx, exc)
 
+    # ------------------------------------------------------------------ #
+    #                  Merge all tile masks into one                     #
+    # ------------------------------------------------------------------ #
+    from .tiling import merge_masks
+
+    merged = merge_masks(
+        mask_tiles,
+        tile_slices,
+        image_shape=(H, W),
+        overlap=overlap,
+        logger=logger,
+        settings=settings,
+    )
+
+    # Overwrite memmap with fused result
+    masks_mm[:] = merged
     masks_mm.flush()
+
     logger.info("Finished writing %d total cells to disk.", total_cells)
 
     # We deliberately drop the flow arrays to keep memory usage low.
     return masks_mm, [None, None, None], total_cells
 
-# -----------------------------------------------------------------------------
-# Helper: single‑pass Cellpose call.
-# -----------------------------------------------------------------------------
-
-def _run_single_pass_cellpose(
-    model,
-    image: np.ndarray,
-    cellpose_params: dict,
-    logger,
-) -> Tuple[np.ndarray, List[np.ndarray], int]:
-    """Run Cellpose on the full image without tiling."""
-
-    logger.info("Running full‑image Cellpose segmentation (no tiling).")
-
-    try:
-        masks, flows, *_ = model.eval(
-            image[..., None],
-            diameter=cellpose_params["diameter"],
-            channels=cellpose_params["channels"],
-            flow_threshold=cellpose_params["flow_threshold"],
-            cellprob_threshold=cellpose_params["cellprob_threshold"],
-            resample=cellpose_params["resample"],
-            augment=False,
-            batch_size=cellpose_params["batch_size"],
-            do_3D=False,
-        )
-
-        num_cells = int(masks.max())
-        logger.info("Detected %d nuclei in full image.", num_cells)
-        return masks.astype(np.uint32), [flows[0], flows[1], None], num_cells
-
-    except Exception as exc:
-        logger.error("✗ Cellpose failed on full image: %s", exc)
-        return (
-            np.zeros_like(image, dtype=np.uint32),
-            [
-                np.zeros((2, *image.shape), dtype=np.float32),
-                np.zeros(image.shape, dtype=np.float32),
-                None,
-            ],
-            0,
-        )

@@ -23,6 +23,7 @@ from cellpose import plot
 import logging
 import traceback
 from pathlib import Path
+from tqdm import tqdm
 
 
 def setup_logger(name: str, debug: bool = False, log_file: Path = None) -> logging.Logger:
@@ -240,103 +241,129 @@ def load_masks(mask_paths: list[Path], debug_dir: Path, logger) -> np.ndarray | 
     logger.error("All mask paths failed to load.")
     return None
 
-def generate_tiled_overlay(img, masks, logger, tile_size=2048, overlap=128):
+"""Generate overlays."""
+
+def _generate_label_colours(max_label: int, seed: int = 42) -> np.ndarray:
+    """Return deterministic RGB colours for labels 0..max_label."""
+    rng = np.random.default_rng(seed)
+    lut = rng.integers(0, 256, size=(max_label + 1, 3), dtype=np.uint8)
+    lut[0] = 0
+    return lut
+
+
+def _blend_tile(tile_img: np.ndarray, tile_mask: np.ndarray, lut: np.ndarray, alpha: float, gpu: bool) -> np.ndarray:
+    """Map labels to RGB and alpha-blend the mask onto the image tile."""
+    xp = np
+    if gpu:
+        try:
+            import cupy as cp
+            _ = cp.cuda.runtime.getDeviceCount()
+            xp = cp
+        except Exception:
+            xp = np
+
+    if tile_img.dtype != np.uint8:
+        tile_img = (tile_img.astype(np.float32) / tile_img.max()) * 255.0
+
+    img = xp.asarray(tile_img, dtype=xp.float32)
+    mask = xp.asarray(tile_mask, dtype=xp.int32)
+    lut_xp = xp.asarray(lut, dtype=xp.float32)
+
+    coloured = lut_xp[mask]
+    blended = img * (1 - alpha) + coloured * alpha
+    blended = xp.clip(blended, 0, 255).astype(xp.uint8)
+
+    if xp is not np:
+        blended = cp.asnumpy(blended)
+    return blended
+
+
+def generate_tiled_overlay(
+    img: np.ndarray,
+    masks: np.ndarray,
+    tile_size: int = 2048,
+    overlap: int = 128,
+    alpha: float = 0.4,
+    seed: int = 42,
+    gpu: bool = False
+) -> np.ndarray:
     """
-    Generate a full-size overlay by tiling the image and stitching overlays.
+    Generate a full-size RGB overlay by processing the image in tiles.
+
+    This function expands each tile to ensure no segmented object is split across tile borders.
 
     Parameters:
-        img (np.ndarray): Grayscale image.
-        masks (np.ndarray): Segmentation mask.
-        logger (Logger): Logger instance.
-        tile_size (int): Size of each tile (default: 2048).
-        overlap (int): Overlap between tiles (default: 128).
+        img: Grayscale image as a 2D array.
+        masks: Integer-label mask of same shape as img.
+        tile_size: Base tile edge length in pixels.
+        overlap: Overlap in pixels between adjacent tiles.
+        alpha: Transparency factor for blending.
+        seed: RNG seed for reproducible colours.
+        gpu: Whether to attempt GPU acceleration with CuPy.
 
     Returns:
-        np.ndarray: Full overlay image (float32, RGB).
+        Full RGB overlay as a uint8 array of shape (H, W, 3).
     """
-
-    assert img.shape == masks.shape, "Image and mask must have same shape."
-
-    H, W = img.shape
-    overlay = np.zeros((*img.shape[:2], 3), dtype=np.uint8)
-
-    # Precompute color map.
-    num_labels = masks.max()
+    assert img.shape == masks.shape, "Image and mask must have same dimensions."
+    height, width = img.shape
+    num_labels = int(masks.max())
     if num_labels == 0:
-        logger.warning("No mask labels found; skipping tiled overlay.")
-        return np.stack([img / 255.0] * 3, axis=-1)
+        # If mask is empty, return normalized grayscale in RGB
+        norm = (img.astype(np.float32) / 255.0)[..., None]
+        return np.concatenate([norm] * 3, axis=-1).astype(np.float32)
 
-    np.random.seed(42)
-    colors = np.random.rand(num_labels + 1, 3)
-    np.random.seed(None)
+    lut = _generate_label_colours(num_labels, seed)
 
-    logger.info(f"Generating tiled overlay: shape={img.shape}, overlay_tile_size={tile_size}, overlay_overlap={overlap}")
+    # Compute bounding boxes for each label to avoid splitting
+    labels = np.unique(masks)
+    props = {}
+    for lbl in labels:
+        if lbl == 0:
+            continue
+        coords = np.column_stack(np.where(masks == lbl))
+        y0, x0 = coords.min(axis=0)
+        y1, x1 = coords.max(axis=0) + 1
+        props[lbl] = (y0, y1, x0, x1)
+
+    overlay = np.zeros((height, width, 3), dtype=np.float32)
+    weight = np.zeros((height, width, 1), dtype=np.float32)
+
     step = tile_size - overlap
-    weight = np.zeros((H, W, 1), dtype=np.float32)
-
-    for y in range(0, H, step):
-        for x in range(0, W, step):
+    for y in tqdm(range(0, height, step), desc="Tiles Y"):
+        for x in range(0, width, step):
             y0 = y
             x0 = x
-            y1 = min(y + tile_size, H)
-            x1 = min(x + tile_size, W)
+            y1 = min(y0 + tile_size, height)
+            x1 = min(x0 + tile_size, width)
+            # Expand tile to include full objects crossing its borders
+            for lbl, (ly0, ly1, lx0, lx1) in props.items():
+                # If object intersects tile border
+                if (ly0 < y1 and ly1 > y0 and (ly0 < y0 or ly1 > y1)) or \
+                   (lx0 < x1 and lx1 > x0 and (lx0 < x0 or lx1 > x1)):
+                    y0 = min(y0, ly0)
+                    x0 = min(x0, lx0)
+                    y1 = max(y1, ly1)
+                    x1 = max(x1, lx1)
+            # Clamp to image
+            y1 = min(y1, height)
+            x1 = min(x1, width)
 
-            img_tile = img[y0:y1, x0:x1]
-            mask_tile = masks[y0:y1, x0:x1]
-
+            tile_img = img[y0:y1, x0:x1]
+            tile_mask = masks[y0:y1, x0:x1]
             try:
-                tile_overlay = plot.mask_overlay(img_tile, mask_tile, colors=colors)
-                overlay[y0:y1, x0:x1] += tile_overlay
+                blended = _blend_tile(tile_img, tile_mask, lut, alpha, gpu)
+                overlay[y0:y1, x0:x1] += blended.astype(np.float32)
                 weight[y0:y1, x0:x1] += 1
             except Exception as e:
-                logger.warning(f"Failed tile overlay at y={y0}:{y1}, x={x0}:{x1} — {e}")
+                print(f"Warning: tile at ({y0},{x0}) failed: {e}")
 
-    # Normalize to prevent over-blending at overlaps.
     weight = np.clip(weight, 1e-3, None)
-    overlay = (overlay.astype(np.float32) / weight).astype(np.uint8)
-
-    logger.info("Successfully generated tiled overlay.")
+    overlay = (overlay / weight).astype(np.uint8)
     return overlay
 
 
-# def normalize_if_dark(img: np.ndarray, logger) -> np.ndarray:
-#     """
-#     Applies contrast normalization to dark images (mean < 50 for uint8).
-#
-#     Parameters:
-#         img (np.ndarray): Input image.
-#         logger (Logger): Logger for reporting.
-#
-#     Returns:
-#         np.ndarray: Contrast-normalized image (if needed).
-#     """
-#     if img.dtype != np.uint8:
-#         logger.debug("Skipping normalization: image is not uint8.")
-#         return img
-#
-#     mean_val = img.mean()
-#     if mean_val >= 50:
-#         logger.debug(f"Image brightness is acceptable (mean={mean_val:.2f}).")
-#         return img
-#
-#     logger.warning(f"Image appears dark (mean={mean_val:.2f}). Applying normalization.")
-#     try:
-#         flat_img = img.ravel()
-#         sample_size = min(len(flat_img), 1_000_000)
-#         sample = np.random.choice(flat_img, sample_size, replace=False)
-#         p2, p98 = np.percentile(sample, (2, 98))
-#
-#         img_float = img.astype(np.float32)
-#         img_norm = np.clip((img_float - p2) / (p98 - p2 + 1e-6), 0, 1) * 255
-#         img_out = img_norm.astype(np.uint8)
-#
-#         logger.info(f"Image normalized: min={img_out.min()}, max={img_out.max()}, mean={img_out.mean():.2f}")
-#         return img_out
-#     except Exception as e:
-#         logger.error(f"Normalization failed: {e}")
-#         return img
 
-
+"""Miscellaneous utilities."""
 def match_shapes(img: np.ndarray, masks: np.ndarray, logger) -> tuple[np.ndarray, np.ndarray]:
     """
     Crops image and masks to a common shape if they mismatch.
@@ -724,7 +751,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     """IMAGE OVERLAY"""
     try:
         logger.info("Creating full-size overlay.")
-        full_overlay = generate_tiled_overlay(img, masks, logger)
+        full_overlay = generate_tiled_overlay(img=img, masks=masks)
         skio.imsave(check_dir / "full_image_overlay.tif", (full_overlay * 255).astype(np.uint8))
         logger.info("Saved full image overlay.")
     except Exception as e:
