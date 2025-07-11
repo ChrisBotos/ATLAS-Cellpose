@@ -10,10 +10,10 @@ Description:
     Overlap‑aware image tiling, feather‑blended merging of continuous outputs (flows, probability maps) and ratio‑based fusion of instance label masks. The module also produces visual quality‑control overlays *before* and *after* mask merging so that border artefacts become immediately visible.
 
 Dependencies:
-    • Python >= 3.10.
+    • Python>=3.10.
     • numpy, scipy, matplotlib.
 
-All public helpers are unit‑tested in `tests/test_tiling.py` so that future refactors cannot silently break the contract.
+All public helpers are unit‑tested in`tests/test_tiling.py` so that future refactors cannot silently break the contract.
 """
 
 from __future__ import annotations

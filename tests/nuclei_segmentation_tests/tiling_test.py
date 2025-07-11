@@ -14,7 +14,7 @@ Usage:
     python -m pytest tests/tiling_test.py -v
 
 Dependencies:
-    • Python >= 3.10.
+    • Python>=3.10.
     • numpy, pytest, matplotlib, scipy, opencv‑python.
     • The refactored tiling utilities (import path adjusted below).
 
