@@ -29,9 +29,9 @@ import numpy as np
 
 from .tiling import (
     split_image_into_tiles,
-    merge_masks,
-    merge_tiles_with_weighted_overlap,
 )
+
+from .merge_streaming import merge_masks_streaming
 
 # Type alias for readability.
 MaskReturn = Tuple[np.memmap, List[None], int]
@@ -276,14 +276,15 @@ def run_cellpose_on_tiles(
     # Merge the individual tile masks into one coherent global mask.
     # ------------------------------------------------------------------
 
-    merged = merge_masks(
-        mask_tiles,
-        tile_slices,
-        image_shape=(H, W),
+    merged = merge_masks_streaming(
+        mask_tiles,  # list[np.ndarray]
+        tile_slices,  # list[(slice,slice)]
+        (H, W),  # full image shape
         overlap=overlap,
         logger=logger,
         settings=settings,
     )
+
 
     # ------------------------------------------------------------------ #
     # Persist the fused mask *and* free per-tile allocations immediately #

@@ -125,233 +125,233 @@ def _memmap_array(shape, dtype, logger):
     return np.memmap(path, mode="w+", dtype=dtype, shape=shape)
 
 
-def merge_tiles_with_weighted_overlap(
-    tile_stack: Sequence[np.ndarray],
-    slices: Sequence[Tuple[slice, slice]],
-    image_shape: Tuple[int, int],
-    overlap: int,
-    *,
-    channel_axis: int | None = None,
-    logger=None,
-    debug_snap=None,
-    mem_threshold_gb: float = 4.0,
-) -> np.ndarray:
-    """
-    Feather-blend a sequence of overlapping tiles into one float32 canvas.
+# def merge_tiles_with_weighted_overlap(
+#     tile_stack: Sequence[np.ndarray],
+#     slices: Sequence[Tuple[slice, slice]],
+#     image_shape: Tuple[int, int],
+#     overlap: int,
+#     *,
+#     channel_axis: int | None = None,
+#     logger=None,
+#     debug_snap=None,
+#     mem_threshold_gb: float = 4.0,
+# ) -> np.ndarray:
+#     """
+#     Feather-blend a sequence of overlapping tiles into one float32 canvas.
+#
+#     Handles both greyscale (H×W) and multichannel (C×H×W or H×W×C) tiles.
+#     Greyscale tiles are promoted to (1,H,W) internally so broadcasting is safe.
+#     """
+#     if not tile_stack:
+#         return np.zeros(image_shape, dtype=np.float32)
+#
+#     sample = tile_stack[0]
+#     H, W = image_shape
+#
+#     # Detect channel axis / count.
+#     if sample.ndim == 2:
+#         channel_axis = None
+#         n_chan = 1
+#     else:
+#         if channel_axis is None:
+#             if 3 in sample.shape:
+#                 channel_axis = sample.shape.index(3)
+#             elif 4 in sample.shape:
+#                 channel_axis = sample.shape.index(4)
+#             else:
+#                 channel_axis = 0
+#         n_chan = sample.shape[channel_axis]
+#
+#     # Memory-aware allocator (RAM or memmap).
+#     def _allocate(shape: Tuple[int, ...]) -> np.ndarray:
+#         bytes_needed = np.prod(shape, dtype=np.int64) * 4   # float32
+#         if bytes_needed > mem_threshold_gb * (1024**3):
+#             return _memmap_array(shape, dtype=np.float32, logger=logger)
+#         return np.zeros(shape, dtype=np.float32)
+#
+#     # Always work CHW internally (even greyscale → (1,H,W)).
+#     field   = _allocate((n_chan if n_chan > 1 else 1, H, W))
+#     weights = _allocate((H, W))
+#
+#     def _tile_to_chw(tile: np.ndarray) -> np.ndarray:
+#         if tile.ndim == 2:
+#             return tile.astype(np.float32)[None, ...]
+#         if channel_axis == 0:
+#             return tile.astype(np.float32)
+#         return np.moveaxis(tile, channel_axis, 0).astype(np.float32)
+#
+#     # Accumulate.
+#     for tile_raw, (ys, xs) in zip(tile_stack, slices):
+#         y0, y1 = ys.start, ys.stop
+#         x0, x1 = xs.start, xs.stop
+#         h, w   = y1 - y0, x1 - x0
+#
+#         tile_chw = _tile_to_chw(tile_raw)
+#         mask = feather_mask(h, w, overlap).astype(np.float32)
+#         mask[mask == 0.0] = 1e-6          # avoid div-by-zero later
+#
+#         field[:, y0:y1, x0:x1] += tile_chw * mask
+#         weights[y0:y1, x0:x1]  += mask
+#
+#     field /= weights.clip(min=1e-6)[None, ...]
+#
+#     if debug_snap is not None:
+#         debug_snap("merge_weights", weights)
+#
+#     # Restore original channel layout.
+#     if n_chan == 1:
+#         return field[0]
+#     if channel_axis == 0:
+#         return field
+#     return np.moveaxis(field, 0, channel_axis)
+#
 
-    Handles both greyscale (H×W) and multichannel (C×H×W or H×W×C) tiles.
-    Greyscale tiles are promoted to (1,H,W) internally so broadcasting is safe.
-    """
-    if not tile_stack:
-        return np.zeros(image_shape, dtype=np.float32)
+# '''Instance-mask fusion with QC overlays.'''
 
-    sample = tile_stack[0]
-    H, W = image_shape
-
-    # Detect channel axis / count.
-    if sample.ndim == 2:
-        channel_axis = None
-        n_chan = 1
-    else:
-        if channel_axis is None:
-            if 3 in sample.shape:
-                channel_axis = sample.shape.index(3)
-            elif 4 in sample.shape:
-                channel_axis = sample.shape.index(4)
-            else:
-                channel_axis = 0
-        n_chan = sample.shape[channel_axis]
-
-    # Memory-aware allocator (RAM or memmap).
-    def _allocate(shape: Tuple[int, ...]) -> np.ndarray:
-        bytes_needed = np.prod(shape, dtype=np.int64) * 4   # float32
-        if bytes_needed > mem_threshold_gb * (1024**3):
-            return _memmap_array(shape, dtype=np.float32, logger=logger)
-        return np.zeros(shape, dtype=np.float32)
-
-    # Always work CHW internally (even greyscale → (1,H,W)).
-    field   = _allocate((n_chan if n_chan > 1 else 1, H, W))
-    weights = _allocate((H, W))
-
-    def _tile_to_chw(tile: np.ndarray) -> np.ndarray:
-        if tile.ndim == 2:
-            return tile.astype(np.float32)[None, ...]
-        if channel_axis == 0:
-            return tile.astype(np.float32)
-        return np.moveaxis(tile, channel_axis, 0).astype(np.float32)
-
-    # Accumulate.
-    for tile_raw, (ys, xs) in zip(tile_stack, slices):
-        y0, y1 = ys.start, ys.stop
-        x0, x1 = xs.start, xs.stop
-        h, w   = y1 - y0, x1 - x0
-
-        tile_chw = _tile_to_chw(tile_raw)
-        mask = feather_mask(h, w, overlap).astype(np.float32)
-        mask[mask == 0.0] = 1e-6          # avoid div-by-zero later
-
-        field[:, y0:y1, x0:x1] += tile_chw * mask
-        weights[y0:y1, x0:x1]  += mask
-
-    field /= weights.clip(min=1e-6)[None, ...]
-
-    if debug_snap is not None:
-        debug_snap("merge_weights", weights)
-
-    # Restore original channel layout.
-    if n_chan == 1:
-        return field[0]
-    if channel_axis == 0:
-        return field
-    return np.moveaxis(field, 0, channel_axis)
-
-
-'''Instance-mask fusion with QC overlays.'''
-
-def merge_masks(
-    mask_tiles: Sequence[np.ndarray],
-    slices: Sequence[Tuple[slice, slice]],
-    image_shape: Tuple[int, int],
-    overlap: int,
-    logger,
-    settings: dict,
-    debug_snap=None,
-):
-    """Fuse tiled instance masks into a global label map.
-
-    * Each new tile label is either assigned a fresh global ID or
-      merged with an existing ID when the overlap ratio exceeds
-      ``settings["merge_overlap_threshold"]``.
-    * Saves "before" (per-tile colours) and "after" (final labels)
-      diagnostic PNGs in ``<output_dir>/tile_merge_viz/``.
-    """
-
-    logger.info("merge_masks settings: overlap_threshold=%.2f, border_rule=ON", settings["merge_overlap_threshold"])
-    total_objs = sum(np.unique(t, return_counts=True)[1].size - 1 for t in mask_tiles)
-    logger.info("  → total input objects across all tiles = %d", total_objs)
-
-    H, W = image_shape
-    merged = np.zeros((H, W), dtype=np.uint32)
-    next_gid = 1
-    thr = float(settings.get("merge_overlap_threshold", 0.3))
-
-    out_dir = Path(settings.get("output_dir", "."))
-    viz_dir = out_dir / "tile_merge_viz"
-    viz_dir.mkdir(parents=True, exist_ok=True)
-
-    # Pre-merge overlay.
-    before  = np.zeros((H, W, 3), dtype=np.float32)
-    weights = np.zeros((H, W),     dtype=np.float32)
-    rng = np.random.default_rng(0)
-
-    for tile, (ys, xs) in zip(mask_tiles, slices):
-        y0, y1 = ys.start, ys.stop
-        x0, x1 = xs.start, xs.stop
-        colour = rng.random(3)
-        binary = (tile[: y1 - y0, : x1 - x0] > 0).astype(np.float32)
-
-        before[y0:y1, x0:x1]  += binary[..., None] * colour
-        weights[y0:y1, x0:x1] += binary
-
-    valid = weights > 0
-    before[valid] /= weights[valid][:, None]
-    plt.imsave(viz_dir / "before_merge_overlay.png", np.clip(before, 0.0, 1.0))
-
-    '''Merge criterion: overlap-gate → border rule.'''
-    border_touch: dict[int, bool] = {}    # Global ID → touches true border?.
-
-    for tile_idx, (tile, (ys, xs)) in enumerate(zip(mask_tiles, slices), 1):
-        y0, y1 = ys.start, ys.stop
-        x0, x1 = xs.start, xs.stop
-        roi = merged[y0:y1, x0:x1]
-
-        # Overlap band for Stage A (rim = 0-overlap px inside this tile).
-        rim = np.zeros_like(tile, dtype=bool)
-        if x0 > 0: rim[:, :overlap]  = True
-        if x1 < W: rim[:, -overlap:] = True
-        if y0 > 0: rim[:overlap, :]  = True
-        if y1 < H: rim[-overlap:, :] = True
-
-        # True 1-px border for Stage B.
-        border = np.zeros_like(tile, dtype=bool)
-        border[0, :], border[-1, :] = True, True
-        border[:, 0], border[:, -1] = True, True
-
-        for lbl in np.unique(tile):
-            if lbl == 0:
-                continue
-
-            local_mask = tile == lbl
-            area_local = local_mask.sum()
-
-            '''Stage A – does the object enter the overlap band?'''
-            overlap_pixels = (rim & local_mask).sum()
-            if overlap_pixels < thr * area_local:
-                # Overlap too small → cannot duplicate, write and continue.
-                gid = next_gid
-                next_gid += 1
-                roi[local_mask] = gid
-                border_touch[gid] = (border & local_mask).any()
-                continue
-
-            local_border = (border & local_mask).any()
-
-            '''Stage B – compare with already placed IDs under border rule.'''
-            touched = np.unique(roi[local_mask])
-            touched = touched[touched > 0]          # IDs in neighbouring tiles.
-
-            chosen_gid = None
-            kill_local = False
-
-            for gid in touched:
-                area_gid   = (roi == gid).sum()
-                ov_area    = np.logical_and(roi == gid, local_mask).sum()
-                gid_border = border_touch.get(gid, False)
-
-                # Asymmetric OR ratio test (same as before).
-                if (ov_area / area_local) >= thr or (ov_area / area_gid) >= thr:
-
-                    # Apply border rule 
-                    if local_border ^ gid_border:          # exactly one touches
-                        if local_border:
-                            kill_local = True               # delete local stub
-                        else:
-                            merged[merged == gid] = 0       # remove border stub
-                            chosen_gid = gid                # reuse ID
-                            border_touch[gid] = False
-                        break
-                    else:                                  # both border or none
-                        chosen_gid = gid
-                        border_touch[gid] = local_border or gid_border
-                        break
-                    # 
-
-            if kill_local:
-                if logger:
-                    logger.info("✂ Removed border stub (%d px) at tile %d, lbl %d.",
-                                area_local, tile_idx, lbl)
-                continue
-
-            if chosen_gid is None:                         # no neighbour matched
-                chosen_gid = next_gid
-                next_gid += 1
-                border_touch[chosen_gid] = local_border
-
-            roi[local_mask] = chosen_gid
-
-    # Post-merge overlay 
-    cmap = rng.random((next_gid + 1, 3))
-    after = cmap[merged]
-    plt.imsave(viz_dir / "after_merge_overlay.png", np.clip(after, 0.0, 1.0))
-
-    if debug_snap is not None:
-        debug_snap("merged_mask", merged)
-
-    logger.info("Mask fusion produced %d unique IDs.", next_gid - 1)
-
-    uniq, counts = np.unique(merged, return_counts=True)
-    logger.info("  → total objects after merge      = %d", uniq.size - 1)
-    removed = total_objs - (uniq.size - 1)
-    logger.info("  → objects removed by merge rules = %d", removed)
-
-    return merged
+# def merge_masks(
+#     mask_tiles: Sequence[np.ndarray],
+#     slices: Sequence[Tuple[slice, slice]],
+#     image_shape: Tuple[int, int],
+#     overlap: int,
+#     logger,
+#     settings: dict,
+#     debug_snap=None,
+# ):
+#     """Fuse tiled instance masks into a global label map.
+#
+#     * Each new tile label is either assigned a fresh global ID or
+#       merged with an existing ID when the overlap ratio exceeds
+#       ``settings["merge_overlap_threshold"]``.
+#     * Saves "before" (per-tile colours) and "after" (final labels)
+#       diagnostic PNGs in ``<output_dir>/tile_merge_viz/``.
+#     """
+#
+#     logger.info("merge_masks settings: overlap_threshold=%.2f, border_rule=ON", settings["merge_overlap_threshold"])
+#     total_objs = sum(np.unique(t, return_counts=True)[1].size - 1 for t in mask_tiles)
+#     logger.info("  → total input objects across all tiles = %d", total_objs)
+#
+#     H, W = image_shape
+#     merged = np.zeros((H, W), dtype=np.uint32)
+#     next_gid = 1
+#     thr = float(settings.get("merge_overlap_threshold", 0.3))
+#
+#     out_dir = Path(settings.get("output_dir", "."))
+#     viz_dir = out_dir / "tile_merge_viz"
+#     viz_dir.mkdir(parents=True, exist_ok=True)
+#
+#     # Pre-merge overlay.
+#     before  = np.zeros((H, W, 3), dtype=np.float32)
+#     weights = np.zeros((H, W),     dtype=np.float32)
+#     rng = np.random.default_rng(0)
+#
+#     for tile, (ys, xs) in zip(mask_tiles, slices):
+#         y0, y1 = ys.start, ys.stop
+#         x0, x1 = xs.start, xs.stop
+#         colour = rng.random(3)
+#         binary = (tile[: y1 - y0, : x1 - x0] > 0).astype(np.float32)
+#
+#         before[y0:y1, x0:x1]  += binary[..., None] * colour
+#         weights[y0:y1, x0:x1] += binary
+#
+#     valid = weights > 0
+#     before[valid] /= weights[valid][:, None]
+#     plt.imsave(viz_dir / "before_merge_overlay.png", np.clip(before, 0.0, 1.0))
+#
+#     '''Merge criterion: overlap-gate → border rule.'''
+#     border_touch: dict[int, bool] = {}    # Global ID → touches true border?.
+#
+#     for tile_idx, (tile, (ys, xs)) in enumerate(zip(mask_tiles, slices), 1):
+#         y0, y1 = ys.start, ys.stop
+#         x0, x1 = xs.start, xs.stop
+#         roi = merged[y0:y1, x0:x1]
+#
+#         # Overlap band for Stage A (rim = 0-overlap px inside this tile).
+#         rim = np.zeros_like(tile, dtype=bool)
+#         if x0 > 0: rim[:, :overlap]  = True
+#         if x1 < W: rim[:, -overlap:] = True
+#         if y0 > 0: rim[:overlap, :]  = True
+#         if y1 < H: rim[-overlap:, :] = True
+#
+#         # True 1-px border for Stage B.
+#         border = np.zeros_like(tile, dtype=bool)
+#         border[0, :], border[-1, :] = True, True
+#         border[:, 0], border[:, -1] = True, True
+#
+#         for lbl in np.unique(tile):
+#             if lbl == 0:
+#                 continue
+#
+#             local_mask = tile == lbl
+#             area_local = local_mask.sum()
+#
+#             '''Stage A – does the object enter the overlap band?'''
+#             overlap_pixels = (rim & local_mask).sum()
+#             if overlap_pixels < thr * area_local:
+#                 # Overlap too small → cannot duplicate, write and continue.
+#                 gid = next_gid
+#                 next_gid += 1
+#                 roi[local_mask] = gid
+#                 border_touch[gid] = (border & local_mask).any()
+#                 continue
+#
+#             local_border = (border & local_mask).any()
+#
+#             '''Stage B – compare with already placed IDs under border rule.'''
+#             touched = np.unique(roi[local_mask])
+#             touched = touched[touched > 0]          # IDs in neighbouring tiles.
+#
+#             chosen_gid = None
+#             kill_local = False
+#
+#             for gid in touched:
+#                 area_gid   = (roi == gid).sum()
+#                 ov_area    = np.logical_and(roi == gid, local_mask).sum()
+#                 gid_border = border_touch.get(gid, False)
+#
+#                 # Asymmetric OR ratio test (same as before).
+#                 if (ov_area / area_local) >= thr or (ov_area / area_gid) >= thr:
+#
+#                     # Apply border rule
+#                     if local_border ^ gid_border:          # exactly one touches
+#                         if local_border:
+#                             kill_local = True               # delete local stub
+#                         else:
+#                             merged[merged == gid] = 0       # remove border stub
+#                             chosen_gid = gid                # reuse ID
+#                             border_touch[gid] = False
+#                         break
+#                     else:                                  # both border or none
+#                         chosen_gid = gid
+#                         border_touch[gid] = local_border or gid_border
+#                         break
+#                     #
+#
+#             if kill_local:
+#                 if logger:
+#                     logger.info("✂ Removed border stub (%d px) at tile %d, lbl %d.",
+#                                 area_local, tile_idx, lbl)
+#                 continue
+#
+#             if chosen_gid is None:                         # no neighbour matched
+#                 chosen_gid = next_gid
+#                 next_gid += 1
+#                 border_touch[chosen_gid] = local_border
+#
+#             roi[local_mask] = chosen_gid
+#
+#     # Post-merge overlay
+#     cmap = rng.random((next_gid + 1, 3))
+#     after = cmap[merged]
+#     plt.imsave(viz_dir / "after_merge_overlay.png", np.clip(after, 0.0, 1.0))
+#
+#     if debug_snap is not None:
+#         debug_snap("merged_mask", merged)
+#
+#     logger.info("Mask fusion produced %d unique IDs.", next_gid - 1)
+#
+#     uniq, counts = np.unique(merged, return_counts=True)
+#     logger.info("  → total objects after merge      = %d", uniq.size - 1)
+#     removed = total_objs - (uniq.size - 1)
+#     logger.info("  → objects removed by merge rules = %d", removed)
+#
+#     return merged

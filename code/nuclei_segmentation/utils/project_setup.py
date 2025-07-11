@@ -85,6 +85,10 @@ def load_config(config_path=None):
         "tile_side_length": config.getint("tiling", "tile_side_length", fallback=1024),
         "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.1),
         "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),
+        "stream_merge": config.getboolean("tiling", "stream_merge", fallback=True),
+        "qc_overlays": config.getboolean("tiling", "qc_overlays", fallback=False),
+        "qc_downsample_factor": config.getint("tiling", "qc_downsample_factor", fallback=4),
+        "memmap_dtype": config.get("tiling", "memmap_dtype", fallback="uint32"),
     }
 
     # Cellpose-specific settings.
