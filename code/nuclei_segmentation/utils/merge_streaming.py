@@ -39,7 +39,7 @@ import gc
 import tempfile
 from pathlib import Path
 from random import random
-from typing import Sequence, Tuple, Dict, List
+from typing import Sequence, Tuple, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np

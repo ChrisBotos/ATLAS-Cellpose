@@ -38,7 +38,7 @@ import os
 import pytest
 import numpy as np
 from PIL import Image
-Image.MAX_IMAGE_PIXELS = 10**9
+Image.MAX_IMAGE_PIXELS = 10**12
 
 # Relative import of the visualization utilities being tested.
 import sys

@@ -63,6 +63,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 from PIL import Image
+Image.MAX_IMAGE_PIXELS = 10**12
 from scipy import ndimage
 from scipy.stats import entropy, skew, kurtosis
 from scipy.spatial import cKDTree
