@@ -1,12 +1,51 @@
-cellpose>=3.1.1.2
-matplotlib>=3.10.3
-numpy>=2.0.2
-opencv-python>=4.11.0.86
-opencv-python-headless>=4.11.0.86
-scikit-image>=0.25.2
-torch>=2.7.1
-pytest>=8.4.0
-pandas>=2.3.0
-joblib>=1.5.1
-statsmodels>=0.14.4
-seaborn>=0.13.2
+###############################################################################
+# requirements.txt  –  works on Python 3.11 *and* a GLIBC 2.17 system
+# Tested 16 Jun 2025 with pip 24.0 on CentOS 7 (manylinux2014 target)
+#
+# GPU build (CUDA 12.1):
+#     pip install -r requirements.txt \
+#        --extra-index-url https://download.pytorch.org/whl/cu121
+#
+# CPU-only build:
+#     pip install -r requirements.txt
+###############################################################################
+
+######## Core numerical stack #################################################
+numpy==2.2.0
+scipy==1.15.1
+pandas==2.3.0
+
+######## Arrow / Parquet ######################################################
+pyarrow==20.0.0            # Newer versions still lack cp311-manylinux2014 wheels
+fastparquet==2024.2.0
+
+######## Plotting & imaging ###################################################
+matplotlib==3.10.3
+contourpy==1.1.0
+pillow==10.3.0              # 11.x wheels need GLIBC 2.28 → stay on 10.3.0
+imageio==2.37.0             # 2.37.0 is latest with cp311 wheel
+scikit-image==0.23.2
+pywavelets==1.8.0           # scikit-image dependency
+
+######## Machine-learning core ################################################
+scikit-learn==1.7.0
+joblib==1.5.1
+tqdm==4.67.1
+
+######## Deep-learning stack ##################################################
+# Comment these two lines and uncomment the CPU variants if you do not have CUDA.
+torch==2.7.1+cu121
+torchvision==0.22.1+cu121
+# torch==2.7.1+cpu
+# torchvision==0.22.1+cpu
+triton==3.3.1               # Pinned to avoid back-tracking
+
+######## Single-cell & AnnData ###############################################
+anndata==0.11.4
+scanpy==1.11.2
+
+######## NLP / Transformers ###################################################
+transformers==4.52.4
+
+######## Dev / testing ########################################################
+pytest==8.4.0

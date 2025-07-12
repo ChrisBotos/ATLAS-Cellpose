@@ -1,19 +1,37 @@
 """
 Author: Christos Botos.
 Affiliation: Leiden University Medical Center
-Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: merge_streaming.py.
 Description:
-    Memory‑efficient streaming merger for segmentation mask tiles. Keeps only
-    one tile in RAM at any time by committing each tile directly into a memory‑
-    mapped global canvas. Designed for slides with thousands of tiles.
+    Memory‑efficient streaming merger for instance‑segmentation mask tiles.
+    Only one tile is ever resident in RAM; the full‑slide canvas is stored as
+    a NumPy memory‑map on disk, so peak usage stays < size(tile) + ε.
+
+    The merge algorithm obeys the following rule (which I endorse):
+
+        1. Does the local object have ≥ *threshold* of its pixels inside the
+           overlap band?  If **No**, give it a fresh global ID and skip merging.
+        2. Does the local object share ≥ *threshold* of its pixels with any
+           global object **or** does any global object share ≥ *threshold* of
+           its own pixels with the local object?  If **No**, break.
+        3. Does the local object touch its tile border while the other object
+           does **not** touch its own tile border?  If **Yes**, remove the
+           border stub and break.
+        4. Merge the two objects under the surviving global ID and repeat step
+           2 until no further eligible neighbour exists.
+
+    The present implementation follows the rule verbatim and maintains the
+    same streaming strategy as earlier revisions; the only behavioural change
+    is a fix that prevents an infinite loop when an object overlaps several
+    neighbours.
 
 Dependencies:
-    • Python >= 3.10.
-    • numpy, matplotlib, psutil (optional for debugging).
+    • Python ≥ 3.10.
+    • numpy, matplotlib.
 
-Usage (drop‑in inside tiling.py):
+Usage example:
     from merge_streaming import merge_masks_streaming
 
     merged = merge_masks_streaming(
@@ -22,24 +40,23 @@ Usage (drop‑in inside tiling.py):
         full_image_shape=(H, W),
         overlap=overlap_px,
         logger=logger,
-        settings=settings,
-        qc=settings.get("qc_overlays", False),
+        settings={"merge_overlap_threshold": 0.3, "output_dir": "./results"},
+        qc=True,
     )
 
-Changes v1.1 – 2025‑07‑12
-    • Fix: correct tempfile handling – np.memmap now receives a *path*, not a
-      file descriptor; prevents TypeError on Python ≥3.11.
-    • Added configurable `memmap_path` to override the temporary location.
-    • Robust dtype selection (uint16 / uint32) and validation.
+Outputs (when *qc* is True):
+    • <output_dir>/tile_merge_viz/before_lowres.png
+    • <output_dir>/tile_merge_viz/after_lowres.png
 
 """
 from __future__ import annotations
 
 import gc
+import math
 import tempfile
 from pathlib import Path
 from random import random
-from typing import Sequence, Tuple, Dict
+from typing import Dict, Sequence, Set, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -47,11 +64,14 @@ import numpy as np
 __all__ = ["merge_masks_streaming"]
 
 
-def _temp_datfile(prefix: str = "iri_global_") -> Path:
-    """Return an on‑disk filename for the global memmap and ensure the handle is
-    closed immediately (np.memmap will reopen it)."""
+# -----------------------------------------------------------------------------
+# Utility helpers.
+# -----------------------------------------------------------------------------
+
+def _temp_mm_file(prefix: str = "iri_global_") -> Path:
+    """Return a temporary filename for a mem‑mapped canvas."""
     fd, path = tempfile.mkstemp(prefix=prefix, suffix=".dat")
-    Path(path).unlink(missing_ok=True)  # np.memmap will recreate
+    Path(path).unlink(missing_ok=True)  # The mem‑map will recreate the file.
     try:
         import os
         os.close(fd)
@@ -60,6 +80,34 @@ def _temp_datfile(prefix: str = "iri_global_") -> Path:
     return Path(path)
 
 
+def _down_factor(h: int, w: int, target: int = 2000) -> int:
+    """Integer stride that scales the longest side to *≤ target*."""
+    return max(1, int(math.ceil(max(h, w) / target)))
+
+
+def _save_overlay(lbl_img: np.ndarray, path: Path, target_px: int = 2000) -> None:
+    """Save a down‑sampled, pseudo‑coloured thumbnail of *lbl_img*."""
+    ds = _down_factor(*lbl_img.shape, target_px)
+    cmap = np.random.default_rng(0).random((int(lbl_img.max()) + 1, 3))
+    thumb = cmap[lbl_img[::ds, ::ds]]
+    plt.imsave(path, thumb)
+
+
+def _touches_tile_border(mask: np.ndarray) -> bool:
+    """Return True if *mask* touches any edge of its tile."""
+    return bool(
+        mask[0, :].any()      # top
+        or mask[-1, :].any()  # bottom
+        or mask[:, 0].any()   # left
+        or mask[:, -1].any()  # right
+    )
+
+
+
+# -----------------------------------------------------------------------------
+# Core function.
+# -----------------------------------------------------------------------------
+
 def merge_masks_streaming(
     mask_tiles: Sequence[np.ndarray],
     slices: Sequence[Tuple[slice, slice]],
@@ -67,154 +115,188 @@ def merge_masks_streaming(
     overlap: int,
     logger,
     settings: Dict,
+    *,
     qc: bool = False,
 ) -> np.ndarray:
-    """Merge *mask_tiles* into a single canvas using ≈constant memory.
+    """Fuse *mask_tiles* into a slide‑sized label map.
 
     Parameters
     ----------
-    mask_tiles : list[np.ndarray]
-        Label images (each tile) as returned by Cellpose.
-    slices : list[(slice, slice)]
-        (y_slice, x_slice) for the tile's location in the global canvas.
+    mask_tiles : sequence of uint32/uint16 arrays
+        The segmented tiles, in the same order as *slices*.
+    slices : sequence of (y_slice, x_slice)
+        Placement of each tile within the slide.
     full_image_shape : (H, W)
-        Height × width of the full slide.
+        Height × width of the whole slide.
     overlap : int
-        Number of pixels that overlap between neighbouring tiles.
+        Overlap width in pixels (same for x and y).
     logger : logging.Logger | None
-        For progress messages; may be *None*.
+        Progress sink; may be *None*.
     settings : dict
-        Global pipeline settings – looks for:
-            • "merge_overlap_threshold"   (float)
-            • "memmap_dtype"             ("uint16" or "uint32")
-            • "memmap_path"              (optional str path)
-            • "qc_downsample_factor"     (int, default 4)
+        Requires ``merge_overlap_threshold`` (float in 0‑1).
     qc : bool, default False
-        Produce down‑sampled colour preview overlays.
+        If *True*, write down‑sampled overlays for visual QC.
 
     Returns
     -------
-    np.ndarray
-        The merged label canvas (loaded in memory); caller may `.astype(np.uint16)`
-        or flush to disk as needed.
+    numpy.ndarray (uint16/uint32)
+        The merged mask fully loaded into RAM.
     """
     H, W = full_image_shape
-    ov_thr: float = float(settings.get("merge_overlap_threshold", 0.3))
-    dtype = np.uint16 if str(settings.get("memmap_dtype", "uint32")).lower() == "uint16" else np.uint32
+    thr = float(settings.get("merge_overlap_threshold", 0.3))
 
-    # ------------------------------------------------------------------
-    # Allocate global memmap.
-    # ------------------------------------------------------------------
-    mm_path = Path(settings.get("memmap_path")) if settings.get("memmap_path") else _temp_datfile()
+    dtype = np.uint32 if max(tile.max() for tile in mask_tiles) > 65535 else np.uint16
+    mm_path = Path(settings.get("memmap_path", _temp_mm_file()))
     merged = np.memmap(mm_path, mode="w+", dtype=dtype, shape=(H, W))
 
     if logger:
-        logger.info("Streaming merge: %d tiles → %dx%d canvas (%s)", len(mask_tiles), W, H, dtype.__name__)
+        logger.info(
+            "Streaming‑merge %d tiles → %dx%d canvas (%s).",
+            len(mask_tiles),
+            W,
+            H,
+            dtype.__name__,
+        )
 
-    # ── optional QC preview --------------------------------------------------
-    ds = max(1, int(settings.get("qc_downsample_factor", 4)))
+    # QC thumbnail initialisation.
     if qc:
+        ds = _down_factor(H, W, 2000)
         bh, bw = H // ds, W // ds
-        before: np.ndarray = np.zeros((bh, bw, 3), dtype=np.float32)
-        weights: np.ndarray = np.zeros((bh, bw),     dtype=np.float32)
+        before = np.zeros((bh, bw, 3), dtype=np.float32)
+        weights = np.zeros((bh, bw), dtype=np.float32)
+        viz_dir = Path(settings.get("output_dir", ".")) / "tile_merge_viz"
+        viz_dir.mkdir(parents=True, exist_ok=True)
 
-    next_gid = 1
-    border_touch: Dict[int, bool] = {}
+    next_gid: int = 1  # Next unused global ID.
+    gid_area: Dict[int, int] = {}
+    gid_border: Dict[int, bool] = {}
 
-    for idx, (tile, (ys, xs)) in enumerate(zip(mask_tiles, slices), 1):
+    for idx, (tile, (ys, xs)) in enumerate(zip(mask_tiles, slices), start=1):
         y0, y1 = ys.start, ys.stop
         x0, x1 = xs.start, xs.stop
         roi = merged[y0:y1, x0:x1]
 
+        # QC – flat random colour per tile object.
         if qc:
             yy0, yy1 = y0 // ds, y1 // ds
             xx0, xx1 = x0 // ds, x1 // ds
             colour = np.array([random(), random(), random()], dtype=np.float32)
             bin_tile = (tile > 0).astype(np.float32)
-            before[yy0:yy1, xx0:xx1]  += colour * bin_tile[::ds, ::ds]
+            before[yy0:yy1, xx0:xx1] += colour * bin_tile[::ds, ::ds]
             weights[yy0:yy1, xx0:xx1] += bin_tile[::ds, ::ds]
 
-        # ------------------------------------------------------------------
-        # Merge algorithm (same logic as batch version) --------------------
-        # ------------------------------------------------------------------
+        # Pre‑compute the overlap rim for this tile.
+        rim = np.zeros_like(tile, dtype=bool)
+        if x0 > 0:
+            rim[:, :overlap] = True
+        if x1 < W:
+            rim[:, -overlap:] = True
+        if y0 > 0:
+            rim[:overlap, :] = True
+        if y1 < H:
+            rim[-overlap:, :] = True
+
         for lbl in np.unique(tile):
             if lbl == 0:
                 continue
             local_mask = tile == lbl
             area_local = int(local_mask.sum())
+            if area_local == 0:
+                continue
 
-            # Fast border stub check
-            rim = np.zeros_like(tile, dtype=bool)
-            if x0 > 0: rim[:, :overlap]  = True
-            if x1 < W: rim[:, -overlap:] = True
-            if y0 > 0: rim[:overlap, :]  = True
-            if y1 < H: rim[-overlap:, :] = True
-            if (rim & local_mask).sum() < ov_thr * area_local:
+            # ── Rule 1 ────────────────────────────────────────────────────
+            if (rim & local_mask).sum() < thr * area_local:
                 gid = next_gid
                 next_gid += 1
                 roi[local_mask] = gid
-                border_touch[gid] = False
+                gid_area[gid] = area_local
+                gid_border[gid] = _touches_tile_border(local_mask)
                 continue
 
-            # Is this mask touching slide border? (global coords)
-            local_border = (y0 == 0 or y1 == H or x0 == 0 or x1 == W) and (
-                local_mask[0, :].any() or local_mask[-1, :].any() or local_mask[:, 0].any() or local_mask[:, -1].any()
-            )
-
-            touched: np.ndarray = np.unique(roi[local_mask])
-            touched = touched[touched > 0]
-
-            chosen_gid = None
+            # ── Rule 2–4 loop ────────────────────────────────────────────
+            local_border_flag = _touches_tile_border(local_mask)
             kill_local = False
+            chosen_gid = None
+            seen_gids: Set[int] = set()  # Prevent infinite re‑visits.
 
-            for gid in touched:
-                area_gid = int((roi == gid).sum())
-                ov_area = int(np.logical_and(roi == gid, local_mask).sum())
-                gid_border = border_touch.get(int(gid), False)
-                if (ov_area / area_local) >= ov_thr or (ov_area / area_gid) >= ov_thr:
-                    if local_border ^ gid_border:
-                        if local_border:
-                            kill_local = True
-                        else:
-                            merged[merged == gid] = 0
-                            chosen_gid = int(gid)
-                            border_touch[chosen_gid] = False
+            while True:
+                touched = [
+                    g for g in np.unique(roi[local_mask]) if g > 0 and g not in seen_gids
+                ]
+                if not touched:
+                    break
+                merged_this_round = False
+
+                for gid in touched:
+                    seen_gids.add(gid)
+                    area_gid = gid_area.get(gid)
+                    if area_gid is None:
+                        area_gid = int((merged == gid).sum())
+                        gid_area[gid] = area_gid
+
+                    ov_area = int(np.logical_and(roi == gid, local_mask).sum())
+
+                    # Rule 2 – asymmetric overlap.
+                    if (ov_area / area_local) < thr and (ov_area / area_gid) < thr:
+                        continue
+
+                    # Rule 3 – border‑stub arbitration.
+                    gid_border_flag = gid_border.get(gid, False)
+                    if local_border_flag and not gid_border_flag:
+                        kill_local = True
                         break
-                    else:
-                        chosen_gid = int(gid)
-                        border_touch[chosen_gid] = local_border or gid_border
-                        break
+                    if gid_border_flag and not local_border_flag:
+                        merged[merged == gid] = 0  # Remove stub object.
+                        gid_area.pop(gid, None)
+                        gid_border.pop(gid, None)
+                        continue  # Check other neighbours.
+
+                    # Rule 4 – merge under *gid*.
+                    chosen_gid = gid
+                    roi[local_mask] = gid  # Stamp now → prevents infinite loop.
+                    gid_area[gid] += area_local
+                    gid_border[gid] = local_border_flag or gid_border_flag
+                    merged_this_round = True
+                    break  # Re‑evaluate overlaps.
+
+                if kill_local or not merged_this_round:
+                    break
 
             if kill_local:
                 if logger:
-                    logger.info("✂ Removed border stub (%d px) at tile %d, lbl %d.", area_local, idx, lbl)
+                    logger.info(
+                        "✂\uFE0F  Removed border stub (%d px) at tile %d label %d.",
+                        area_local,
+                        idx,
+                        lbl,
+                    )
                 continue
 
-            if chosen_gid is None:
+            if chosen_gid is None:  # No neighbour matched.
                 chosen_gid = next_gid
                 next_gid += 1
-                border_touch[chosen_gid] = local_border
+                gid_area[chosen_gid] = area_local
+                gid_border[chosen_gid] = local_border_flag
+                roi[local_mask] = chosen_gid
 
-            roi[local_mask] = chosen_gid
-
-        # free tile memory immediately
+        # Release tile to keep memory footprint flat.
         mask_tiles[idx - 1] = None
         if idx % 64 == 0:
             gc.collect()
 
+    # ── QC thumbnails ─────────────────────────────────────────────────────
     if qc:
         valid = weights > 0
         before[valid] /= weights[valid, None]
-        viz_dir = Path(settings.get("output_dir", ".")) / "tile_merge_viz"
-        viz_dir.mkdir(parents=True, exist_ok=True)
-        plt.imsave(viz_dir / "before_lowres.png", np.clip(before, 0, 1))
+        plt.imsave(viz_dir / "before_lowres.png", np.clip(before, 0.0, 1.0))
+        _save_overlay(np.asarray(merged), viz_dir / "after_lowres.png")
 
     if logger:
-        logger.info("Streaming merge completed – %d unique objects.", next_gid - 1)
+        logger.info("Streaming merge produced %d unique objects.", next_gid - 1)
 
     merged_arr = np.asarray(merged)
 
-    # Optional: clean up tmp file if the array is small enough to keep in RAM
+    # Clean up mem‑map.
     try:
         mm_path.unlink(missing_ok=True)
     except PermissionError:

@@ -84,37 +84,6 @@ def _run_single_pass_cellpose(
 # Core function.
 # -----------------------------------------------------------------------------
 
-
-"""
-Author: Christos Botos.
-Affiliation: Leiden University Medical Center
-Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
-
-Script Name: run_cellpose_on_tiles.py.
-Description:
-    Segment a 2‑D grayscale image with Cellpose. The function automatically splits
-    very large images into overlapping tiles, runs Cellpose on each tile, and
-    writes the resulting instance mask directly to an on‑disk NumPy mem‑map so
-    that peak RAM usage remains roughly constant.
-
-    The present revision implements the lightweight memory‑footprint fix
-    described as *solution2.2* in the discussion: each tile mask is appended to
-    the list for later merging **without** creating an additional in‑RAM copy,
-    and the local variable holding the array is set to *None* immediately after
-    use. This avoids keeping two identical copies of every tile simultaneously
-    and typically saves 1–2GB on 40k×40k whole‑slide images.
-
-Dependencies:
-    • Python≥3.10.
-    • numpy, pathlib, numpy.memmap, cellpose, pytest (for the optional test).
-"""
-
-
-"""------------------------------------------------------------------------
-Function
---------
-"""
-
 def run_cellpose_on_tiles(
     model,
     image: np.ndarray,
@@ -285,6 +254,9 @@ def run_cellpose_on_tiles(
         settings=settings,
     )
 
+    total_cells = int(merged.max())  # or: np.unique(merged).size - 1
+    logger.info("Unique cells after merge: %d", total_cells)
+
 
     # ------------------------------------------------------------------ #
     # Persist the fused mask *and* free per-tile allocations immediately #
@@ -295,8 +267,6 @@ def run_cellpose_on_tiles(
 
     masks_mm[:] = merged
     masks_mm.flush()
-
-    logger.info("Finished writing %d total cells to disk.", total_cells)
 
     # Flows are deliberately discarded to keep the memory footprint minimal.
     return masks_mm, [None, None, None], total_cells
