@@ -128,7 +128,7 @@ def apply_watershed_to_mask(masks, min_area=1000, footprint=(3, 3), logger=None)
 
                     # Apply watershed to split the merged nuclei
                     # The negative distance is used so that watershed finds boundaries at the lowest points
-                    # between peaks (likely the boundaries between touching nuclei)
+                    # Between peaks (likely the boundaries between touching nuclei)
                     local_labels = watershed(-distance, markers, mask=submask)
 
                     # Assign new labels to each watershed-separated region

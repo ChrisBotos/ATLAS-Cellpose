@@ -28,10 +28,10 @@ from unittest.mock import MagicMock
 # Make the package importable when tests are called via `pytest -q`.
 # ----------------------------------------------------------------------
 
-ROOT = Path(__file__).resolve().parents[2]          # project root.
+ROOT = Path(__file__).resolve().parents[2]          # Project root.
 sys.path.insert(0, str(ROOT))
 
-from code.nuclei_segmentation.utils import segmentation   # noqa: E402
+from code.nuclei_segmentation.utils import segmentation
 
 
 # ----------------------------------------------------------------------
@@ -62,7 +62,7 @@ def dummy_settings() -> dict:
     """Settings for tiling."""
     return {
         "tile_side_length": 64,     # forces tiling on the 128×128 dummy image.
-        "tile_overlap": 8,          # pixels.
+        "tile_overlap": 8,          # Pixels.
         "use_tiling": True,
     }
 

@@ -39,10 +39,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from code.nuclei_segmentation.utils.tiling import (  # noqa: E402; path tweaked above.
+from code.nuclei_segmentation.utils.tiling import (
     split_image_into_tiles,
-    merge_tiles_with_weighted_overlap,
-    merge_masks,
     feather_mask,
 )
 

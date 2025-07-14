@@ -42,8 +42,8 @@ def small_segmentation_overlay(output_dir, crop_size=512):
     pre_path       = os.path.join(output_dir, "preprocessed_image.tif")
     clahe_path     = os.path.join(output_dir, "contrast_enhanced_image.tif")
     gamma_path     = os.path.join(output_dir, "gamma_corrected_image.tif")
-    masks_path     = os.path.join(output_dir, "masks.npy")  # pre-watershed mask
-    watershed_path = os.path.join(output_dir, "segmentation_mask_watershed.tif")  # post-watershed mask (optional)
+    masks_path     = os.path.join(output_dir, "masks.npy")  # Pre-watershed mask
+    watershed_path = os.path.join(output_dir, "segmentation_mask_watershed.tif")  # Post-watershed mask (optional)
 
     # Check essential file existence
     if not os.path.exists(pre_path):

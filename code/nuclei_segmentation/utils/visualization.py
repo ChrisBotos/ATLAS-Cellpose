@@ -80,7 +80,7 @@ def setup_logger(name: str, debug: bool = False, log_file: Path = None) -> loggi
     return logger
 
 
-def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Path]:
+def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Path, Path]:
     """
     Ensures creation of debug and visualization output directories with fallbacks.
 
@@ -90,7 +90,7 @@ def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Pat
         logger (logging.Logger): Logger for reporting.
 
     Returns:
-        tuple: (check_dir, debug_dir) as Path objects.
+        tuple: (cropped_preview_dir, debug_dir, visualization_dir) as Path objects.
     """
     output_dir = Path(output_dir).expanduser().resolve()
     debug_dir = None
@@ -105,10 +105,11 @@ def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Pat
             logger.error(f"Error creating debug directory: {e}")
             debug_dir = output_dir
 
-    check_dir = output_dir / "visualizations" / "cropped_preview"
+    cropped_preview_dir = output_dir / "visualizations" / "cropped_preview"
+
     try:
-        check_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Created visualization directory: {check_dir}")
+        cropped_preview_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Created visualization directory: {cropped_preview_dir}")
     except Exception as e:
         logger.error(f"Failed to create main visualization directory: {e}")
 
@@ -122,17 +123,19 @@ def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Pat
 
             try:
                 fallback.mkdir(parents=True, exist_ok=True)
-                check_dir = fallback
-                logger.warning(f"Using fallback directory: {check_dir}")
+                cropped_preview_dir = fallback
+                logger.warning(f"Using fallback directory: {cropped_preview_dir}")
                 break
             except Exception:
                 continue
 
-    if not check_dir.exists():
+    if not cropped_preview_dir.exists():
         logger.critical(f"Could not access or create any visualization directory under {output_dir}")
         raise PermissionError("No writable visualization directory available.")
 
-    return check_dir, debug_dir
+    visualization_dir = output_dir / "visualizations"
+
+    return cropped_preview_dir, debug_dir, visualization_dir
 
 def load_image(image_paths: list[Path], debug_dir: Path, logger) -> np.ndarray | None:
     """
@@ -627,14 +630,14 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     logger.info(f"Running overlay visualization on: {output_dir}")
 
     try:
-        check_dir, debug_dir = create_output_dirs(output_dir, debug, logger)
+        cropped_preview_dir, debug_dir, visualization_dir = create_output_dirs(output_dir, debug, logger)
     except Exception as e:
         logger.error(f"Cannot create output folders: {e}")
         return
 
 
     """FIXED PATHS"""
-    img_path = output_dir / "preprocessed" / "first.tig"
+    img_path = output_dir / "preprocessed" / "first.tif"
     clahe_path = output_dir / "preprocessed" / "clahe.tif"
     gamma_path = output_dir / "preprocessed" / "gamma.tif"
     mask_path = output_dir / "masks" / "segmentation_masks.npy"
@@ -670,8 +673,8 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     masks_crop = crop_array(masks, y0, y1, x0, x1, name="mask", logger=logger)
 
     try:
-        skio.imsave(check_dir / "cropped_image.tif", img_crop)
-        logger.info(f"Saved cropped image to: {check_dir / 'cropped_image.tif'}")
+        skio.imsave(cropped_preview_dir / "cropped_image.tif", img_crop)
+        logger.info(f"Saved cropped image to: {cropped_preview_dir / 'cropped_image.tif'}")
     except Exception as e:
         logger.error(f"Could not save cropped image: {e}")
         return
@@ -684,7 +687,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     """GENERATE OVERLAY"""
     overlay = create_overlay(img_crop, masks_crop, logger)
     try:
-        overlay_path = check_dir / "central_crop_overlay.tif"
+        overlay_path = cropped_preview_dir / "central_crop_overlay.tif"
         skio.imsave(overlay_path, (overlay * 255).astype(np.uint8))
         logger.info(f"Saved overlay to: {overlay_path}")
     except Exception as e:
@@ -715,16 +718,4 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
 
 
     """SUMMARY PANEL"""
-    save_overlay_summary(img_crop, overlay, clahe_img, gamma_img, check_dir, logger, debug=debug)
-
-
-    """IMAGE OVERLAY"""
-    try:
-        logger.info("Creating full-size overlay.")
-        full_overlay = generate_tiled_overlay(img, masks, alpha=0.35)
-        skio.imsave(check_dir / "full_image_overlay.tif",
-                    (full_overlay * 255).astype(np.uint8))
-
-        logger.info("Saved full image overlay.")
-    except Exception as e:
-        logger.warning(f"Failed to create full-size overlay: {e}")
+    save_overlay_summary(img_crop, overlay, clahe_img, gamma_img, cropped_preview_dir, logger, debug=debug)

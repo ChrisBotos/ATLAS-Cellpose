@@ -320,7 +320,7 @@ def _memmap_array(shape, dtype, logger):
 #                             chosen_gid = gid                # reuse ID
 #                             border_touch[gid] = False
 #                         break
-#                     else:                                  # both border or none
+#                     else:                                  # Both border or none
 #                         chosen_gid = gid
 #                         border_touch[gid] = local_border or gid_border
 #                         break

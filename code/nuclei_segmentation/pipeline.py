@@ -216,12 +216,28 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             # Step 5: Merge masks in tile overlaps.
             if settings.get("use_tiling", False):
                 logger.info("Merging masks across tile overlaps...")
+
+                # Convert fractional overlap to pixels for the merge function.
+                # This ensures consistency with the segmentation tiling parameters.
+                tile_size = settings["tile_side_length"]
+                overlap_cfg = settings["tile_overlap"]
+
+                if 0 <= overlap_cfg <= 1:
+                    overlap_pixels = int(tile_size * overlap_cfg)
+                else:
+                    overlap_pixels = int(overlap_cfg)
+
+                # Ensure overlap doesn't exceed half the tile size.
+                overlap_pixels = min(overlap_pixels, tile_size // 2)
+
+                logger.info(f"Tile merge parameters: tile_size={tile_size}, overlap={overlap_pixels} pixels")
+
                 masks = merge_masks_streaming(
                     height=image.shape[0],
                     width=image.shape[1],
                     tile_h=settings["tile_side_length"],
                     tile_w=settings["tile_side_length"],
-                    overlap=settings["tile_overlap"],
+                    overlap=overlap_pixels,  # Now correctly converted to integer pixels.
                     tiles_path=output_dir / "masks" / "tile_masks_npz",
                     threshold=settings.get("merge_overlap_threshold", 0.3),
                     qc=settings.get("qc_overlays", True),
