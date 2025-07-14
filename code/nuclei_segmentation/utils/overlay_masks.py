@@ -25,13 +25,13 @@ import tifffile as tiff
 from tqdm import tqdm
 import multiprocessing as mp
 
-# ---------- helper functions -------------------------------------------------
+"""Helpers."""
 
 def _generate_label_colours(max_label: int, seed: int = 42) -> np.ndarray:
     """Return a deterministic RGB colour for every label from 0..max_label."""
     rng = np.random.default_rng(seed)
     lut = rng.integers(0, 256, size=(max_label + 1, 3), dtype=np.uint8)
-    lut[0] = 0      # background stays black
+    lut[0] = 0      # Background is black.
     return lut
 
 
@@ -81,7 +81,7 @@ def _blend_tile(
     return xp.asnumpy(blended) if xp is not np else blended
 
 
-# ---------- worker -----------------------------------------------------------
+"""Worker function."""
 
 def _process_tile(
     args: Tuple[int, int, int, int, str, str, np.ndarray, float, bool]
@@ -103,7 +103,7 @@ def _process_tile(
     return y0, y1, x0, x1, blended
 
 
-# ---------- main overlay routine --------------------------------------------
+"""Main entry point."""
 
 def overlay(
     image_path: Union[str, Path],
@@ -134,7 +134,7 @@ def overlay(
     out_path = Path(out_path)
 
     with tiff.TiffFile(image_path) as tif:
-        height, width = tif.series[0].shape[-2:]  # use Y, X no matter the prefix dims
+        height, width = tif.series[0].shape[-2:]  # Use Y, X no matter the prefix dims.
 
     mask_mm = np.load(mask_path, mmap_mode="r")
     if mask_mm.shape != (height, width):
@@ -215,11 +215,7 @@ def overlay(
     os.replace(tmp_path, out_path)
     sys.stdout.write(f"✅ Overlay complete → {out_path}\n")
 
-
-
-
-
-# ---------- CLI --------------------------------------------------------------
+"""CLI"""
 
 def _get_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(

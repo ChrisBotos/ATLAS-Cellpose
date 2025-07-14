@@ -117,7 +117,7 @@ def run_cellpose_on_tiles(
     images, it splits them into overlapping tiles, processes each tile with Cellpose,
     and saves both individual tile masks and a combined segmentation mask.
 
-    The function is designed for bioinformaticians analyzing kidney tissue sections at
+    The function is designed for users analyzing kidney tissue sections at
     different time points (10 hours, 2 days, 14 days) after ischemia/reperfusion injury.
     It handles the computational challenges of processing large histological images while
     maintaining segmentation quality across tile boundaries.

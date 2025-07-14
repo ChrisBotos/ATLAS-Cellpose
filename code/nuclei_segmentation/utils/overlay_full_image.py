@@ -81,7 +81,7 @@ def _array_mode(
     lut = rng.integers(0, 256, size=(masks.max() + 1, 3), dtype=np.uint8)
     lut[0] = 0
 
-    coloured = lut[masks]                        # (H, W, 3) uint8
+    coloured = lut[masks]                        # (H, W, 3) uint8.
     blended = (img_uint8 * (1.0 - alpha) +
                coloured.astype(np.float32) * alpha).clip(0, 255).astype(np.uint8)
 

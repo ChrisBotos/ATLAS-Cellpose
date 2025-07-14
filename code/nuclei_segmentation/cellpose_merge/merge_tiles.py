@@ -25,14 +25,13 @@ Usage:
         height=10_000, width=12_000,
         tile_h=512, tile_w=512, overlap=128,
         tiles_path="/path/to/tile_masks",  # or …_npz
-        threshold=0.3,
+        threshold=0.3
     )
 """
 
 from __future__ import annotations
 
 import concurrent.futures as _cf
-import itertools as _it
 import logging
 import math
 import re
@@ -50,9 +49,9 @@ try:
 except ModuleNotFoundError:  # pragma: no cover – CPU‑only envs.
     torch = None  # type: ignore[assignment]
 
-"""------------------------------------------------------------------------
+"""
 Lazy import of heavy merge back‑ends – keeps CLI snappy and avoids circulars
-------------------------------------------------------------------------"""
+"""
 
 _merge_patch_cpu: Callable[..., Tuple[NDArray[np.uint32], Dict[int, int]]]
 _merge_patch_gpu: Callable[..., Tuple[NDArray[np.uint32], Dict[int, int]]]
@@ -69,9 +68,9 @@ def _lazy_import_merge_backends() -> None:
     _merge_patch_cpu = _m_cpu  # type: ignore[misc]
     _merge_patch_gpu = _m_gpu  # type: ignore[misc]
 
-"""------------------------------------------------------------------------
+"""
 1.  Path and filename helpers
-------------------------------------------------------------------------"""
+"""
 
 # Accepts either an underscore or a space delimiter between the two integers.
 _PARSER = re.compile(r"^(\d+)[ _](\d+)\.(?:tif|np[sz])$", re.IGNORECASE)
@@ -136,9 +135,9 @@ def _discover_tiles(path: Path) -> Tuple[Dict[Tuple[int, int], Path], List[Tuple
     return mapping, list(mapping)
 
 
-"""------------------------------------------------------------------------
+"""
 2.  Graph helpers
-------------------------------------------------------------------------"""
+"""
 
 def _build_clusters(coords: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
     """Return 4‑neighbour connected components of the coord grid."""
@@ -229,9 +228,9 @@ def _merge_cluster(
     return merged_patch, (y0, x0), {}
 
 
-"""------------------------------------------------------------------------
+"""
 3.  Public API
-------------------------------------------------------------------------"""
+"""
 
 __all__: Final = ["merge_masks_streaming"]
 
@@ -458,9 +457,9 @@ def merge_masks_streaming(
     return merged
 
 
-"""------------------------------------------------------------------------
+"""
 4.  Unit tests  –  run with «pytest merge_tiles.py»
-------------------------------------------------------------------------"""
+"""
 
 import pytest
 

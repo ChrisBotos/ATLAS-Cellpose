@@ -94,7 +94,7 @@ def load_config(config_path=None):
         "memmap_dtype": config.get("tiling", "memmap_dtype", fallback="uint32"),
 
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
-        "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir"), dirs["results"]),
+        "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
         "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),
         "skip_and_copy_segmentation": config.getboolean("using_previous_results", "skip_and_copy_segmentation", fallback=False),
         "skip_and_copy_merging": config.getboolean("using_previous_results", "skip_and_copy_merging", fallback=False),
@@ -120,13 +120,37 @@ def load_config(config_path=None):
 
 def resolve_path(path_str, data_dir):
     """
-    Ensure absolute image path, fallback to data directory if needed.
+    Resolve paths with cross-platform support for WSL and Windows environments.
+
+    This function handles Windows paths (C:/) when running in WSL by converting
+    them to the appropriate /mnt/c/ format, ensuring compatibility for kidney
+    tissue analysis workflows across different development environments.
     """
-    path = Path(path_str)
-    if path.is_absolute():
+    import os
+
+    path_str = str(path_str).strip()
+
+    # Handle Windows paths when running in WSL.
+    if os.name == 'posix' and path_str.startswith(('C:/', 'D:/', 'E:/', 'F:/')):
+        # Convert Windows path to WSL mount point.
+        drive_letter = path_str[0].lower()
+        wsl_path = f"/mnt/{drive_letter}" + path_str[2:].replace('\\', '/')
+        path = Path(wsl_path)
+    else:
+        path = Path(path_str)
+
+    # Check if path is absolute and exists.
+    if path.is_absolute() and path.exists():
         return path
-    full = data_dir / path
-    return full if full.exists() else path.resolve()
+
+    # Try relative to data directory.
+    if not path.is_absolute():
+        full = data_dir / path
+        if full.exists():
+            return full
+
+    # Final fallback - resolve as-is.
+    return path.resolve()
 
 
 def get_tuple(config, section, option, default, cast=float):
