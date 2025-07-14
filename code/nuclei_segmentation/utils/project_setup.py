@@ -89,9 +89,17 @@ def load_config(config_path=None):
         "tile_side_length": config.getint("tiling", "tile_side_length", fallback=1024),
         "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.1),
         "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),
-        "qc_overlays": config.getboolean("tiling", "qc_overlays", fallback=False),
+        "qc_overlays": config.getboolean("tiling", "qc_overlays", fallback=True),
         "qc_downsample_factor": config.getint("tiling", "qc_downsample_factor", fallback=4),
         "memmap_dtype": config.get("tiling", "memmap_dtype", fallback="uint32"),
+
+        "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
+        "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir"), dirs["results"]),
+        "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),
+        "skip_and_copy_segmentation": config.getboolean("using_previous_results", "skip_and_copy_segmentation", fallback=False),
+        "skip_and_copy_merging": config.getboolean("using_previous_results", "skip_and_copy_merging", fallback=False),
+        "skip_and_copy_postprocessing": config.getboolean("using_previous_results", "skip_and_copy_postprocessing", fallback=False),
+        "skip_and_copy_visualization": config.getboolean("using_previous_results", "skip_and_copy_visualization", fallback=False),
     }
 
     # Cellpose-specific settings.

@@ -48,6 +48,9 @@ from utils.preprocessing import preprocess_image
 from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
 from utils.visualization import small_segmentation_overlay
+from utils.overlay_full_image import full_image_overlay
+
+from cellpose_merge.merge_tiles import merge_masks_streaming
 
 
 def log_config(logger, settings, CELLPOSE_PARAMS):
@@ -138,6 +141,13 @@ def generate_overlays(image, masks, flows, output_dir, settings, logger):
             crop_size=settings.get("small_overlay_size", 512) * settings.get("upscale_factor", 1),
             debug=settings.get("debug_mode", False)
         )
+
+        full_image_overlay(
+            Path(output_dir) / "visualizations",
+            logger,
+            img_path=Path(output_dir) / "preprocessed" / "first.tif",
+            mask_path=Path(output_dir) / "masks" / "segmentation_masks.npy",
+        )
     except Exception as e:
         logger.warning(f"Overlay generation failed: {e}")
         logger.debug(traceback.format_exc())
@@ -170,15 +180,65 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         logger.info(f"Image path: {image_path}")
         logger.info(f"Output directory: {output_dir}")
 
-        # Step 1: Image preprocessing (CLAHE, cropping etc.).
-        image = preprocess_image(image_path, settings, logger)
+        if settings.get("use_previous_results"):
+            logger.info("Using previous results from: {}".format(settings["previous_results_dir"]))
+            previous_results_dir = Path(settings["previous_results_dir"])
 
-        # Step 2: Load Cellpose model (with GPU if available).
-        model = setup_model(CELLPOSE_PARAMS, logger)
+        if not settings.get("skip_and_copy_preprocessing", False) or not settings.get("use_previous_results", False):
+            # Step 1: Image preprocessing (CLAHE, cropping etc.).
+            image = preprocess_image(image_path, settings, logger)
+        else:
+            image = skio.imread(previous_results_dir / "preprocessed" / "final.tif")
+            logger.info("Skipped preprocessing and loaded image from: {}".format(previous_results_dir / "preprocessed" / "final.tif"))
 
-        # Step 3: Segmentation.
-        logger.info("Running Cellpose segmentation...")
-        masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, settings, logger)
+        if not settings.get("skip_and_copy_segmentation", False) or not settings.get("use_previous_results", False):
+            # Step 2: Load Cellpose model (with GPU if available).
+            model = setup_model(CELLPOSE_PARAMS, logger)
+
+            # Step 3: Segmentation.
+            logger.info("Running Cellpose segmentation...")
+            masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, settings, logger)
+
+            # Step 4: Save raw outputs.
+            save_outputs(masks, flows, output_dir, logger)
+            logger.info("Segmentation outputs saved to: {}".format(output_dir / "masks" / "segmentation_masks.npy"))
+        else:
+            # If non_merged_segmentation_masks.npy exists, load it instead of segmentation_masks.npy.
+            if (previous_results_dir / "masks" / "non_merged_segmentation_masks.npy").exists():
+                masks = np.load(previous_results_dir / "masks" / "non_merged_segmentation_masks.npy")
+            else:
+                masks = np.load(previous_results_dir / "masks" / "segmentation_masks.npy")
+            flows = [None, None, None]
+            total_cells = int(masks.max())
+            logger.info("Skipped segmentation and loaded masks from: {}".format(previous_results_dir / "masks" / "segmentation_masks.npy"))
+
+        if not settings.get("skip_and_copy_merging", False) or not settings.get("use_previous_results", False):
+            # Step 5: Merge masks in tile overlaps.
+            if settings.get("use_tiling", False):
+                logger.info("Merging masks across tile overlaps...")
+                masks = merge_masks_streaming(
+                    height=image.shape[0],
+                    width=image.shape[1],
+                    tile_h=settings["tile_side_length"],
+                    tile_w=settings["tile_side_length"],
+                    overlap=settings["tile_overlap"],
+                    tiles_path=output_dir / "masks" / "tile_masks_npz",
+                    threshold=settings.get("merge_overlap_threshold", 0.3),
+                    qc=settings.get("qc_overlays", True),
+                    qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
+                )
+                # Rename the segmentation_masks.npy to non_merged_segmentation_masks.npy
+                # and save the merged masks to segmentation_masks.npy
+                if (output_dir / "masks" / "segmentation_masks.npy").exists():
+                    (output_dir / "masks" / "non_merged_segmentation_masks.npy").unlink(missing_ok=True)
+
+                np.save(output_dir / "masks" / "segmentation_masks.npy", masks)
+                logger.info("Merged masks saved to: {}".format(output_dir / "masks" / "segmentation_masks.npy"))
+
+                total_cells = int(masks.max())
+        else:
+            masks = np.load(previous_results_dir / "masks" / "segmentation_masks.npy")
+            logger.info("Skipped merging.")
 
         if masks is None or masks.size == 0:
             logger.error("No segmentation masks returned. Aborting.")
@@ -186,16 +246,19 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
 
         logger.info(f"Segmentation completed. Total cells: {total_cells}")
 
-        # Step 4: Save raw outputs.
-        save_outputs(masks, flows, output_dir, logger)
+        if not settings.get("skip_and_copy_postprocessing", False) or not settings.get("use_previous_results", False):
+            # Step 6: Postprocess with edge refinement and/or watershed.
+            masks = apply_postprocessing(image, masks, settings, output_dir, logger)
+        else:
+            logger.info("Skipped postprocessing.")
 
-        # Step 5: Postprocess with edge refinement and/or watershed.
-        masks = apply_postprocessing(image, masks, settings, output_dir, logger)
+        if not settings.get("skip_and_copy_visualization", False) or not settings.get("use_previous_results", False):
+            # Step 7: Overlay generation (cropped + full).
+            generate_overlays(image, masks, flows, output_dir, settings, logger)
+        else:
+            logger.info("Skipped visualizations.")
 
-        # Step 6: Overlay generation (cropped + full).
-        generate_overlays(image, masks, flows, output_dir, settings, logger)
-
-        # Step 7: Optional debug snapshot.
+        # Step 8: Optional debug snapshot.
         if snap:
             snap.capture("end_of_pipeline", {"masks": masks})
 
