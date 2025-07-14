@@ -36,3 +36,5 @@ Now the tiles start from the top left, so they may cover smaller areas on the bo
 10) Created a pipeline able to use previous results and skip steps.
 
 11) Created a full_overlay script that uses gpu acceleration and does not load the whole image into the RAM.
+
+12) Fixed a bottom right contrast box creation bug of clahe.

@@ -258,7 +258,7 @@ def preprocess_image(image_path, settings, logger):
     out_dir = Path(settings["output_dir"]) / "preprocessed"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Optional cropping happens on the mem-map directly ───────────────────
+    # Optional cropping happens on the mem-map directly.
     if settings.get("crop_image", False):
         crop_box = settings.get("crop_box", (0, 1, 0, 1))
         if isinstance(crop_box, str):
@@ -266,19 +266,19 @@ def preprocess_image(image_path, settings, logger):
         img = crop_image(img, crop_box, logger)  # Still mem-mapped slice.
 
     # Save a quick preview of the cropped ROI for human QC.
-    skio.imsave(out_dir / "first.tig", img, plugin="tifffile")
+    skio.imsave(out_dir / "first.tif", img, plugin="tifffile")
 
     H, W = img.shape[:2]
     logger.info(f"Working shape post-crop: {H}×{W}, dtype={img.dtype}")
 
-    # ── one-off global 0.5 / 99.5 % for deterministic scaling ────────────────
+    # One-off global 0.5 / 99.5 % for deterministic scaling.─
     flat = img.reshape(-1)
     stride = max(1, flat.size // 1_000_000)  # ~1 M evenly spaced samples
     sample = flat[::stride]
     p_low, p_high = np.percentile(sample, (0.5, 99.5))
     logger.info(f"[global 16→8] p0.5={p_low:.1f}, p99.5={p_high:.1f}")
 
-    # ── Tile-wise 8 bit conversion, CLAHE & gamma (if requested) ─────────
+    # Tile-wise 8 bit conversion, CLAHE & gamma (if requested).
     tile_px  = settings.get("tile_side_length", 8192)
     overlap  = int(tile_px * 0.05)
     scratch  = tempfile.TemporaryDirectory(prefix="iri_pre_")
