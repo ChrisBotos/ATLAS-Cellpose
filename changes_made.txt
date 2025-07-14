@@ -33,3 +33,6 @@ Now the tiles start from the top left, so they may cover smaller areas on the bo
 
 9) Greatly improved tiling and introduced a new merging rule where if only one mask touches a tile border it is not merged with the other but removed.
 
+10) Created a pipeline able to use previous results and skip steps.
+
+11) Created a full_overlay script that uses gpu acceleration and does not load the whole image into the RAM.
