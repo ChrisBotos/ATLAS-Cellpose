@@ -250,6 +250,22 @@ def _generate_label_colours(max_label: int, seed: int = 42) -> np.ndarray:
     lut[0] = 0
     return lut
 
+def _assert_grayscale(img: np.ndarray, name: str) -> np.ndarray:
+    """
+    Guarantee a 2‑D float32 image.
+    If a colour array is supplied it is converted to luminance and returned.
+    """
+    if img.ndim == 2:                           # already (H, W).
+        return img.astype(np.float32)
+    if img.ndim == 3 and img.shape[2] == 3:     # RGB → gray.
+        # Y' = 0.2126 R + 0.7152 G + 0.0722 B (ITU‑R BT.709).
+        r, g, b = img.astype(np.float32).transpose(2, 0, 1)
+        y = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return y
+    raise ValueError(
+        f"{name} must be 2‑D or 3‑D RGB, but got shape {img.shape}"
+    )
+
 
 def _blend_tile(tile_img: np.ndarray, tile_mask: np.ndarray, lut: np.ndarray, alpha: float, gpu: bool) -> np.ndarray:
     """Map labels to RGB and alpha-blend the mask onto the image tile."""
@@ -279,87 +295,41 @@ def _blend_tile(tile_img: np.ndarray, tile_mask: np.ndarray, lut: np.ndarray, al
 
 
 def generate_tiled_overlay(
-    img: np.ndarray,
+    img:   np.ndarray,
     masks: np.ndarray,
-    tile_size: int = 2048,
-    overlap: int = 128,
     alpha: float = 0.4,
-    seed: int = 42,
-    gpu: bool = False
+    seed:  int   = 42,
 ) -> np.ndarray:
     """
-    Generate a full-size RGB overlay by processing the image in tiles.
+    Colour overlay: grayscale image + randomly‑coloured masks.
 
-    This function expands each tile to ensure no segmented object is split across tile borders.
+    Parameters
+    ----------
+    img   : raw slide or tile, 2‑D or RGB.
+    masks : integer label image (0 = background).
+    alpha : 0‑1 weight of the mask layer.
+    seed  : RNG seed so colours are reproducible between runs.
 
-    Parameters:
-        img: Grayscale image as a 2D array.
-        masks: Integer-label mask of same shape as img.
-        tile_size: Base tile edge length in pixels.
-        overlap: Overlap in pixels between adjacent tiles.
-        alpha: Transparency factor for blending.
-        seed: RNG seed for reproducible colours.
-        gpu: Whether to attempt GPU acceleration with CuPy.
-
-    Returns:
-        Full RGB overlay as a uint8 array of shape (H, W, 3).
+    Returns
+    -------
+    overlay : float32 RGB ∈ [0, 1].
     """
-    assert img.shape == masks.shape, "Image and mask must have same dimensions."
-    height, width = img.shape
-    num_labels = int(masks.max())
-    if num_labels == 0:
-        # If mask is empty, return normalized grayscale in RGB
-        norm = (img.astype(np.float32) / 255.0)[..., None]
-        return np.concatenate([norm] * 3, axis=-1).astype(np.float32)
+    # 1. Prepare the base image as RGB float32 ∈ [0,1].
+    gray = _assert_grayscale(img, "img")               # (H,W) float32
+    base = np.stack([gray / 255.0] * 3, axis=-1)       # (H,W,3)
 
-    lut = _generate_label_colours(num_labels, seed)
+    # 2. Map every label → deterministic colour.
+    lut        = _generate_label_colours(int(masks.max()), seed)  # (L+1,3) uint8
+    lut_float  = lut.astype(np.float32) / 255.0                   # ∈ [0,1]
+    mask_rgb   = lut_float[masks]                                 # (H,W,3) float32
 
-    # Compute bounding boxes for each label to avoid splitting
-    labels = np.unique(masks)
-    props = {}
-    for lbl in labels:
-        if lbl == 0:
-            continue
-        coords = np.column_stack(np.where(masks == lbl))
-        y0, x0 = coords.min(axis=0)
-        y1, x1 = coords.max(axis=0) + 1
-        props[lbl] = (y0, y1, x0, x1)
+    # 3. Alpha‑blend ONLY where label > 0.
+    fg         = masks > 0
+    overlay    = base.copy()
+    overlay[fg] = (1.0 - alpha) * base[fg] + alpha * mask_rgb[fg]
 
-    overlay = np.zeros((height, width, 3), dtype=np.float32)
-    weight = np.zeros((height, width, 1), dtype=np.float32)
+    return np.clip(overlay, 0.0, 1.0).astype(np.float32)
 
-    step = tile_size - overlap
-    for y in tqdm(range(0, height, step), desc="Tiles Y"):
-        for x in range(0, width, step):
-            y0 = y
-            x0 = x
-            y1 = min(y0 + tile_size, height)
-            x1 = min(x0 + tile_size, width)
-            # Expand tile to include full objects crossing its borders
-            for lbl, (ly0, ly1, lx0, lx1) in props.items():
-                # If object intersects tile border
-                if (ly0 < y1 and ly1 > y0 and (ly0 < y0 or ly1 > y1)) or \
-                   (lx0 < x1 and lx1 > x0 and (lx0 < x0 or lx1 > x1)):
-                    y0 = min(y0, ly0)
-                    x0 = min(x0, lx0)
-                    y1 = max(y1, ly1)
-                    x1 = max(x1, lx1)
-            # Clamp to image
-            y1 = min(y1, height)
-            x1 = min(x1, width)
-
-            tile_img = img[y0:y1, x0:x1]
-            tile_mask = masks[y0:y1, x0:x1]
-            try:
-                blended = _blend_tile(tile_img, tile_mask, lut, alpha, gpu)
-                overlay[y0:y1, x0:x1] += blended.astype(np.float32)
-                weight[y0:y1, x0:x1] += 1
-            except Exception as e:
-                print(f"Warning: tile at ({y0},{x0}) failed: {e}")
-
-    weight = np.clip(weight, 1e-3, None)
-    overlay = (overlay / weight).astype(np.uint8)
-    return overlay
 
 
 
@@ -751,8 +721,10 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
     """IMAGE OVERLAY"""
     try:
         logger.info("Creating full-size overlay.")
-        full_overlay = generate_tiled_overlay(img=img, masks=masks)
-        skio.imsave(check_dir / "full_image_overlay.tif", (full_overlay * 255).astype(np.uint8))
+        full_overlay = generate_tiled_overlay(img, masks, alpha=0.35)
+        skio.imsave(check_dir / "full_image_overlay.tif",
+                    (full_overlay * 255).astype(np.uint8))
+
         logger.info("Saved full image overlay.")
     except Exception as e:
         logger.warning(f"Failed to create full-size overlay: {e}")
