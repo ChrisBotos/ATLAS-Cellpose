@@ -104,26 +104,29 @@ def adaptive_gamma_correction(image: np.ndarray, min_gamma: float = 1.9, max_gam
 
 '''CLAHE ENHANCEMENT'''
 
-def apply_clahe(image: np.ndarray, clip_limit: float = 2.0, tile_grid_size: tuple = (8, 8), logger=None) -> np.ndarray:
-    """
-    Apply CLAHE to enhance local contrast.
+import cv2
+import numpy as np
 
-    Args:
-        image (np.ndarray): Grayscale image.
-        clip_limit (float): CLAHE clip limit.
-        tile_grid_size (tuple): Grid size for tiles.
-        logger: Optional logger object.
+def apply_clahe_no_corner(
+    img: np.ndarray,
+    clip_limit: float = 2.0,
+    tile_grid_size: tuple[int, int] = (8, 8),
+):
+    h, w = img.shape[:2]
+    th, tw = tile_grid_size
 
-    Returns:
-        np.ndarray: CLAHE-enhanced image.
-    """
+    # Amount to pad on each axis so h%th == 0 and w%tw == 0
+    pad_h = (th - h % th) % th
+    pad_w = (tw - w % tw) % tw
+
+    img_pad = cv2.copyMakeBorder(
+        img, 0, pad_h, 0, pad_w, borderType=cv2.BORDER_REFLECT_101
+    )
+
     clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-    enhanced = clahe.apply(image)
+    out = clahe.apply(img_pad)
 
-    if logger:
-        logger.info(f"CLAHE applied with clip_limit={clip_limit}, tile_grid_size={tile_grid_size}")
-
-    return enhanced
+    return out[:h, :w]         # Remove padding.
 
 
 '''CROPPING UTILS'''
@@ -272,7 +275,7 @@ def preprocess_image(image_path, settings, logger):
 
         # 2. Optional CLAHE.
         if settings.get("enhance_contrast", False):
-            tile_u8 = apply_clahe(
+            tile_u8 = apply_clahe_no_corner(
                 tile_u8,
                 clip_limit=settings.get("clahe_cliplimit", 2.0),
                 tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
@@ -295,7 +298,7 @@ def preprocess_image(image_path, settings, logger):
 
     # Full-slide CLAHE (once, not per tile)
     if settings.get("enhance_contrast", False):
-        clahe_full = apply_clahe(
+        clahe_full = apply_clahe_no_corner(
             img_u8,
             clip_limit=settings.get("clahe_cliplimit", 2.0),
             tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
