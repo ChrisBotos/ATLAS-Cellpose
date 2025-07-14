@@ -104,29 +104,51 @@ def adaptive_gamma_correction(image: np.ndarray, min_gamma: float = 1.9, max_gam
 
 '''CLAHE ENHANCEMENT'''
 
-import cv2
-import numpy as np
-
 def apply_clahe_no_corner(
     img: np.ndarray,
     clip_limit: float = 2.0,
     tile_grid_size: tuple[int, int] = (8, 8),
-):
-    h, w = img.shape[:2]
-    th, tw = tile_grid_size
+    logger=None,
+) -> np.ndarray:
+    """
+    Contrast-enhance *img* with CLAHE while avoiding the corner-tile artefact.
 
-    # Amount to pad on each axis so h%th == 0 and w%tw == 0
-    pad_h = (th - h % th) % th
-    pad_w = (tw - w % tw) % tw
+    The function no longer pads the image to make it divisible by the grid;
+    OpenCV’s CLAHE interpolates per-tile LUTs internally, so padding is
+    unnecessary and was the real cause of the residual “box” in the bottom
+    right corner.
 
-    img_pad = cv2.copyMakeBorder(
-        img, 0, pad_h, 0, pad_w, borderType=cv2.BORDER_REFLECT_101
-    )
+    If the image is smaller than the requested number of tiles in either
+    dimension, the grid is reduced so that every tile keeps at least
+    ``MIN_PX_PER_TILE`` pixels in width and height.
 
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
-    out = clahe.apply(img_pad)
+    Args:
+        img (np.ndarray): Single-channel 8-bit image.
+        clip_limit (float): CLAHE clip limit.
+        tile_grid_size (tuple[int,int]): Desired number of tiles (rows, cols).
+        logger (logging.Logger | None): Optional logger.
 
-    return out[:h, :w]         # Remove padding.
+    Returns:
+        np.ndarray: CLAHE-enhanced image, same dtype and shape as *img*.
+    """
+    if img.dtype != np.uint8 or img.ndim != 2:
+        raise ValueError("apply_clahe_no_corner expects a 2-D uint8 array.")
+
+    h, w = img.shape
+    n_rows, n_cols = tile_grid_size
+    MIN_PX_PER_TILE = 32          # Prevent 1-px tiles on very small patches.
+
+    # Adapt grid if the patch is smaller than requested.
+    n_rows = max(1, min(n_rows, h // MIN_PX_PER_TILE))
+    n_cols = max(1, min(n_cols, w // MIN_PX_PER_TILE))
+    if logger and (n_rows, n_cols) != tile_grid_size:
+        logger.debug(
+            f"CLAHE grid reduced from {tile_grid_size} to {(n_rows, n_cols)} "
+            f"for a {h}×{w} patch."
+        )
+
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(n_cols, n_rows))
+    return clahe.apply(img)
 
 
 '''CROPPING UTILS'''
