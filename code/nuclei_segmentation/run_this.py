@@ -4,7 +4,7 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: runner.py.
+Script Name: run_this.py.
 Description:
     Entrypoint script for nuclei segmentation pipeline for kidney I/R injury tissue slices.
 
@@ -14,7 +14,7 @@ Dependencies:
     • pipeline module for the segmentation workflow.
 
 Usage:
-    python runner.py
+    python run_this.py
 
 Inputs:
     • Configuration files (loaded automatically from config directory).

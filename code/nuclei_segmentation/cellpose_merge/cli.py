@@ -25,11 +25,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--tile_w", type=int, default=512)
     p.add_argument("--overlap", type=int, default=64)
     p.add_argument("--threshold", type=float, default=0.3)
-    p.add_argument("--batch_px", type=int, default=128_000_000)
     p.add_argument("--cpu", action="store_true", help="Force CPU mode even if GPU is available")
     p.add_argument("--qc", action="store_true", help="Write 1k×1k before/after overlays")
     p.add_argument("--qc_dir", type=Path, default=Path("./qc_overlays"))
     p.add_argument("--out", type=Path, default=Path("merged_mask.npy"))
+    p.add_argument("--gpu_batch_size", type=int, default=1, help="Number of 2x2 tile groups to process simultaneously")
+    p.add_argument("--gpu_memory_limit_gb", type=float, default=8.0, help="Maximum GPU memory to use in GB")
     return p.parse_args()
 
 
@@ -43,10 +44,11 @@ def cli_entry() -> None:
         overlap=args.overlap,
         tiles_path=args.tiles,
         threshold=args.threshold,
-        batch_px=args.batch_px,
         use_gpu=not args.cpu,
         qc=args.qc,
         qc_dir=args.qc_dir,
+        gpu_batch_size=args.gpu_batch_size,
+        gpu_memory_limit_gb=args.gpu_memory_limit_gb,
     )
     np.save(args.out, merged)
     print("Merged mask saved to", args.out)

@@ -13,7 +13,7 @@ preprocessing to feature extraction for downstream analysis of nuclear morpholog
 during kidney injury and repair processes.
 
 Key Components:
-    • runner.py: Main entry point for the segmentation pipeline.
+    • run_this.py: Main entry point for the segmentation pipeline.
     • pipeline.py: Core segmentation workflow implementation.
     • extract_engineered_features.py: Feature extraction from segmented nuclei.
 

@@ -13,7 +13,7 @@ Dependencies:
     • Custom utility modules for preprocessing, segmentation, watershed, and visualization.
 
 Usage:
-    Not meant to be run directly. Imported by runner.py.
+    Not meant to be run directly. Imported by run_this.py.
 
 Inputs:
     • DAPI-stained images of kidney tissue sections.
@@ -322,6 +322,8 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     threshold=settings.get("merge_overlap_threshold", 0.3),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
+                    gpu_batch_size=settings.get("gpu_batch_size", 10),
+                    gpu_memory_limit_gb=settings.get("gpu_memory_limit_gb", 8.0),
                 )
                 # Save the merged masks using the standard save_outputs function.
                 # This ensures consistent file naming and format across the pipeline.

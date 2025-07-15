@@ -37,7 +37,7 @@ import math
 import re
 import traceback
 from pathlib import Path
-from typing import Callable, Dict, Final, Iterable, List, Tuple
+from typing import Callable, Dict, Final, Iterable, List, Tuple, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -291,6 +291,8 @@ def merge_masks_streaming(
     use_gpu: bool | None = None,
     qc: bool = False,
     qc_dir: str | Path | None = None,
+    gpu_batch_size: int = 10,
+    gpu_memory_limit_gb: float = 8.0,
 ) -> NDArray[np.uint32]:
     """Merge per‑tile instance masks into a 2‑D slide‑level label map.
 
@@ -318,6 +320,14 @@ def merge_masks_streaming(
         ``tiles_path/../qc``.
     qc_dir : str | Path | None
         Output folder for QC overlays if *qc* is *True*.
+    gpu_batch_size : int, default 1
+        Number of 2x2 tile groups to process simultaneously during GPU-based
+        merging. Smaller values use less GPU memory but may be slower.
+        Larger values process more tiles in parallel but require more memory.
+    gpu_memory_limit_gb : float, default 8.0
+        Maximum GPU memory to use in gigabytes for tile merging operations.
+        The system will automatically adjust batch sizes to stay within this limit.
+        Set to 0 for automatic detection based on available GPU memory.
     """
 
     try:
@@ -486,22 +496,46 @@ def merge_masks_streaming(
     gid_counter = 1  # Monotonic global‑ID allocator.
 
     if use_gpu:
-        # GPU processing for faster merging of large kidney tissue datasets.
+        # GPU processing with batched approach for memory-efficient merging of large datasets.
+        from .batch_merge import merge_cluster_batched
+
         iterable: Iterable[List[Tuple[int, int]]] = clusters
         for cluster_idx, cl in enumerate(tqdm(iterable, desc="Merging clusters (GPU)"), 1):
             try:
-                patch, (y0, x0), _ = _merge_cluster(
-                    cluster=cl,
-                    loader=_loader,
-                    height=height,
-                    width=width,
-                    tile_h=tile_h,
-                    tile_w=tile_w,
-                    overlap=overlap,
-                    threshold=threshold,
-                    use_gpu=True,
-                    gid_offset=gid_counter,
-                )
+                # Determine if this cluster needs batched processing
+                cluster_size = len(cl)
+                needs_batching = cluster_size > 100  # Threshold for using batched processing
+
+                if needs_batching:
+                    logging.info(f"Using batched processing for large cluster {cluster_idx} with {cluster_size} tiles")
+                    patch, (y0, x0), _ = merge_cluster_batched(
+                        cluster=cl,
+                        loader=_loader,
+                        height=height,
+                        width=width,
+                        tile_h=tile_h,
+                        tile_w=tile_w,
+                        overlap=overlap,
+                        threshold=threshold,
+                        use_gpu=True,
+                        gid_offset=gid_counter,
+                        batch_size=gpu_batch_size,
+                        memory_limit_gb=gpu_memory_limit_gb,
+                    )
+                else:
+                    # Use original approach for smaller clusters
+                    patch, (y0, x0), _ = _merge_cluster(
+                        cluster=cl,
+                        loader=_loader,
+                        height=height,
+                        width=width,
+                        tile_h=tile_h,
+                        tile_w=tile_w,
+                        overlap=overlap,
+                        threshold=threshold,
+                        use_gpu=True,
+                        gid_offset=gid_counter,
+                    )
 
                 # Update global ID counter and merge patch into final mask.
                 patch_max = int(patch.max().item()) if patch.size > 0 else 0
@@ -520,7 +554,36 @@ def merge_masks_streaming(
             except Exception as gpu_error:
                 logging.error(f"GPU cluster {cluster_idx} processing failed: {gpu_error}")
                 logging.debug(f"GPU error traceback:\n{traceback.format_exc()}")
-                raise
+
+                # Try to recover with CPU processing for this cluster
+                logging.warning(f"Falling back to CPU processing for cluster {cluster_idx}")
+                try:
+                    patch, (y0, x0), _ = _merge_cluster(
+                        cluster=cl,
+                        loader=_loader,
+                        height=height,
+                        width=width,
+                        tile_h=tile_h,
+                        tile_w=tile_w,
+                        overlap=overlap,
+                        threshold=threshold,
+                        use_gpu=False,
+                        gid_offset=gid_counter,
+                    )
+
+                    # Update global ID counter and merge patch into final mask.
+                    patch_max = int(patch.max().item()) if patch.size > 0 else 0
+                    gid_counter += patch_max
+
+                    # Copy non-zero pixels to the final merged mask.
+                    nucleus_pixels = patch != 0
+                    merged[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][nucleus_pixels] = patch[nucleus_pixels]
+
+                    logging.info(f"Successfully processed cluster {cluster_idx} with CPU fallback")
+
+                except Exception as fallback_error:
+                    logging.error(f"CPU fallback also failed for cluster {cluster_idx}: {fallback_error}")
+                    raise gpu_error  # Raise the original GPU error
     else:
         # CPU processing with parallel workers for efficient cluster merging.
         workers = max_workers or (math.isqrt(len(clusters)) or 1)

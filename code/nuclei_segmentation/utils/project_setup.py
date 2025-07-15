@@ -93,6 +93,10 @@ def load_config(config_path=None):
         "qc_downsample_factor": config.getint("tiling", "qc_downsample_factor", fallback=4),
         "memmap_dtype": config.get("tiling", "memmap_dtype", fallback="uint32"),
 
+        # GPU batched processing parameters for handling large images with thousands of tiles.
+        "gpu_batch_size": config.getint("tiling", "gpu_batch_size", fallback=1),
+        "gpu_memory_limit_gb": config.getfloat("tiling", "gpu_memory_limit_gb", fallback=8.0),
+
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
         "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
         "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),
