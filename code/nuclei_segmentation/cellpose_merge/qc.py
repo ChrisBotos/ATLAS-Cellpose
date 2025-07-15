@@ -10,7 +10,7 @@ Description:
     before/after overlays that help bioinformaticians assess tile merging quality
     and identify potential segmentation artifacts at tile boundaries.
 
-    The QC process extracts 1000x1000 pixel crops from image centers and creates
+    The QC process extracts 1300x1300 pixel crops from image centers and creates
     two critical visualizations:
     1. Before merging: Individual tile masks with unique colors overlaid on tissue
     2. After merging: Final merged masks with random colors for quality assessment
@@ -100,7 +100,7 @@ ColorArray = NDArray[np.uint16]  # Color arrays for overlay composition.
 """CONFIGURATION PARAMETERS"""
 
 # Default crop size for QC visualizations to ensure manageable file sizes.
-DEFAULT_CROP_SIZE: Final = 1000
+DEFAULT_CROP_SIZE: Final = 1300
 
 # Alpha transparency value for overlay blending on tissue images.
 DEFAULT_ALPHA: Final = 0.5
@@ -157,6 +157,9 @@ def write_overlays(
         Spatial overlap between adjacent tiles in pixels.
     qc_dir : str or Path
         Output directory where QC visualization files will be saved.
+    image_loader : callable, optional
+        Function that loads the original tissue image given slice coordinates.
+        If provided, the actual tissue image will be used as background.
 
     Returns
     -------
@@ -181,20 +184,23 @@ def write_overlays(
         crop_info = _calculate_crop_region(height, width, DEFAULT_CROP_SIZE)
         logging.info(f"Using crop region: {crop_info['description']}")
 
+        # Load the tissue image background for proper visualization.
+        tissue_background = _load_tissue_background(image_loader, crop_info, height, width)
+
         # Generate the before merging visualization showing individual tile contributions.
         logging.info("Generating before merging visualization...")
         before_overlay = _create_before_merging_overlay(
-            loader, crop_info, tile_h, tile_w, overlap
+            loader, crop_info, tile_h, tile_w, overlap, tissue_background
         )
-        
+
         before_path = qc_dir / "before_merging.tif"
         Image.fromarray(before_overlay).save(before_path, compression="tiff_deflate")
         logging.info(f"Saved before merging overlay to: {before_path}")
 
         # Generate the after merging visualization showing final segmentation results.
         logging.info("Generating after merging visualization...")
-        after_overlay = _create_after_merging_overlay(merged, crop_info)
-        
+        after_overlay = _create_after_merging_overlay(merged, crop_info, tissue_background)
+
         after_path = qc_dir / "after_merging.tif"
         Image.fromarray(after_overlay).save(after_path, compression="tiff_deflate")
         logging.info(f"Saved after merging overlay to: {after_path}")
@@ -223,7 +229,7 @@ def _calculate_crop_region(height: int, width: int, crop_size: int) -> Dict:
     height, width : int
         Full tissue image dimensions in pixels.
     crop_size : int
-        Target crop size for visualization (typically 1000 pixels).
+        Target crop size for visualization (typically 1300 pixels).
 
     Returns
     -------
@@ -258,6 +264,80 @@ def _calculate_crop_region(height: int, width: int, crop_size: int) -> Dict:
         }
 
 
+"""TISSUE BACKGROUND LOADING"""
+
+def _load_tissue_background(
+    image_loader: Callable[[slice, slice], NDArray[np.uint8]],
+    crop_info: Dict,
+    height: int,
+    width: int
+) -> RGBArray:
+    """
+    Load the actual tissue image background for QC visualization.
+
+    This function loads the original tissue image that serves as the background
+    for overlay visualizations. If no image loader is provided, it creates a
+    neutral gray background for the visualization.
+
+    Parameters
+    ----------
+    image_loader : callable or None
+        Function that loads the original tissue image given slice coordinates.
+        Should return RGB image data as uint8 array.
+    crop_info : Dict
+        Dictionary containing crop region coordinates and dimensions.
+    height, width : int
+        Full tissue image dimensions in pixels.
+
+    Returns
+    -------
+    RGBArray
+        RGB tissue image background for the crop region.
+    """
+
+    crop_height = crop_info['height']
+    crop_width = crop_info['width']
+
+    if image_loader is not None:
+        try:
+            # Load the actual tissue image for the crop region.
+            crop_y_start = crop_info['y_start']
+            crop_y_end = crop_info['y_end']
+            crop_x_start = crop_info['x_start']
+            crop_x_end = crop_info['x_end']
+
+            tissue_slice_y = slice(crop_y_start, crop_y_end)
+            tissue_slice_x = slice(crop_x_start, crop_x_end)
+
+            tissue_crop = image_loader(tissue_slice_y, tissue_slice_x)
+
+            # Ensure the image is in RGB format.
+            if tissue_crop.ndim == 2:
+                # Convert grayscale to RGB.
+                tissue_crop = np.stack([tissue_crop] * 3, axis=-1)
+            elif tissue_crop.ndim == 3 and tissue_crop.shape[2] == 1:
+                # Convert single channel to RGB.
+                tissue_crop = np.repeat(tissue_crop, 3, axis=2)
+            elif tissue_crop.ndim == 3 and tissue_crop.shape[2] > 3:
+                # Take first 3 channels if more than RGB.
+                tissue_crop = tissue_crop[:, :, :3]
+
+            # Ensure correct dimensions.
+            if tissue_crop.shape[:2] == (crop_height, crop_width):
+                logging.debug(f"Loaded tissue background: {tissue_crop.shape}")
+                return tissue_crop.astype(np.uint8)
+            else:
+                logging.warning(f"Tissue crop size mismatch: got {tissue_crop.shape[:2]}, expected ({crop_height}, {crop_width})")
+
+        except Exception as load_error:
+            logging.warning(f"Failed to load tissue background: {load_error}")
+
+    # Fallback: Create a neutral gray background.
+    logging.info("Using neutral gray background for QC visualization")
+    background = np.zeros((crop_height, crop_width, 3), dtype=np.uint8)
+    return background
+
+
 """BEFORE MERGING VISUALIZATION"""
 
 def _create_before_merging_overlay(
@@ -265,7 +345,8 @@ def _create_before_merging_overlay(
     crop_info: Dict,
     tile_h: int,
     tile_w: int,
-    overlap: int
+    overlap: int,
+    tissue_background: RGBArray
 ) -> RGBArray:
     """
     Create the before merging overlay showing individual tile contributions.
@@ -285,6 +366,8 @@ def _create_before_merging_overlay(
         Individual tile dimensions used during segmentation.
     overlap : int
         Spatial overlap between adjacent tiles in pixels.
+    tissue_background : RGBArray
+        RGB tissue image to use as background for the overlay.
 
     Returns
     -------
@@ -292,12 +375,12 @@ def _create_before_merging_overlay(
         RGB image array showing individual tile contributions with unique colors.
     """
 
-    logging.debug("Creating before merging overlay with individual tile colors.")
+    logging.debug("Creating before merging overlay with individual tile colors on tissue background.")
 
-    # Initialize the overlay canvas with a neutral background.
+    # Initialize the overlay canvas with the actual tissue background.
     crop_height = crop_info['height']
     crop_width = crop_info['width']
-    overlay = np.zeros((crop_height, crop_width, 3), dtype=np.uint16)
+    overlay = tissue_background.astype(np.uint16)  # Use tissue background as base.
 
     # Calculate tile grid parameters for the crop region.
     stride_h = tile_h - overlap
@@ -363,17 +446,33 @@ def _create_before_merging_overlay(
                 overlay_x_start = intersect_x_start - crop_x_start
                 overlay_x_end = intersect_x_end - crop_x_start
 
-                # Apply the tile color where nuclei are present.
+                # Apply the tile color where nuclei are present with improved transparency.
                 nucleus_pixels = mask_region > 0
                 if np.any(nucleus_pixels):
                     overlay_region = overlay[overlay_y_start:overlay_y_end, overlay_x_start:overlay_x_end]
 
-                    # Blend the tile color with alpha transparency.
+                    # Use more transparent blending for better visibility of overlaps.
+                    tile_alpha = 0.3  # More transparent than default for better overlap visibility.
+
+                    # Add tile boundary visualization for better identification.
+                    # Create a slightly larger mask for tile boundaries.
+                    boundary_mask = _create_tile_boundary_mask(mask_region, tile_row, tile_col)
+
+                    # Blend the tile color with improved alpha transparency.
                     for c in range(3):
+                        # Apply nucleus color.
                         overlay_region[nucleus_pixels, c] = (
-                            (1 - DEFAULT_ALPHA) * overlay_region[nucleus_pixels, c] +
-                            DEFAULT_ALPHA * tile_color[c]
+                            (1 - tile_alpha) * overlay_region[nucleus_pixels, c] +
+                            tile_alpha * tile_color[c]
                         ).astype(np.uint16)
+
+                        # Add subtle tile boundary indicators.
+                        if np.any(boundary_mask):
+                            boundary_alpha = 0.15  # Very subtle boundary indication.
+                            overlay_region[boundary_mask, c] = (
+                                (1 - boundary_alpha) * overlay_region[boundary_mask, c] +
+                                boundary_alpha * tile_color[c]
+                            ).astype(np.uint16)
 
                 tiles_processed += 1
 
@@ -387,13 +486,58 @@ def _create_before_merging_overlay(
     return overlay.clip(0, 255).astype(np.uint8)
 
 
+def _create_tile_boundary_mask(mask_region: NDArray[np.uint32], tile_row: int, tile_col: int) -> NDArray[np.bool_]:
+    """
+    Create a subtle boundary mask to help identify tile edges in overlapping regions.
+
+    This function creates a thin boundary around the tile region to help
+    bioinformaticians identify which tile each nucleus belongs to, especially
+    in overlapping regions where multiple tiles contribute.
+
+    Parameters
+    ----------
+    mask_region : NDArray[np.uint32]
+        The nucleus mask for this tile region.
+    tile_row, tile_col : int
+        Tile position indices for identification.
+
+    Returns
+    -------
+    NDArray[np.bool_]
+        Boolean mask indicating tile boundary pixels.
+    """
+
+    if mask_region.size == 0:
+        return np.zeros_like(mask_region, dtype=bool)
+
+    # Create boundary mask at tile edges (first/last few pixels).
+    boundary_width = 3  # Width of boundary indication in pixels.
+    h, w = mask_region.shape
+    boundary_mask = np.zeros((h, w), dtype=bool)
+
+    # Add boundaries at tile edges.
+    if h > boundary_width * 2 and w > boundary_width * 2:
+        # Top and bottom edges.
+        boundary_mask[:boundary_width, :] = True
+        boundary_mask[-boundary_width:, :] = True
+        # Left and right edges.
+        boundary_mask[:, :boundary_width] = True
+        boundary_mask[:, -boundary_width:] = True
+
+    # Only apply boundary where there are no nuclei to avoid obscuring data.
+    boundary_mask = boundary_mask & (mask_region == 0)
+
+    return boundary_mask
+
+
 def _generate_tile_color(tile_row: int, tile_col: int) -> ColorArray:
     """
-    Generate a unique, deterministic color for a tile based on its position.
+    Generate a unique, high-contrast color for a tile based on its position.
 
     This function creates visually distinct colors for each tile to help
     bioinformaticians identify tile boundaries and origins in the QC overlay.
-    The color generation is deterministic to ensure reproducible results.
+    The color generation uses improved contrast and saturation for better
+    visibility on tissue backgrounds.
 
     Parameters
     ----------
@@ -412,22 +556,42 @@ def _generate_tile_color(tile_row: int, tile_col: int) -> ColorArray:
     # Generate deterministic color using hash of tile identifier.
     hash_bytes = hashlib.sha256(tile_id.encode()).digest()
 
-    # Extract RGB values from hash bytes with good separation.
-    r = hash_bytes[0]
-    g = hash_bytes[1]
-    b = hash_bytes[2]
+    # Use multiple hash bytes for better color distribution.
+    r_base = hash_bytes[0]
+    g_base = hash_bytes[1]
+    b_base = hash_bytes[2]
 
-    # Ensure colors are bright enough to be visible on tissue background.
-    r = max(r, 100)
-    g = max(g, 100)
-    b = max(b, 100)
+    # Create high-contrast colors with good visibility on tissue background.
+    # Use a color palette approach for better distinction.
+    color_palette = [
+        [255, 100, 100],  # Bright red.
+        [100, 255, 100],  # Bright green.
+        [100, 100, 255],  # Bright blue.
+        [255, 255, 100],  # Bright yellow.
+        [255, 100, 255],  # Bright magenta.
+        [100, 255, 255],  # Bright cyan.
+        [255, 150, 100],  # Orange.
+        [150, 100, 255],  # Purple.
+        [255, 100, 150],  # Pink.
+        [150, 255, 100],  # Lime.
+    ]
+
+    # Select color based on tile position with some variation.
+    palette_index = (tile_row * 7 + tile_col * 11) % len(color_palette)
+    base_color = color_palette[palette_index]
+
+    # Add some variation based on hash to avoid identical colors for distant tiles.
+    variation = 30  # Amount of color variation.
+    r = np.clip(base_color[0] + (r_base % (2 * variation)) - variation, 100, 255)
+    g = np.clip(base_color[1] + (g_base % (2 * variation)) - variation, 100, 255)
+    b = np.clip(base_color[2] + (b_base % (2 * variation)) - variation, 100, 255)
 
     return np.array([r, g, b], dtype=np.uint16)
 
 
 """AFTER MERGING VISUALIZATION"""
 
-def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict) -> RGBArray:
+def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, tissue_background: RGBArray) -> RGBArray:
     """
     Create the after merging overlay showing final segmentation results.
 
@@ -441,6 +605,8 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict) -
         Final merged segmentation mask with unique nucleus labels.
     crop_info : Dict
         Dictionary containing crop region coordinates and dimensions.
+    tissue_background : RGBArray
+        RGB tissue image to use as background for the overlay.
 
     Returns
     -------
@@ -458,9 +624,9 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict) -
 
     merged_crop = merged[crop_y_start:crop_y_end, crop_x_start:crop_x_end]
 
-    # Initialize the overlay canvas.
+    # Initialize the overlay canvas with tissue background.
     crop_height, crop_width = merged_crop.shape
-    overlay = np.zeros((crop_height, crop_width, 3), dtype=np.uint8)
+    overlay = tissue_background.copy().astype(np.uint16)  # Use tissue background as base.
 
     # Generate random colors for each nucleus label.
     max_label = int(merged_crop.max())
@@ -470,20 +636,28 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict) -
 
         # Use reproducible random seed for consistent visualization.
         np.random.seed(42)
-        colors = np.random.randint(50, 256, size=(max_label + 1, 3), dtype=np.uint8)
-        colors[0] = [0, 0, 0]  # Background remains black.
+        colors = np.random.randint(100, 256, size=(max_label + 1, 3), dtype=np.uint16)
+        colors[0] = [0, 0, 0]  # Background remains transparent.
 
-        # Apply colors to each nucleus.
+        # Apply colors to each nucleus with alpha blending.
+        nucleus_alpha = 0.4  # More transparent for better tissue visibility.
+
         for label in range(1, max_label + 1):
             nucleus_mask = merged_crop == label
             if np.any(nucleus_mask):
-                overlay[nucleus_mask] = colors[label]
+                # Blend nucleus color with tissue background.
+                for c in range(3):
+                    overlay[nucleus_mask, c] = (
+                        (1 - nucleus_alpha) * overlay[nucleus_mask, c] +
+                        nucleus_alpha * colors[label, c]
+                    ).astype(np.uint16)
 
         logging.debug(f"Applied colors to nuclei in after merging overlay.")
     else:
         logging.warning("No nuclei found in merged mask crop region.")
 
-    return overlay
+    # Convert back to uint8 for final output.
+    return overlay.clip(0, 255).astype(np.uint8)
 
 
 """STATISTICS GENERATION"""
