@@ -19,7 +19,7 @@ Dependencies:
     • numpy, pillow, tqdm, pytest.  (Optional: torch for GPU.)
 
 Usage:
-    from merge_tiles import merge_masks_streaming
+    from .merge_tiles import merge_masks_streaming
 
     merged = merge_masks_streaming(
         height=10_000, width=12_000,
@@ -62,8 +62,17 @@ def _lazy_import_merge_backends() -> None:
     global _merge_patch_cpu, _merge_patch_gpu
     if "_merge_patch_cpu" in globals():
         return  # Already imported.
-    from .rules import merge_patch_cpu as _m_cpu  # pylint: disable=import-error
-    from .gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+
+    try:
+        from .rules import merge_patch_cpu as _m_cpu  # pylint: disable=import-error
+        from .gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+    except ImportError:
+        # Fallback for when running as standalone script.
+        try:
+            from rules import merge_patch_cpu as _m_cpu  # pylint: disable=import-error
+            from gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+        except ImportError as e:
+            raise ImportError(f"Could not import merge backends: {e}")
 
     _merge_patch_cpu = _m_cpu  # type: ignore[misc]
     _merge_patch_gpu = _m_gpu  # type: ignore[misc]
@@ -101,9 +110,10 @@ def _resolve_tiles_path(path: Path) -> Path:
     candidates: list[Path] = [path.expanduser()]
 
     # Common suffix confusion:  “…/_npz” vs plain.
-    if path.name.endswith("_npz"):
+    # Handle edge case where path.name is empty (e.g., current directory ".").
+    if path.name and path.name.endswith("_npz"):
         candidates.append(path.with_name(path.name.removesuffix("_npz")))
-    else:
+    elif path.name:
         candidates.append(path.with_name(f"{path.name}_npz"))
 
     for cand in candidates:
@@ -182,6 +192,9 @@ def _merge_cluster(
     The heavy lifting is delegated to ``merge_patch_cpu`` / ``merge_patch_gpu``.
     This wrapper merely constructs the per‑tile 3‑D tensor expected by those
     kernels and aligns tiles in the common coordinate frame.
+
+    CRITICAL: This function now properly handles edge tiles that extend beyond
+    image boundaries, ensuring complete coverage of the entire image area.
     """
 
     stride_h = tile_h - overlap
@@ -199,6 +212,12 @@ def _merge_cluster(
     cluster_h = min((max_r - min_r) * stride_h + tile_h, height - y0)
     cluster_w = min((max_c - min_c) * stride_w + tile_w, width  - x0)
 
+    # Enhanced debugging for edge tile processing.
+    logging.debug(f"Processing cluster with {len(cluster)} tiles: "
+                 f"tile_range=({min_r},{min_c}) to ({max_r},{max_c}), "
+                 f"global_bbox=({y0},{x0}) to ({y0+cluster_h},{x0+cluster_w}), "
+                 f"image_size=({height},{width})")
+
     T = len(cluster)
     stack = np.zeros((T, cluster_h, cluster_w), dtype=np.uint32)
 
@@ -208,11 +227,32 @@ def _merge_cluster(
         rel_y0 = global_y0 - y0
         rel_x0 = global_x0 - x0
 
-        ys = slice(global_y0, global_y0 + tile_h)
-        xs = slice(global_x0, global_x0 + tile_w)
+        # Clamp the tile request to image boundaries for edge tiles.
+        ys = slice(global_y0, min(global_y0 + tile_h, height))
+        xs = slice(global_x0, min(global_x0 + tile_w, width))
+
+        logging.debug(f"Loading tile ({r},{c}) at global=({global_y0},{global_x0}), "
+                     f"slice=({ys.start}:{ys.stop}, {xs.start}:{xs.stop})")
+
         tile = loader(ys, xs)
         h, w = tile.shape
-        stack[t, rel_y0 : rel_y0 + h, rel_x0 : rel_x0 + w] = tile
+
+        # Ensure we don't exceed the cluster bounds when placing the tile.
+        end_y = min(rel_y0 + h, cluster_h)
+        end_x = min(rel_x0 + w, cluster_w)
+
+        if end_y > rel_y0 and end_x > rel_x0:
+            # Adjust tile dimensions if needed to fit within cluster bounds.
+            tile_h_to_copy = end_y - rel_y0
+            tile_w_to_copy = end_x - rel_x0
+
+            stack[t, rel_y0:end_y, rel_x0:end_x] = tile[:tile_h_to_copy, :tile_w_to_copy]
+
+            logging.debug(f"Placed tile ({r},{c}) in stack: "
+                         f"stack_pos=({rel_y0}:{end_y}, {rel_x0}:{end_x}), "
+                         f"tile_size=({h},{w}), copied=({tile_h_to_copy},{tile_w_to_copy})")
+        else:
+            logging.warning(f"Tile ({r},{c}) could not be placed in cluster stack - bounds issue")
 
     # Actual merge done by the back‑end kernels.
     merge_fn = _merge_patch_gpu if use_gpu else _merge_patch_cpu
@@ -224,6 +264,9 @@ def _merge_cluster(
         nucleus_mask = merged_patch != 0
         merged_patch = merged_patch.astype(np.uint32, copy=False)
         merged_patch[nucleus_mask] += int(gid_offset)
+
+    logging.debug(f"Cluster merge completed: output_size=({merged_patch.shape[0]},{merged_patch.shape[1]}), "
+                 f"max_label={merged_patch.max()}, non_zero_pixels={np.count_nonzero(merged_patch)}")
 
     return merged_patch, (y0, x0), {}
 
@@ -296,6 +339,14 @@ def merge_masks_streaming(
 
         logging.info(f"Found {len(raw_coords)} tile mask files in {path}")
 
+        # Enhanced debugging: Log the range of discovered tiles.
+        if raw_coords:
+            min_r = min(r for r, _ in raw_coords)
+            max_r = max(r for r, _ in raw_coords)
+            min_c = min(c for _, c in raw_coords)
+            max_c = max(c for _, c in raw_coords)
+            logging.info(f"Tile coordinate range: rows {min_r} to {max_r}, cols {min_c} to {max_c}")
+
         # Detect whether the two integers are pixel coordinates or tile indices.
         # This is important for proper spatial alignment of kidney tissue tiles.
         stride_h, stride_w = tile_h - overlap, tile_w - overlap
@@ -310,6 +361,24 @@ def merge_masks_streaming(
             coords = raw_coords
             idx_to_path = file_map
             logging.info("Interpreting filenames as tile indices.")
+
+        # Enhanced debugging: Log the final coordinate mapping.
+        if coords:
+            final_min_r = min(r for r, _ in coords)
+            final_max_r = max(r for r, _ in coords)
+            final_min_c = min(c for _, c in coords)
+            final_max_c = max(c for _, c in coords)
+            logging.info(f"Final tile index range: rows {final_min_r} to {final_max_r}, cols {final_min_c} to {final_max_c}")
+
+            # Calculate expected image coverage.
+            expected_height = (final_max_r + 1) * stride_h + overlap
+            expected_width = (final_max_c + 1) * stride_w + overlap
+            logging.info(f"Expected coverage from tiles: {expected_height}x{expected_width} vs actual image: {height}x{width}")
+
+            if expected_height < height or expected_width < width:
+                logging.warning(f"Tiles may not cover the entire image! Missing coverage: "
+                               f"height_gap={max(0, height - expected_height)}, "
+                               f"width_gap={max(0, width - expected_width)}")
 
         # Hardware selection for optimal processing of large kidney tissue images.
         if use_gpu is None:
@@ -334,10 +403,13 @@ def merge_masks_streaming(
         r_idx = ys.start // stride_h
         c_idx = xs.start // stride_w
         p = idx_to_path.get((r_idx, c_idx))
+
         # No tile means this spatial region was not covered at inference time.
         if p is None or not p.exists():
+            logging.debug(f"Missing tile at ({r_idx}, {c_idx}) for region y={ys.start}:{ys.stop}, x={xs.start}:{xs.stop}")
             return np.zeros((ys.stop - ys.start, xs.stop - xs.start), dtype=np.uint32)
 
+        # Load the tile array from disk.
         if p.suffix.lower() == ".tif":
             with Image.open(p) as im:
                 arr = np.asarray(im, dtype=np.uint32)
@@ -348,7 +420,45 @@ def merge_masks_streaming(
                 arr = nz[nz.files[0]].astype(np.uint32, copy=False)
             else:
                 arr = np.asarray(nz, dtype=np.uint32)
-        return arr[ys, xs]
+
+        # CRITICAL FIX: Handle edge tiles that extend beyond image boundaries.
+        # The requested slice may extend beyond the loaded tile dimensions,
+        # especially for edge tiles that were cropped during inference.
+        tile_h_actual, tile_w_actual = arr.shape
+
+        # Calculate the tile's global position in the image.
+        tile_global_y0 = r_idx * stride_h
+        tile_global_x0 = c_idx * stride_w
+
+        # Convert global slice coordinates to local tile coordinates.
+        local_y_start = max(0, ys.start - tile_global_y0)
+        local_y_stop = min(tile_h_actual, ys.stop - tile_global_y0)
+        local_x_start = max(0, xs.start - tile_global_x0)
+        local_x_stop = min(tile_w_actual, xs.stop - tile_global_x0)
+
+        # Create output array with the requested dimensions.
+        output_h = ys.stop - ys.start
+        output_w = xs.stop - xs.start
+        result = np.zeros((output_h, output_w), dtype=np.uint32)
+
+        # Calculate where to place the valid tile data in the output array.
+        output_y_start = max(0, tile_global_y0 - ys.start)
+        output_y_stop = output_y_start + (local_y_stop - local_y_start)
+        output_x_start = max(0, tile_global_x0 - xs.start)
+        output_x_stop = output_x_start + (local_x_stop - local_x_start)
+
+        # Copy the valid portion of the tile to the result array.
+        if local_y_stop > local_y_start and local_x_stop > local_x_start:
+            result[output_y_start:output_y_stop, output_x_start:output_x_stop] = \
+                arr[local_y_start:local_y_stop, local_x_start:local_x_stop]
+
+            logging.debug(f"Loaded tile ({r_idx}, {c_idx}): tile_size=({tile_h_actual}, {tile_w_actual}), "
+                         f"local_slice=({local_y_start}:{local_y_stop}, {local_x_start}:{local_x_stop}), "
+                         f"output_slice=({output_y_start}:{output_y_stop}, {output_x_start}:{output_x_stop})")
+        else:
+            logging.debug(f"Tile ({r_idx}, {c_idx}) has no valid data for requested region")
+
+        return result
 
     # ------------------------------------------------------------------
     # Cluster discovery and parallel merge.
@@ -356,6 +466,21 @@ def merge_masks_streaming(
 
     clusters = _build_clusters(coords)
     logging.info("Discovered %d independent tile clusters.", len(clusters))
+
+    # Enhanced debugging: Log cluster details.
+    for i, cluster in enumerate(clusters):
+        cluster_min_r = min(r for r, _ in cluster)
+        cluster_max_r = max(r for r, _ in cluster)
+        cluster_min_c = min(c for _, c in cluster)
+        cluster_max_c = max(c for _, c in cluster)
+        cluster_y0 = cluster_min_r * stride_h
+        cluster_x0 = cluster_min_c * stride_w
+        cluster_h = min((cluster_max_r - cluster_min_r) * stride_h + tile_h, height - cluster_y0)
+        cluster_w = min((cluster_max_c - cluster_min_c) * stride_w + tile_w, width - cluster_x0)
+
+        logging.info(f"Cluster {i+1}: {len(cluster)} tiles, "
+                    f"tile_range=({cluster_min_r},{cluster_min_c}) to ({cluster_max_r},{cluster_max_c}), "
+                    f"global_bbox=({cluster_y0},{cluster_x0}) to ({cluster_y0+cluster_h},{cluster_x0+cluster_w})")
 
     merged = np.zeros((height, width), dtype=np.uint32)
     gid_counter = 1  # Monotonic global‑ID allocator.
@@ -384,6 +509,12 @@ def merge_masks_streaming(
 
                 # Copy non-zero pixels to the final merged mask.
                 nucleus_pixels = patch != 0
+
+                # Enhanced debugging: Track patch placement.
+                logging.debug(f"GPU cluster {cluster_idx}: placing patch at ({y0},{x0}) "
+                             f"with size ({patch.shape[0]},{patch.shape[1]}), "
+                             f"non_zero_pixels={np.count_nonzero(nucleus_pixels)}")
+
                 merged[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][nucleus_pixels] = patch[nucleus_pixels]
 
             except Exception as gpu_error:
@@ -420,6 +551,12 @@ def merge_masks_streaming(
 
                     # Copy non-zero pixels to the final merged mask.
                     nucleus_pixels = patch != 0
+
+                    # Enhanced debugging: Track patch placement.
+                    logging.debug(f"CPU cluster: placing patch at ({y0},{x0}) "
+                                 f"with size ({patch.shape[0]},{patch.shape[1]}), "
+                                 f"non_zero_pixels={np.count_nonzero(nucleus_pixels)}")
+
                     merged[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][nucleus_pixels] = patch[nucleus_pixels]
 
                     # Update global ID counter to track maximum used ID.
@@ -453,6 +590,28 @@ def merge_masks_streaming(
                 overlap=overlap,
                 qc_dir=qc_dir,
             )
+
+    # Final summary with enhanced debugging information.
+    total_nuclei_pixels = np.count_nonzero(merged)
+    coverage_percentage = (total_nuclei_pixels / (height * width)) * 100
+    max_label = merged.max()
+
+    logging.info(f"Merge completed: {total_nuclei_pixels} nuclei pixels ({coverage_percentage:.2f}% coverage) "
+                f"in {height}×{width} image, max_label={max_label}")
+
+    # Check for potential edge coverage issues.
+    edge_margin = min(tile_h, tile_w) // 4  # Check a quarter tile from edges.
+
+    top_edge = merged[:edge_margin, :].sum()
+    bottom_edge = merged[-edge_margin:, :].sum()
+    left_edge = merged[:, :edge_margin].sum()
+    right_edge = merged[:, -edge_margin:].sum()
+
+    logging.info(f"Edge coverage check: top={top_edge}, bottom={bottom_edge}, "
+                f"left={left_edge}, right={right_edge}")
+
+    if any(edge == 0 for edge in [top_edge, bottom_edge, left_edge, right_edge]):
+        logging.warning("Some image edges have zero segmentation - this may indicate edge tile processing issues")
 
     return merged
 

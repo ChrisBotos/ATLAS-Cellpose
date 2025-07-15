@@ -610,21 +610,32 @@ def save_overlay_summary(img_crop, overlay, clahe_crop, gamma_crop, output_dir, 
         logger.warning(f"Side-by-side comparison failed: {e}")
 
 
-def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
+def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_path=None, mask_path=None, preprocessed_dir=None):
     """
     Creates a quick visualization of a central or high-content crop from segmentation output.
 
-    This function loads the preprocessed image and final segmentation mask, extracts a central crop,
-    generates overlays (including CLAHE and gamma-corrected versions if available), and saves them.
+    This function supports flexible input paths to work correctly when using previous results
+    from different directories in kidney I/R injury analysis workflows. It loads the preprocessed
+    image and final segmentation mask, extracts a central crop, and generates overlays including
+    CLAHE and gamma-corrected versions if available.
 
-    Parameters:
-        output_dir (str or Path): Directory containing preprocessed image and mask outputs.
-        crop_size (int): Size of the crop in pixels (default: 1024).
-        debug (bool): If True, enables more verbose logging and saves extra debug images.
+    Parameters
+    ----------
+    output_dir : str or Path
+        Directory where visualization outputs will be saved.
+    crop_size : int, default 1024
+        Size of the crop in pixels for overlay generation.
+    debug : bool, default False
+        If True, enables more verbose logging and saves extra debug images.
+    image_path : str or Path, optional
+        Path to the main preprocessed image file. If None, defaults to output_dir/preprocessed/first.tif.
+    mask_path : str or Path, optional
+        Path to the segmentation masks file. If None, defaults to output_dir/masks/segmentation_masks.npy.
+    preprocessed_dir : str or Path, optional
+        Directory containing preprocessed images (for CLAHE, gamma). If None, defaults to output_dir/preprocessed.
     """
 
-
-    """SETUP"""
+    '''Setup logging and output directories'''
     logger = setup_logger("small_segmentation_overlay", debug=debug)
     output_dir = Path(output_dir).expanduser().resolve()
     logger.info(f"Running overlay visualization on: {output_dir}")
@@ -635,15 +646,33 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False):
         logger.error(f"Cannot create output folders: {e}")
         return
 
+    '''Determine input paths based on provided parameters or defaults'''
+    # Main preprocessed image path.
+    if image_path is None:
+        img_path = output_dir / "preprocessed" / "first.tif"
+    else:
+        img_path = Path(image_path)
 
-    """FIXED PATHS"""
-    img_path = output_dir / "preprocessed" / "first.tif"
-    clahe_path = output_dir / "preprocessed" / "clahe.tif"
-    gamma_path = output_dir / "preprocessed" / "gamma.tif"
-    mask_path = output_dir / "masks" / "segmentation_masks.npy"
+    # Segmentation masks path.
+    if mask_path is None:
+        mask_path = output_dir / "masks" / "segmentation_masks.npy"
+    else:
+        mask_path = Path(mask_path)
 
+    # Directory for additional preprocessed images (CLAHE, gamma).
+    if preprocessed_dir is None:
+        preprocessed_base = output_dir / "preprocessed"
+    else:
+        preprocessed_base = Path(preprocessed_dir)
 
-    """LOAD MAIN IMAGE"""
+    clahe_path = preprocessed_base / "clahe.tif"
+    gamma_path = preprocessed_base / "gamma.tif"
+
+    logger.info(f"Using image: {img_path}")
+    logger.info(f"Using masks: {mask_path}")
+    logger.info(f"Using preprocessed directory: {preprocessed_base}")
+
+    '''Load main image with validation'''
     if not img_path.exists():
         logger.error(f"Preprocessed image not found: {img_path}")
         return

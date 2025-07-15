@@ -134,9 +134,9 @@ def apply_postprocessing(image, masks, settings, output_dir, logger):
     return masks
 
 
-def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=None):
+def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=None, previous_results_dir=None):
     """
-    Generate visualization overlays for kidney tissue segmentation results.
+    Generate visualization overlays for cell segmentation results.
 
     This function creates both small cropped previews and full-image overlays to help
     users assess segmentation quality across different I/R injury time points.
@@ -155,6 +155,8 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
         Path to the preprocessed image file. If None, defaults to output_dir/preprocessed/first.tif.
     mask_path : str or Path, optional
         Path to the segmentation masks file. If None, defaults to output_dir/masks/segmentation_masks.npy.
+    previous_results_dir : str or Path, optional
+        Path to previous results directory for accessing preprocessed images when using previous results.
     """
     try:
         # Determine paths for overlay generation based on provided parameters or defaults.
@@ -183,10 +185,21 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
             return
 
         # Generate small cropped overlay for quick quality assessment.
+        # Determine preprocessed directory for CLAHE and gamma images.
+        if (previous_results_dir is not None and
+            settings.get("use_previous_results", False) and
+            settings.get("skip_and_copy_preprocessing", False)):
+            preprocessed_source_dir = previous_results_dir / "preprocessed"
+        else:
+            preprocessed_source_dir = Path(output_dir) / "preprocessed"
+
         small_segmentation_overlay(
-            output_dir,
+            output_dir=output_dir,
             crop_size=settings.get("small_overlay_size", 512) * settings.get("upscale_factor", 1),
-            debug=settings.get("debug_mode", False)
+            debug=settings.get("debug_mode", False),
+            image_path=image_path,
+            mask_path=mask_path,
+            preprocessed_dir=preprocessed_source_dir
         )
 
         # Generate full-image overlay for comprehensive visualization.
@@ -348,12 +361,18 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             overlay_mask_path = Path(output_dir) / "masks" / "segmentation_masks.npy"
             logger.info(f"Using segmentation masks for overlays: {overlay_mask_path}")
 
+            # Determine previous results directory if using previous results.
+            prev_results_dir = None
+            if settings.get("use_previous_results", False):
+                prev_results_dir = previous_results_dir
+
             generate_overlays(
                 output_dir=output_dir,
                 settings=settings,
                 logger=logger,
                 image_path=overlay_image_path,
-                mask_path=overlay_mask_path
+                mask_path=overlay_mask_path,
+                previous_results_dir=prev_results_dir
             )
         else:
             logger.info("Skipped visualizations.")
