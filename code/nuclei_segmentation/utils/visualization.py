@@ -560,7 +560,7 @@ def save_overlay_summary(img_crop, overlay, clahe_crop, gamma_crop, output_dir, 
         skio.imsave(output_dir / "panel1_preprocessed.tif", img_crop)
 
         if clahe_crop is not None:
-            skio.imsave(output_dir / "panel2_clahe.tif", clahe_crop)
+            skio.imsave(output_dir / "panel2_contrast_and_gc.tif", clahe_crop)
 
         if gamma_crop is not None:
             skio.imsave(output_dir / "panel3_gamma.tif", gamma_crop)
@@ -665,7 +665,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
     else:
         preprocessed_base = Path(preprocessed_dir)
 
-    clahe_path = preprocessed_base / "clahe.tif"
+    clahe_path = preprocessed_base / "contrast_and_gc.tif"
     gamma_path = preprocessed_base / "gamma.tif"
 
     logger.info(f"Using image: {img_path}")

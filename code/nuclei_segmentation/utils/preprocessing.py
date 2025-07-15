@@ -317,29 +317,8 @@ def preprocess_image(image_path, settings, logger):
 
     out_mm.flush()                       # Ensure data hits disk.
     img_u8 = np.asarray(out_mm)          # Cheap view; no copy.
-
-    # Full-slide CLAHE (once, not per tile)
-    if settings.get("enhance_contrast", False):
-        clahe_full = apply_clahe_no_corner(
-            img_u8,
-            clip_limit=settings.get("clahe_cliplimit", 2.0),
-            tile_grid_size=settings.get("clahe_tile_grid_size", (8, 8)),
-            logger=logger,
-        )
-        skio.imsave(out_dir / "clahe.tif", clahe_full)
-        logger.info(f"Wrote CLAHE-only image to {out_dir / 'clahe.tif'}")
-
-    # Full-slide Gamma (once, on the CLAHE image if available)
-    if settings.get("enhance_dim", False):
-        base = clahe_full if "clahe_full" in locals() else img_u8
-        gamma_full = adaptive_gamma_correction(
-            base,
-            min_gamma=settings.get("min_gamma", 1.9),
-            max_gamma=settings.get("max_gamma", 2.2),
-            logger=logger,
-        )
-        skio.imsave(out_dir / "gamma.tif", gamma_full)
-        logger.info(f"Wrote gamma-corrected image to {out_dir / 'gamma.tif'}")
+    skio.imsave(out_dir / "contrast_and_gc.tif", img_u8)
+    logger.info(f"Wrote possibly contrast-enhanced and possibly gamma-corrected image to {out_dir/'contrast_and_gc.tif'}")
 
     factor = float(settings.get("upscale_factor", 1))
     if factor > 1.0:
@@ -352,7 +331,6 @@ def preprocess_image(image_path, settings, logger):
         # Save both the native-res and the up-scaled version for traceability.
         out_dir = Path(settings["output_dir"]) / "preprocessed"
         out_dir.mkdir(parents=True, exist_ok=True)
-        skio.imsave(out_dir / "final.tif", img_u8)
         skio.imsave(out_dir / "upscaled.tif", img_up)
 
         scratch.cleanup()

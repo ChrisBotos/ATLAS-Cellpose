@@ -324,10 +324,10 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
                     gpu_batch_size=settings.get("gpu_batch_size", 10),
                     gpu_memory_limit_gb=settings.get("gpu_memory_limit_gb", 8.0),
+                    output_dir=output_dir,
                 )
-                # Save the merged masks using the standard save_outputs function.
-                # This ensures consistent file naming and format across the pipeline.
-                save_outputs(masks, [None, None, None], output_dir, logger)
+                # Note: The merge_masks_streaming function now saves directly to masks/ directory.
+                # No need for additional save_outputs call to avoid duplicate files.
                 logger.info("Merged masks saved to: {}".format(output_dir / "masks" / "segmentation_masks.npy"))
 
                 total_cells = int(masks.max())
