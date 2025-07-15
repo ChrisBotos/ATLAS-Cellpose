@@ -132,9 +132,14 @@ def merge_patch_cpu(
     tile_border = [_touches_border(patch[t]) for t in range(T)]
 
     # Map local labels to unique composite keys – avoids collisions between tiles.
+    # Use uint64 to prevent overflow when tile indices become large.
     composite = np.zeros_like(patch, dtype=np.uint64)
     for t in range(T):
-        composite[t] = (t << 32) | patch[t]
+        # Ensure tile index doesn't cause overflow in composite key calculation.
+        if t >= (1 << 32):
+            raise ValueError(f"Tile index {t} exceeds maximum supported value for composite keys. "
+                           f"Consider using smaller clusters or different processing approach.")
+        composite[t] = (np.uint64(t) << np.uint64(32)) | patch[t].astype(np.uint64)
 
     # ---------------------------------------------------------------
     # 1. Assign fresh global IDs to objects below the *overlap* quota.
@@ -148,11 +153,17 @@ def merge_patch_cpu(
         keep = ov_cnt >= tile_sizes[t] * threshold  # True ⇢ keep for merging
 
     # Objects not kept receive a unique global ID immediately.
+    # Use int for keys but ensure we can handle uint64 composite values.
     comp_to_global: Dict[int, int] = {}
     for comp in np.unique(composite[~keep_mask]):
         if comp == 0:
             continue
-        comp_to_global[comp] = next(global_next)
+        # Convert uint64 composite key to int, checking for overflow.
+        comp_key = int(comp)
+        if comp_key != comp:
+            raise ValueError(f"Composite key {comp} cannot be safely converted to int. "
+                           f"This indicates an internal overflow issue.")
+        comp_to_global[comp_key] = next(global_next)
 
     # ---------------------------------------------------------------
     # 2‑4. Iterate over pixel pairs to build unions respecting rules.
@@ -168,18 +179,21 @@ def merge_patch_cpu(
             comp_a = composite[a][mask]
             comp_b = composite[b][mask]
             # Shared pixel counts between (comp_a[i], comp_b[i]).
-            pairs, counts = np.unique((comp_a.astype(np.uint64) << 64) | comp_b, return_counts=True)
-            left = pairs >> 64
-            right = pairs & ((1 << 64) - 1)
+            pairs, counts = np.unique((comp_a.astype(np.uint64) << np.uint64(64)) | comp_b.astype(np.uint64), return_counts=True)
+            left = pairs >> np.uint64(64)
+            right = pairs & np.uint64(0xFFFFFFFFFFFFFFFF)  # 64-bit mask
             for ca, cb, cnt in zip(left, right, counts):
                 # Rule 2 – shared threshold.
-                size_a = tile_sizes[a][ca & 0xFFFFFFFF]
-                size_b = tile_sizes[b][cb & 0xFFFFFFFF]
+                # Extract the original label from the composite key.
+                label_a = int(ca) & 0xFFFFFFFF
+                label_b = int(cb) & 0xFFFFFFFF
+                size_a = tile_sizes[a][label_a]
+                size_b = tile_sizes[b][label_b]
                 if cnt < threshold * min(size_a, size_b):
                     continue
                 # Rule 3 – border stub.
-                ta = tile_border[a][ca & 0xFFFFFFFF]
-                tb = tile_border[b][cb & 0xFFFFFFFF]
+                ta = tile_border[a][label_a]
+                tb = tile_border[b][label_b]
                 if ta and not tb:
                     continue  # Remove *ca* later in I/O phase.
                 if tb and not ta:

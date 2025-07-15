@@ -61,10 +61,27 @@ def merge_patch_gpu(
     device = torch.device(device or ("cuda:0" if torch.cuda.is_available() else "cpu"))
 
     T, H, W = patch.shape
+
+    # Check for tensor size limits before processing.
+    total_elements = T * H * W
+    max_tensor_elements = 2**31 - 1  # PyTorch INT_MAX limit.
+
+    if total_elements > max_tensor_elements:
+        raise RuntimeError(f"Tensor would have {total_elements} elements, exceeding PyTorch limit of {max_tensor_elements}. "
+                         f"Consider using CPU processing or smaller batches.")
+
     # CUDA kernels don’t support uint32.  Promote to signed 64-bit once.
-    patch_t = torch.from_numpy(
-        patch.astype(np.int64, copy=False).reshape(T, -1)
-    ).to(device)
+    try:
+        patch_t = torch.from_numpy(
+            patch.astype(np.int64, copy=False).reshape(T, -1)
+        ).to(device)
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower() or "illegal memory access" in str(e).lower():
+            raise RuntimeError(f"GPU memory error when creating tensor of size ({T}, {H*W}): {e}. "
+                             f"Consider reducing batch size or using CPU processing.")
+        else:
+            raise
+
     max_lbl = int(patch_t.max().item()) + 1  # Include 0.
 
     dsu = GPUDSU(max_lbl * T, device=device)  # Composite space: tile<<32 | label.

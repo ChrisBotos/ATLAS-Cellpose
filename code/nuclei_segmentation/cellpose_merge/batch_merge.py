@@ -306,8 +306,23 @@ def merge_cluster_batched(
                 f"global_bbox=({y0},{x0}) to ({y0+cluster_h},{x0+cluster_w}), "
                 f"image_size=({height},{width})")
 
-    # Create the output merged patch
-    merged_patch = np.zeros((cluster_h, cluster_w), dtype=np.uint32)
+    # Check for potential overflow issues before processing.
+    total_elements = cluster_h * cluster_w
+    if total_elements > 2**31 - 1:
+        raise RuntimeError(f"Cluster patch would have {total_elements} elements, exceeding safe array size limits. "
+                         f"Cluster dimensions: {cluster_h}×{cluster_w}")
+
+    # Check for uint32 overflow in gid_offset.
+    if gid_offset >= 2**32:
+        raise RuntimeError(f"Global ID offset {gid_offset} exceeds uint32 maximum. "
+                         f"This indicates too many nuclei have been processed.")
+
+    # Create the output merged patch.
+    try:
+        merged_patch = np.zeros((cluster_h, cluster_w), dtype=np.uint32)
+    except (MemoryError, OverflowError) as e:
+        raise RuntimeError(f"Failed to allocate memory for cluster patch of size {cluster_h}×{cluster_w}: {e}. "
+                         f"Consider processing smaller image regions.")
 
     # Determine optimal batch size if auto-detection is enabled
     if batch_size <= 0:
@@ -347,9 +362,20 @@ def merge_cluster_batched(
             rel_y0 = batch_y0 - y0
             rel_x0 = batch_x0 - x0
 
-            # Create a stack for this batch
+            # Create a stack for this batch.
             T = len(batch)
-            batch_stack = np.zeros((T, batch_h, batch_w), dtype=np.uint32)
+
+            # Check for potential memory issues before allocation.
+            batch_elements = T * batch_h * batch_w
+            if batch_elements > 2**31 - 1:
+                raise RuntimeError(f"Batch stack would have {batch_elements} elements, exceeding safe limits. "
+                                 f"Batch size: {T}, dimensions: {batch_h}×{batch_w}")
+
+            try:
+                batch_stack = np.zeros((T, batch_h, batch_w), dtype=np.uint32)
+            except (MemoryError, OverflowError) as e:
+                raise RuntimeError(f"Failed to allocate memory for batch stack of size ({T}, {batch_h}, {batch_w}): {e}. "
+                                 f"Consider reducing batch size or using CPU processing.")
 
             # Load tiles for this batch
             for t, (r, c) in enumerate(batch):

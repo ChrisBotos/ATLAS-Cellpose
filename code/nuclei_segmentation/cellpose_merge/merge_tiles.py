@@ -174,6 +174,227 @@ def _build_clusters(coords: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]
         clusters.append(comp)
     return clusters
 
+
+def _estimate_cluster_memory_requirements(
+    cluster_size: int,
+    cluster_h: int,
+    cluster_w: int
+) -> float:
+    """
+    Estimate memory requirements for processing a cluster.
+
+    Parameters
+    ----------
+    cluster_size : int
+        Number of tiles in the cluster.
+    cluster_h, cluster_w : int
+        Dimensions of the cluster bounding box in pixels.
+
+    Returns
+    -------
+    float
+        Estimated memory requirement in gigabytes.
+    """
+    # Memory for the 3D stack: (cluster_size, cluster_h, cluster_w) as uint32 (4 bytes).
+    stack_memory_bytes = cluster_size * cluster_h * cluster_w * 4
+
+    # Additional memory for intermediate processing (conservative estimate: 2x).
+    total_memory_bytes = stack_memory_bytes * 2
+
+    # Convert to gigabytes.
+    memory_gb = total_memory_bytes / (1024**3)
+
+    logging.debug(f"Cluster memory estimate: {cluster_size} tiles, "
+                 f"{cluster_h}×{cluster_w} pixels = {memory_gb:.2f} GB")
+
+    return memory_gb
+
+
+def _check_cluster_feasibility(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    height: int,
+    width: int,
+    memory_limit_gb: float = 16.0
+) -> Tuple[bool, str]:
+    """
+    Check if a cluster can be processed with standard algorithms.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        List of (row, col) coordinates for tiles in the cluster.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    height, width : int
+        Full image dimensions in pixels.
+    memory_limit_gb : float, default 16.0
+        Maximum memory limit in gigabytes.
+
+    Returns
+    -------
+    Tuple[bool, str]
+        (is_feasible, reason_if_not_feasible)
+    """
+    cluster_size = len(cluster)
+
+    # Check for uint32 overflow in composite keys (tile index << 32).
+    if cluster_size >= (1 << 32):
+        return False, f"Cluster has {cluster_size} tiles, exceeding uint32 composite key limit"
+
+    # Calculate cluster bounding box.
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    min_r = min(r for r, _ in cluster)
+    min_c = min(c for _, c in cluster)
+    max_r = max(r for r, _ in cluster)
+    max_c = max(c for _, c in cluster)
+
+    y0 = min_r * stride_h
+    x0 = min_c * stride_w
+
+    cluster_h = min((max_r - min_r) * stride_h + tile_h, height - y0)
+    cluster_w = min((max_c - min_c) * stride_w + tile_w, width - x0)
+
+    # Check for array size limits.
+    total_elements = cluster_size * cluster_h * cluster_w
+
+    # NumPy array size limit (platform dependent, but typically around 2^63-1 for 64-bit).
+    max_array_elements = 2**31 - 1  # Conservative limit for compatibility.
+    if total_elements > max_array_elements:
+        return False, f"Array would have {total_elements} elements, exceeding NumPy limit of {max_array_elements}"
+
+    # Memory requirement check.
+    estimated_memory = _estimate_cluster_memory_requirements(cluster_size, cluster_h, cluster_w)
+    if estimated_memory > memory_limit_gb:
+        return False, f"Estimated memory requirement {estimated_memory:.1f} GB exceeds limit of {memory_limit_gb} GB"
+
+    return True, ""
+
+
+def _split_large_cluster(
+    cluster: List[Tuple[int, int]],
+    max_cluster_size: int = 1000
+) -> List[List[Tuple[int, int]]]:
+    """
+    Split a large cluster into smaller sub-clusters for processing.
+
+    This function uses spatial proximity to group tiles into smaller clusters
+    that can be processed without exceeding memory limits.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        List of (row, col) coordinates for tiles in the large cluster.
+    max_cluster_size : int, default 1000
+        Maximum number of tiles per sub-cluster.
+
+    Returns
+    -------
+    List[List[Tuple[int, int]]]
+        List of smaller sub-clusters.
+    """
+    if len(cluster) <= max_cluster_size:
+        return [cluster]
+
+    # Sort tiles by row, then by column for spatial locality.
+    sorted_cluster = sorted(cluster)
+
+    # Split into chunks of max_cluster_size.
+    sub_clusters = []
+    for i in range(0, len(sorted_cluster), max_cluster_size):
+        sub_cluster = sorted_cluster[i:i + max_cluster_size]
+        sub_clusters.append(sub_cluster)
+
+    logging.info(f"Split large cluster of {len(cluster)} tiles into {len(sub_clusters)} sub-clusters")
+
+    return sub_clusters
+
+
+def _split_cluster_adaptively(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    height: int,
+    width: int,
+    memory_limit_gb: float = 8.0,
+    max_iterations: int = 10
+) -> List[List[Tuple[int, int]]]:
+    """
+    Adaptively split a cluster until all sub-clusters are feasible.
+
+    This function repeatedly splits clusters until each sub-cluster
+    passes the feasibility check.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        List of (row, col) coordinates for tiles in the cluster.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    height, width : int
+        Full image dimensions in pixels.
+    memory_limit_gb : float, default 8.0
+        Maximum memory limit in gigabytes.
+    max_iterations : int, default 10
+        Maximum number of splitting iterations to prevent infinite loops.
+
+    Returns
+    -------
+    List[List[Tuple[int, int]]]
+        List of feasible sub-clusters.
+    """
+    clusters_to_process = [cluster]
+    feasible_clusters = []
+
+    for iteration in range(max_iterations):
+        new_clusters_to_process = []
+
+        for cl in clusters_to_process:
+            is_feasible, reason = _check_cluster_feasibility(
+                cl, tile_h, tile_w, overlap, height, width, memory_limit_gb
+            )
+
+            if is_feasible:
+                feasible_clusters.append(cl)
+            else:
+                # Split this cluster further.
+                current_size = len(cl)
+                new_max_size = max(1, current_size // 4)  # Split into quarters
+
+                logging.debug(f"Iteration {iteration+1}: Splitting cluster of {current_size} tiles "
+                             f"into chunks of {new_max_size} (reason: {reason})")
+
+                sub_clusters = _split_large_cluster(cl, max_cluster_size=new_max_size)
+                new_clusters_to_process.extend(sub_clusters)
+
+        clusters_to_process = new_clusters_to_process
+
+        # If no more clusters need processing, we're done.
+        if not clusters_to_process:
+            break
+
+    # If we still have infeasible clusters after max iterations, add them anyway
+    # with a warning (better to try and fail than to crash immediately).
+    if clusters_to_process:
+        logging.warning(f"After {max_iterations} iterations, {len(clusters_to_process)} clusters "
+                       f"are still not feasible. Processing anyway with reduced expectations.")
+        feasible_clusters.extend(clusters_to_process)
+
+    logging.info(f"Adaptive splitting produced {len(feasible_clusters)} feasible clusters "
+                f"from original cluster of {len(cluster)} tiles")
+
+    return feasible_clusters
+
+
 def _merge_cluster(
     *,
     cluster: List[Tuple[int, int]],
@@ -502,9 +723,71 @@ def merge_masks_streaming(
         iterable: Iterable[List[Tuple[int, int]]] = clusters
         for cluster_idx, cl in enumerate(tqdm(iterable, desc="Merging clusters (GPU)"), 1):
             try:
-                # Determine if this cluster needs batched processing
+                # Check if cluster can be processed with standard algorithms.
                 cluster_size = len(cl)
-                needs_batching = cluster_size > 100  # Threshold for using batched processing
+                is_feasible, reason = _check_cluster_feasibility(
+                    cl, tile_h, tile_w, overlap, height, width,
+                    memory_limit_gb=gpu_memory_limit_gb * 2  # Allow more memory for GPU processing
+                )
+
+                if not is_feasible:
+                    logging.warning(f"Cluster {cluster_idx} is not feasible for standard processing: {reason}")
+                    logging.info(f"Attempting to split cluster of {cluster_size} tiles into smaller sub-clusters")
+
+                    # Try to split the cluster into smaller, manageable pieces using adaptive splitting.
+                    sub_clusters = _split_cluster_adaptively(
+                        cl, tile_h, tile_w, overlap, height, width,
+                        memory_limit_gb=gpu_memory_limit_gb * 2
+                    )
+
+                    for sub_idx, sub_cl in enumerate(sub_clusters):
+                        # Check feasibility of sub-cluster.
+                        sub_feasible, sub_reason = _check_cluster_feasibility(
+                            sub_cl, tile_h, tile_w, overlap, height, width,
+                            memory_limit_gb=gpu_memory_limit_gb * 2
+                        )
+
+                        if not sub_feasible:
+                            logging.error(f"Sub-cluster {sub_idx+1} of cluster {cluster_idx} still not feasible: {sub_reason}")
+                            raise RuntimeError(f"Even after splitting, cluster {cluster_idx} sub-cluster {sub_idx+1} "
+                                             f"exceeds processing limits: {sub_reason}")
+
+                        # Process sub-cluster using batched approach.
+                        logging.info(f"Processing sub-cluster {sub_idx+1}/{len(sub_clusters)} "
+                                   f"with {len(sub_cl)} tiles from cluster {cluster_idx}")
+
+                        patch, (y0, x0), _ = merge_cluster_batched(
+                            cluster=sub_cl,
+                            loader=_loader,
+                            height=height,
+                            width=width,
+                            tile_h=tile_h,
+                            tile_w=tile_w,
+                            overlap=overlap,
+                            threshold=threshold,
+                            use_gpu=True,
+                            gid_offset=gid_counter,
+                            batch_size=max(1, gpu_batch_size // 2),  # Use smaller batch size for split clusters
+                            memory_limit_gb=gpu_memory_limit_gb,
+                        )
+
+                        # Update global ID counter and merge patch into final mask.
+                        patch_max = int(patch.max().item()) if patch.size > 0 else 0
+                        gid_counter += patch_max
+
+                        # Copy non-zero pixels to the final merged mask.
+                        nucleus_pixels = patch != 0
+                        merged[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][nucleus_pixels] = patch[nucleus_pixels]
+
+                        logging.debug(f"Sub-cluster {sub_idx+1} processed: "
+                                     f"patch_size=({patch.shape[0]},{patch.shape[1]}), "
+                                     f"non_zero_pixels={np.count_nonzero(nucleus_pixels)}")
+
+                    # Skip the normal processing since we handled the split cluster.
+                    continue
+
+                # Determine if this cluster needs batched processing.
+                needs_batching = cluster_size > 100  # Threshold for using batched processing.
 
                 if needs_batching:
                     logging.info(f"Using batched processing for large cluster {cluster_idx} with {cluster_size} tiles")
@@ -589,6 +872,39 @@ def merge_masks_streaming(
         workers = max_workers or (math.isqrt(len(clusters)) or 1)
         logging.info(f"Using {workers} CPU workers for parallel cluster processing")
 
+        # Check feasibility of all clusters and split large ones if needed.
+        processed_clusters = []
+        for i, cl in enumerate(clusters):
+            is_feasible, reason = _check_cluster_feasibility(
+                cl, tile_h, tile_w, overlap, height, width,
+                memory_limit_gb=16.0  # Conservative limit for CPU processing
+            )
+            if not is_feasible:
+                logging.warning(f"CPU cluster {i+1} is not feasible for standard processing: {reason}")
+                logging.info(f"Splitting CPU cluster {i+1} of {len(cl)} tiles into smaller sub-clusters")
+
+                # Split the cluster into smaller pieces using adaptive splitting.
+                sub_clusters = _split_cluster_adaptively(
+                    cl, tile_h, tile_w, overlap, height, width,
+                    memory_limit_gb=16.0
+                )
+
+                for sub_cl in sub_clusters:
+                    # Check feasibility of sub-cluster.
+                    sub_feasible, sub_reason = _check_cluster_feasibility(
+                        sub_cl, tile_h, tile_w, overlap, height, width,
+                        memory_limit_gb=16.0
+                    )
+                    if not sub_feasible:
+                        logging.error(f"CPU sub-cluster of cluster {i+1} still not feasible: {sub_reason}")
+                        raise RuntimeError(f"Even after splitting, CPU cluster {i+1} sub-cluster "
+                                         f"exceeds processing limits: {sub_reason}")
+                    processed_clusters.append(sub_cl)
+            else:
+                processed_clusters.append(cl)
+
+        logging.info(f"Processing {len(processed_clusters)} clusters (including split sub-clusters) with CPU")
+
         with _cf.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [
                 pool.submit(
@@ -604,7 +920,7 @@ def merge_masks_streaming(
                     use_gpu=False,
                     gid_offset=gid_counter + i * 10_000_000,  # Pre-allocate distinct ID ranges.
                 )
-                for i, cl in enumerate(clusters)
+                for i, cl in enumerate(processed_clusters)
             ]
 
             # Process completed futures and merge results.
