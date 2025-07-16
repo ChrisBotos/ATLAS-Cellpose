@@ -246,7 +246,7 @@ def _check_cluster_feasibility(
     if cluster_size >= (1 << 32):
         return False, f"Cluster has {cluster_size} tiles, exceeding uint32 composite key limit"
 
-    # Calculate cluster bounding box.
+    # Calculate cluster bounding box with proper coordinate validation.
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap
 
@@ -255,19 +255,40 @@ def _check_cluster_feasibility(
     max_r = max(r for r, _ in cluster)
     max_c = max(c for _, c in cluster)
 
+    # Validate tile indices are reasonable for the given image dimensions.
+    max_possible_rows = (height + stride_h - 1) // stride_h
+    max_possible_cols = (width + stride_w - 1) // stride_w
+
+    if max_r >= max_possible_rows or max_c >= max_possible_cols:
+        return False, f"Tile indices out of bounds: max_tile=({max_r},{max_c}), max_possible=({max_possible_rows-1},{max_possible_cols-1})"
+
     y0 = min_r * stride_h
     x0 = min_c * stride_w
 
+    # Ensure starting coordinates are within image bounds.
+    if y0 >= height or x0 >= width:
+        return False, f"Cluster starting position ({y0},{x0}) exceeds image bounds ({height},{width})"
+
+    # Calculate cluster dimensions with proper boundary clamping.
     cluster_h = min((max_r - min_r) * stride_h + tile_h, height - y0)
     cluster_w = min((max_c - min_c) * stride_w + tile_w, width - x0)
 
-    # Check for array size limits.
-    total_elements = cluster_size * cluster_h * cluster_w
+    # Ensure dimensions are positive and reasonable.
+    if cluster_h <= 0 or cluster_w <= 0:
+        return False, f"Invalid cluster dimensions: {cluster_h}×{cluster_w} (y0={y0}, x0={x0}, height={height}, width={width})"
+
+    # Check for array size limits - the merged patch array size.
+    merged_patch_elements = cluster_h * cluster_w
 
     # NumPy array size limit (platform dependent, but typically around 2^63-1 for 64-bit).
     max_array_elements = 2**31 - 1  # Conservative limit for compatibility.
-    if total_elements > max_array_elements:
-        return False, f"Array would have {total_elements} elements, exceeding NumPy limit of {max_array_elements}"
+    if merged_patch_elements > max_array_elements:
+        return False, f"Merged patch would have {merged_patch_elements} elements, exceeding NumPy limit of {max_array_elements}"
+
+    # Check for stack array size limits (cluster_size × tile_h × tile_w).
+    stack_elements = cluster_size * tile_h * tile_w
+    if stack_elements > max_array_elements:
+        return False, f"Tile stack would have {stack_elements} elements, exceeding NumPy limit of {max_array_elements}"
 
     # Memory requirement check.
     estimated_memory = _estimate_cluster_memory_requirements(cluster_size, cluster_h, cluster_w)
@@ -366,9 +387,19 @@ def _split_cluster_adaptively(
             if is_feasible:
                 feasible_clusters.append(cl)
             else:
-                # Split this cluster further.
+                # Split this cluster further with more aggressive strategy.
                 current_size = len(cl)
-                new_max_size = max(1, current_size // 4)  # Split into quarters
+
+                # Use more aggressive splitting for problematic clusters.
+                if "exceeding NumPy limit" in reason:
+                    # For array size issues, split much more aggressively.
+                    new_max_size = max(1, min(4, current_size // 8))
+                elif "memory requirement" in reason:
+                    # For memory issues, split into quarters.
+                    new_max_size = max(1, current_size // 4)
+                else:
+                    # Default splitting strategy.
+                    new_max_size = max(1, current_size // 2)
 
                 logging.debug(f"Iteration {iteration+1}: Splitting cluster of {current_size} tiles "
                              f"into chunks of {new_max_size} (reason: {reason})")
@@ -382,12 +413,30 @@ def _split_cluster_adaptively(
         if not clusters_to_process:
             break
 
-    # If we still have infeasible clusters after max iterations, add them anyway
-    # with a warning (better to try and fail than to crash immediately).
+    # Handle remaining problematic clusters.
     if clusters_to_process:
         logging.warning(f"After {max_iterations} iterations, {len(clusters_to_process)} clusters "
-                       f"are still not feasible. Processing anyway with reduced expectations.")
-        feasible_clusters.extend(clusters_to_process)
+                       f"are still not feasible.")
+
+        # For extremely problematic clusters, try to process individual tiles.
+        for cl in clusters_to_process:
+            if len(cl) == 1:
+                # Single tile that's still problematic - skip it with warning.
+                tile_r, tile_c = cl[0]
+                logging.error(f"Skipping problematic single tile at ({tile_r}, {tile_c}) - "
+                             f"it may be outside image bounds or have invalid coordinates")
+            else:
+                # Split into individual tiles as last resort.
+                logging.warning(f"Splitting cluster of {len(cl)} tiles into individual tiles as last resort")
+                for tile in cl:
+                    single_tile_feasible, single_reason = _check_cluster_feasibility(
+                        [tile], tile_h, tile_w, overlap, height, width, memory_limit_gb
+                    )
+                    if single_tile_feasible:
+                        feasible_clusters.append([tile])
+                    else:
+                        tile_r, tile_c = tile
+                        logging.error(f"Skipping problematic tile at ({tile_r}, {tile_c}): {single_reason}")
 
     logging.info(f"Adaptive splitting produced {len(feasible_clusters)} feasible clusters "
                 f"from original cluster of {len(cluster)} tiles")
@@ -426,12 +475,27 @@ def _merge_cluster(
     max_r = max(r for r, _ in cluster)
     max_c = max(c for _, c in cluster)
 
+    # Validate tile indices are reasonable for the given image dimensions.
+    max_possible_rows = (height + stride_h - 1) // stride_h
+    max_possible_cols = (width + stride_w - 1) // stride_w
+
+    if max_r >= max_possible_rows or max_c >= max_possible_cols:
+        raise ValueError(f"Tile indices out of bounds: max_tile=({max_r},{max_c}), max_possible=({max_possible_rows-1},{max_possible_cols-1})")
+
     y0 = min_r * stride_h
     x0 = min_c * stride_w
 
+    # Ensure starting coordinates are within image bounds.
+    if y0 >= height or x0 >= width:
+        raise ValueError(f"Cluster starting position ({y0},{x0}) exceeds image bounds ({height},{width})")
+
     # Clamp the bounding box to the actual slide size (important at borders).
     cluster_h = min((max_r - min_r) * stride_h + tile_h, height - y0)
-    cluster_w = min((max_c - min_c) * stride_w + tile_w, width  - x0)
+    cluster_w = min((max_c - min_c) * stride_w + tile_w, width - x0)
+
+    # Ensure dimensions are positive.
+    if cluster_h <= 0 or cluster_w <= 0:
+        raise ValueError(f"Invalid cluster dimensions: {cluster_h}×{cluster_w} (y0={y0}, x0={x0}, height={height}, width={width})")
 
     # Enhanced debugging for edge tile processing.
     logging.debug(f"Processing cluster with {len(cluster)} tiles: "
@@ -514,6 +578,7 @@ def merge_masks_streaming(
     qc_dir: str | Path | None = None,
     gpu_batch_size: int = 10,
     gpu_memory_limit_gb: float = 8.0,
+    output_dir: str | Path | None = None,
 ) -> NDArray[np.uint32]:
     """Merge per‑tile instance masks into a 2‑D slide‑level label map.
 
@@ -549,6 +614,9 @@ def merge_masks_streaming(
         Maximum GPU memory to use in gigabytes for tile merging operations.
         The system will automatically adjust batch sizes to stay within this limit.
         Set to 0 for automatic detection based on available GPU memory.
+    output_dir : str | Path | None, default None
+        Output directory where temp_merged_segmentations_masks.npy will be created
+        and then renamed to segmentations_masks.npy. If None, uses tiles_path parent.
     """
 
     try:
@@ -564,6 +632,24 @@ def merge_masks_streaming(
 
         logging.info(f"Starting mask merge for {height}x{width} image")
         logging.info(f"Tile configuration: {tile_h}x{tile_w} with {overlap}px overlap")
+
+        # Set up output directory and temp file paths.
+        # All segmentation masks should be saved in the masks/ subdirectory.
+        if output_dir is None:
+            output_dir = Path(tiles_path).parent
+        else:
+            output_dir = Path(output_dir)
+
+        # Create masks subdirectory for organized output.
+        masks_dir = output_dir / "masks"
+        masks_dir.mkdir(parents=True, exist_ok=True)
+
+        temp_merged_path = masks_dir / "temp_merged_segmentation_masks.npy"
+        final_merged_path = masks_dir / "segmentation_masks.npy"
+
+        logging.info(f"Output directory: {output_dir}")
+        logging.info(f"Masks directory: {masks_dir}")
+        logging.info(f"Temporary merged file: {temp_merged_path}")
 
         path = _resolve_tiles_path(Path(tiles_path))
         file_map, raw_coords = _discover_tiles(path)
@@ -582,16 +668,30 @@ def merge_masks_streaming(
         # This is important for proper spatial alignment of kidney tissue tiles.
         stride_h, stride_w = tile_h - overlap, tile_w - overlap
 
-        if all(r % stride_h == 0 for r, _ in raw_coords) and all(c % stride_w == 0 for _, c in raw_coords):
+        # Check if coordinates look like pixel coordinates (large values, divisible by stride)
+        max_coord = max(max(r, c) for r, c in raw_coords)
+        min_coord = min(min(r, c) for r, c in raw_coords)
+
+        # If coordinates are large and many are divisible by stride, they're likely pixel coordinates
+        pixel_coord_indicators = [
+            max_coord > 1000,  # Large coordinates suggest pixels
+            min_coord >= 0,    # Should start from 0 or positive
+            sum(1 for r, c in raw_coords if r % stride_h == 0 and c % stride_w == 0) > len(raw_coords) * 0.5  # Most divisible by stride
+        ]
+
+        if sum(pixel_coord_indicators) >= 2:
+            # Convert pixel coordinates to tile indices
             coords = [(r // stride_h, c // stride_w) for r, c in raw_coords]
             idx_to_path: Dict[Tuple[int, int], Path] = {
                 (r // stride_h, c // stride_w): p for (r, c), p in file_map.items()
             }
-            logging.info("Interpreting filenames as pixel coordinates (stride %dx%d).", stride_h, stride_w)
+            logging.info(f"Interpreting filenames as pixel coordinates (stride {stride_h}×{stride_w})")
+            logging.info(f"Converted {len(raw_coords)} pixel coordinates to tile indices")
         else:
+            # Assume they're already tile indices
             coords = raw_coords
             idx_to_path = file_map
-            logging.info("Interpreting filenames as tile indices.")
+            logging.info("Interpreting filenames as tile indices")
 
         # Enhanced debugging: Log the final coordinate mapping.
         if coords:
@@ -624,6 +724,12 @@ def merge_masks_streaming(
     except Exception as setup_error:
         logging.error(f"Failed to initialize mask merging: {setup_error}")
         logging.debug(f"Setup error traceback:\n{traceback.format_exc()}")
+
+        # Clean up temp file if it exists.
+        if 'temp_merged_path' in locals() and temp_merged_path.exists():
+            temp_merged_path.unlink()
+            logging.info(f"Cleaned up temporary file: {temp_merged_path}")
+
         raise
 
     # ------------------------------------------------------------------
@@ -713,8 +819,13 @@ def merge_masks_streaming(
                     f"tile_range=({cluster_min_r},{cluster_min_c}) to ({cluster_max_r},{cluster_max_c}), "
                     f"global_bbox=({cluster_y0},{cluster_x0}) to ({cluster_y0+cluster_h},{cluster_x0+cluster_w})")
 
+    # Initialize temporary merged mask file for streaming processing.
     merged = np.zeros((height, width), dtype=np.uint32)
+    np.save(temp_merged_path, merged)
+    logging.info(f"Created temporary merged mask file: {temp_merged_path}")
+
     gid_counter = 1  # Monotonic global‑ID allocator.
+    max_safe_gid = 2**31 - 1  # Conservative limit to prevent uint32 overflow.
 
     if use_gpu:
         # GPU processing with batched approach for memory-efficient merging of large datasets.
@@ -767,12 +878,23 @@ def merge_masks_streaming(
                             threshold=threshold,
                             use_gpu=True,
                             gid_offset=gid_counter,
-                            batch_size=max(1, gpu_batch_size // 2),  # Use smaller batch size for split clusters
-                            memory_limit_gb=gpu_memory_limit_gb,
+                            batch_size=1,  # Use very conservative batch size for split clusters
+                            memory_limit_gb=gpu_memory_limit_gb * 0.6,  # Use even more conservative memory limit
+                            temp_file_path=temp_merged_path,
+                            global_merged_array=merged,
                         )
 
                         # Update global ID counter and merge patch into final mask.
                         patch_max = int(patch.max().item()) if patch.size > 0 else 0
+
+                        # Check for potential uint32 overflow before updating counter.
+                        if gid_counter + patch_max > max_safe_gid:
+                            logging.warning(f"Global ID counter approaching uint32 limit. "
+                                          f"Current: {gid_counter}, patch_max: {patch_max}, limit: {max_safe_gid}")
+                            # Reset counter to prevent overflow, accepting potential ID conflicts.
+                            gid_counter = 1
+                            logging.warning("Reset global ID counter to prevent overflow. Some nucleus IDs may conflict.")
+
                         gid_counter += patch_max
 
                         # Copy non-zero pixels to the final merged mask.
@@ -802,8 +924,10 @@ def merge_masks_streaming(
                         threshold=threshold,
                         use_gpu=True,
                         gid_offset=gid_counter,
-                        batch_size=gpu_batch_size,
+                        batch_size=max(1, gpu_batch_size // 2),  # Use more conservative batch size
                         memory_limit_gb=gpu_memory_limit_gb,
+                        temp_file_path=temp_merged_path,
+                        global_merged_array=merged,
                     )
                 else:
                     # Use original approach for smaller clusters
@@ -822,6 +946,15 @@ def merge_masks_streaming(
 
                 # Update global ID counter and merge patch into final mask.
                 patch_max = int(patch.max().item()) if patch.size > 0 else 0
+
+                # Check for potential uint32 overflow before updating counter.
+                if gid_counter + patch_max > max_safe_gid:
+                    logging.warning(f"Global ID counter approaching uint32 limit. "
+                                  f"Current: {gid_counter}, patch_max: {patch_max}, limit: {max_safe_gid}")
+                    # Reset counter to prevent overflow, accepting potential ID conflicts.
+                    gid_counter = 1
+                    logging.warning("Reset global ID counter to prevent overflow. Some nucleus IDs may conflict.")
+
                 gid_counter += patch_max
 
                 # Copy non-zero pixels to the final merged mask.
@@ -833,6 +966,10 @@ def merge_masks_streaming(
                              f"non_zero_pixels={np.count_nonzero(nucleus_pixels)}")
 
                 merged[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][nucleus_pixels] = patch[nucleus_pixels]
+
+                # Incremental saving: Save progress after each cluster is processed.
+                np.save(temp_merged_path, merged)
+                logging.debug(f"Incremental save completed for cluster {cluster_idx}")
 
             except Exception as gpu_error:
                 logging.error(f"GPU cluster {cluster_idx} processing failed: {gpu_error}")
@@ -861,6 +998,10 @@ def merge_masks_streaming(
                     # Copy non-zero pixels to the final merged mask.
                     nucleus_pixels = patch != 0
                     merged[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][nucleus_pixels] = patch[nucleus_pixels]
+
+                    # Incremental saving: Save progress after CPU fallback processing.
+                    np.save(temp_merged_path, merged)
+                    logging.debug(f"Incremental save completed for cluster {cluster_idx} (CPU fallback)")
 
                     logging.info(f"Successfully processed cluster {cluster_idx} with CPU fallback")
 
@@ -942,6 +1083,11 @@ def merge_masks_streaming(
                     patch_max = int(patch.max().item()) if patch.size > 0 else 0
                     gid_counter = max(gid_counter, patch_max + 1)
 
+                    # Incremental saving: Save progress after each CPU cluster is processed.
+                    # Note: This is done for each completed future, providing frequent saves.
+                    np.save(temp_merged_path, merged)
+                    logging.debug(f"Incremental save completed for CPU cluster")
+
                 except Exception as cpu_error:
                     logging.error(f"CPU cluster processing failed: {cpu_error}")
                     logging.debug(f"CPU error traceback:\n{traceback.format_exc()}")
@@ -959,8 +1105,20 @@ def merge_masks_streaming(
         except ModuleNotFoundError:
             logging.warning("QC requested but helper 'qc.py' not found; skipping.")
         else:
+            # Create a proper loader for QC that can access the full merged image.
+            def _qc_tile_loader(y_slice: slice, x_slice: slice) -> NDArray[np.uint32]:
+                """Load tile data for QC visualization from individual tile files."""
+                try:
+                    return _loader(y_slice, x_slice)
+                except Exception as e:
+                    logging.debug(f"QC loader failed for slice ({y_slice}, {x_slice}): {e}")
+                    # Return empty mask if tile loading fails.
+                    y_size = y_slice.stop - y_slice.start if y_slice.stop else tile_h
+                    x_size = x_slice.stop - x_slice.start if x_slice.stop else tile_w
+                    return np.zeros((y_size, x_size), dtype=np.uint32)
+
             write_overlays(
-                loader=_loader,  # type: ignore[arg-type]
+                loader=_qc_tile_loader,
                 merged=merged,
                 height=height,
                 width=width,
@@ -968,6 +1126,7 @@ def merge_masks_streaming(
                 tile_w=tile_w,
                 overlap=overlap,
                 qc_dir=qc_dir,
+                use_full_image=True,  # Show the complete merged image, not just a crop
             )
 
     # Final summary with enhanced debugging information.
@@ -991,6 +1150,27 @@ def merge_masks_streaming(
 
     if any(edge == 0 for edge in [top_edge, bottom_edge, left_edge, right_edge]):
         logging.warning("Some image edges have zero segmentation - this may indicate edge tile processing issues")
+
+    # Save the final merged mask and rename temp file to final name.
+    np.save(temp_merged_path, merged)
+
+    # Rename temp file to final file name.
+    if final_merged_path.exists():
+        final_merged_path.unlink()  # Remove existing file if it exists.
+    temp_merged_path.rename(final_merged_path)
+
+    # Also save as TIFF for compatibility with downstream analysis tools.
+    try:
+        from skimage import io as skio
+        tif_path = final_merged_path.parent / "segmentation_masks.tif"
+        skio.imsave(tif_path, merged.astype(np.uint32), plugin="tifffile")
+        logging.info(f"Successfully created TIFF mask: {tif_path}")
+    except Exception as e:
+        logging.warning(f"Could not write TIFF mask: {e}")
+
+    logging.info(f"Successfully created final merged mask: {final_merged_path}")
+    logging.info(f"Final mask statistics: shape={merged.shape}, max_label={merged.max()}, "
+                f"non_zero_pixels={np.count_nonzero(merged)}")
 
     return merged
 

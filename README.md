@@ -431,37 +431,59 @@ Our Batched Approach (SUCCEEDS):
 └─────────┘ └─────────┘ └─────────┘
 ```
 
-### Spatial Batching Strategy
+### Enhanced Spatial Batching Strategy
 
-#### 2×2 Tile Group Processing
+#### Comprehensive 2×2 Tile Group Processing
 
-For optimal merge rule preservation, we process tiles in **2×2 spatial groups**:
+Our enhanced spatial batching system implements a sophisticated 4-step merging approach that ensures complete coverage and proper overlap handling:
 
 ```
-Grid Layout:
+Grid Layout (4×4 example):
 ┌─────┬─────┬─────┬─────┐
 │ T1  │ T2  │ T3  │ T4  │
 ├─────┼─────┼─────┼─────┤
 │ T5  │ T6  │ T7  │ T8  │
 ├─────┼─────┼─────┼─────┤
 │ T9  │ T10 │ T11 │ T12 │
+├─────┼─────┼─────┼─────┤
+│ T13 │ T14 │ T15 │ T16 │
 └─────┴─────┴─────┴─────┘
 
-Batch Processing Order:
-Batch 1: [T1, T2, T5, T6]  ← 2×2 group
-Batch 2: [T2, T3, T6, T7]  ← Overlapping group
-Batch 3: [T3, T4, T7, T8]  ← Overlapping group
-...
+Enhanced Processing Sequence:
 ```
 
-#### Overlap Region Handling
+#### 4-Step Merging Rules
 
-The batching system carefully handles overlapping regions:
+**Step 1: Primary 2×2 Groups (9 groups for 4×4 grid)**
+```
+Group 1: [T1,T2,T5,T6]    Group 2: [T2,T3,T6,T7]    Group 3: [T3,T4,T7,T8]
+Group 4: [T5,T6,T9,T10]   Group 5: [T6,T7,T10,T11]  Group 6: [T7,T8,T11,T12]
+Group 7: [T9,T10,T13,T14] Group 8: [T10,T11,T14,T15] Group 9: [T11,T12,T15,T16]
+```
 
-1. **Horizontal Overlaps**: Process (T1,T2) and (T5,T6) pairs
-2. **Vertical Overlaps**: Process (T1,T5) and (T2,T6) pairs
-3. **Center Overlap**: Process all four tiles (T1,T2,T5,T6) together
-4. **Boundary Preservation**: Maintain merge rules across batch boundaries
+**Step 2: Horizontal Overlap Regions**
+- Process vertical boundaries between row groups
+- Focus on regions where Groups 1-3 meet Groups 4-6
+- Handle edge cases at image boundaries
+
+**Step 3: Vertical Overlap Regions**
+- Process horizontal boundaries between column groups
+- Focus on regions where Groups 1,4,7 meet Groups 2,5,8
+- Maintain consistency across column transitions
+
+**Step 4: Center Overlap Processing**
+- Handle complex intersections where multiple 2×2 groups meet
+- Apply merge rules to regions with 4-way overlaps
+- Ensure seamless integration of all processed regions
+
+#### Adaptive Diameter Benefits with Tiling
+
+The enhanced batching strategy works synergistically with Cellpose's adaptive diameter feature:
+
+- **Tile-specific diameter adjustment**: Each 2×2 group can have optimized diameter settings
+- **Boundary consistency**: Overlap regions maintain diameter continuity
+- **Memory efficiency**: Process only necessary tiles for each diameter setting
+- **Quality preservation**: Avoid diameter-related artifacts at tile boundaries
 
 ### Memory Management
 

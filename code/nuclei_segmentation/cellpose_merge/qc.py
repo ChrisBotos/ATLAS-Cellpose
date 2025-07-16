@@ -126,6 +126,7 @@ def write_overlays(
     overlap: int,
     qc_dir: str | Path,
     image_loader: Callable[[slice, slice], NDArray[np.uint8]] = None,
+    use_full_image: bool = True,
 ) -> None:
     """
     Generate comprehensive QC overlays for nucleus segmentation merge validation.
@@ -160,6 +161,9 @@ def write_overlays(
     image_loader : callable, optional
         Function that loads the original tissue image given slice coordinates.
         If provided, the actual tissue image will be used as background.
+    use_full_image : bool, default True
+        If True, generate QC overlays for the entire image. If False, use a central
+        crop of DEFAULT_CROP_SIZE for manageable file sizes.
 
     Returns
     -------
@@ -180,9 +184,15 @@ def write_overlays(
         logging.info(f"QC visualizations will be saved to: {qc_dir}")
         logging.info(f"Processing tissue image of size {height}x{width} pixels.")
 
-        # Extract central crop for visualization to ensure manageable file sizes.
-        crop_info = _calculate_crop_region(height, width, DEFAULT_CROP_SIZE)
-        logging.info(f"Using crop region: {crop_info['description']}")
+        # Extract crop region for visualization.
+        if use_full_image:
+            # Use the entire image for comprehensive QC visualization.
+            crop_info = _calculate_crop_region(height, width, max(height, width))
+            logging.info(f"Using full image for QC: {crop_info['description']}")
+        else:
+            # Extract central crop for manageable file sizes.
+            crop_info = _calculate_crop_region(height, width, DEFAULT_CROP_SIZE)
+            logging.info(f"Using crop region: {crop_info['description']}")
 
         # Load the tissue image background for proper visualization.
         tissue_background = _load_tissue_background(image_loader, crop_info, height, width)
@@ -418,7 +428,11 @@ def _create_before_merging_overlay(
                 tile_mask = loader(tile_slice_y, tile_slice_x)
 
                 if tile_mask is None or tile_mask.size == 0:
+                    logging.debug(f"Empty tile mask for tile ({tile_row}, {tile_col})")
                     continue
+
+                logging.debug(f"Loaded tile ({tile_row}, {tile_col}): shape={tile_mask.shape}, "
+                             f"max_label={tile_mask.max()}, non_zero={np.count_nonzero(tile_mask)}")
 
                 # Generate a unique color for this tile based on its position.
                 tile_color = _generate_tile_color(tile_row, tile_col)
@@ -480,7 +494,8 @@ def _create_before_merging_overlay(
                 logging.debug(f"Error processing tile ({tile_row}, {tile_col}): {tile_error}")
                 continue
 
-    logging.debug(f"Processed {tiles_processed} tiles for before merging overlay.")
+    logging.info(f"Before merging overlay completed with {tiles_processed} tiles processed.")
+    logging.debug(f"Final overlay stats: shape={overlay.shape}, min={overlay.min()}, max={overlay.max()}")
 
     # Convert to uint8 for final output.
     return overlay.clip(0, 255).astype(np.uint8)
