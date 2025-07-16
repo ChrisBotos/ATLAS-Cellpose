@@ -322,6 +322,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     threshold=settings.get("merge_overlap_threshold", 0.3),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
+                    qc_merge_use_full_image = settings.get("qc_merge_use_full_image", False),
                     gpu_batch_size=settings.get("gpu_batch_size", 10),
                     gpu_memory_limit_gb=settings.get("gpu_memory_limit_gb", 8.0),
                     output_dir=output_dir,

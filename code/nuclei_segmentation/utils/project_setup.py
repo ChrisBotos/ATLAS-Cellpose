@@ -91,6 +91,7 @@ def load_config(config_path=None):
         "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),
         "qc_overlays": config.getboolean("tiling", "qc_overlays", fallback=True),
         "qc_downsample_factor": config.getint("tiling", "qc_downsample_factor", fallback=4),
+        "qc_merge_use_full_image": config.getboolean("tiling", "qc_merge_use_full_image", fallback=True),
         "memmap_dtype": config.get("tiling", "memmap_dtype", fallback="uint32"),
 
         # GPU batched processing parameters for handling large images with thousands of tiles.

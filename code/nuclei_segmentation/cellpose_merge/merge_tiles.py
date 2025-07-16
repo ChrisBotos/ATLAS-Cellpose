@@ -576,6 +576,7 @@ def merge_masks_streaming(
     use_gpu: bool | None = None,
     qc: bool = False,
     qc_dir: str | Path | None = None,
+    qc_merge_use_full_image = False,
     gpu_batch_size: int = 10,
     gpu_memory_limit_gb: float = 8.0,
     output_dir: str | Path | None = None,
@@ -1126,7 +1127,7 @@ def merge_masks_streaming(
                 tile_w=tile_w,
                 overlap=overlap,
                 qc_dir=qc_dir,
-                use_full_image=True,  # Show the complete merged image, not just a crop
+                use_full_image=qc_merge_use_full_image,
             )
 
     # Final summary with enhanced debugging information.

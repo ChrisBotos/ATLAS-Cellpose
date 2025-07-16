@@ -126,7 +126,7 @@ def write_overlays(
     overlap: int,
     qc_dir: str | Path,
     image_loader: Callable[[slice, slice], NDArray[np.uint8]] = None,
-    use_full_image: bool = True,
+    use_full_image: bool = False,
 ) -> None:
     """
     Generate comprehensive QC overlays for nucleus segmentation merge validation.
