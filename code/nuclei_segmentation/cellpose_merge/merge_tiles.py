@@ -337,6 +337,64 @@ def _split_large_cluster(
     return sub_clusters
 
 
+def _get_next_safe_gid_range(
+    current_gid: int,
+    patch_max: int,
+    max_safe_gid: int,
+    reset_count: int,
+    segment_size: int
+) -> Tuple[int, int, bool]:
+    """
+    Calculate the next safe global ID range to prevent uint32 overflow.
+
+    This function implements a segmented ID allocation strategy that reduces
+    the likelihood of ID conflicts when counter resets are necessary.
+
+    Parameters
+    ----------
+    current_gid : int
+        Current global ID counter value.
+    patch_max : int
+        Maximum ID value in the current patch.
+    max_safe_gid : int
+        Maximum safe ID value before overflow risk.
+    reset_count : int
+        Number of times the counter has been reset.
+    segment_size : int
+        Size of each ID segment to prevent conflicts.
+
+    Returns
+    -------
+    Tuple[int, int, bool]
+        (new_gid_counter, gid_offset, was_reset)
+        - new_gid_counter: Updated global ID counter
+        - gid_offset: Offset to apply to patch IDs
+        - was_reset: Whether a reset occurred
+    """
+
+    # Check if adding patch_max would exceed the safe limit.
+    if current_gid + patch_max > max_safe_gid:
+        # Calculate the next segment start to avoid conflicts.
+        next_segment_start = (reset_count + 1) * segment_size + 1
+
+        # Ensure we don't exceed the absolute uint32 limit.
+        if next_segment_start + patch_max > 2**32 - 1:
+            logging.error(f"Exhausted all available uint32 ID space. "
+                         f"Consider using uint64 or reducing image size.")
+            # Fall back to simple reset as last resort.
+            next_segment_start = 1
+
+        logging.warning(f"Global ID counter approaching uint32 limit. "
+                       f"Current: {current_gid}, patch_max: {patch_max}, limit: {max_safe_gid}")
+        logging.info(f"Resetting to segment {reset_count + 1} starting at ID {next_segment_start} "
+                    f"to minimize conflicts.")
+
+        return next_segment_start + patch_max, next_segment_start, True
+    else:
+        # Normal case: no reset needed.
+        return current_gid + patch_max, current_gid, False
+
+
 def _split_cluster_adaptively(
     cluster: List[Tuple[int, int]],
     tile_h: int,
@@ -846,6 +904,10 @@ def merge_masks_streaming(
     gid_counter = 1  # Monotonic global‑ID allocator.
     max_safe_gid = 2**31 - 1  # Conservative limit to prevent uint32 overflow.
 
+    # Enhanced ID management to prevent conflicts during counter resets.
+    id_reset_count = 0  # Track how many times we've reset the counter.
+    id_segment_size = max_safe_gid // 10  # Reserve segments to avoid conflicts.
+
     if use_gpu:
         # GPU processing with batched approach for memory-efficient merging of large datasets.
         from .batch_merge import merge_cluster_batched
@@ -912,15 +974,21 @@ def merge_masks_streaming(
                         # Update global ID counter and merge patch into final mask.
                         patch_max = int(patch.max().item()) if patch.size > 0 else 0
 
-                        # Check for potential uint32 overflow before updating counter.
-                        if gid_counter + patch_max > max_safe_gid:
-                            logging.warning(f"Global ID counter approaching uint32 limit. "
-                                          f"Current: {gid_counter}, patch_max: {patch_max}, limit: {max_safe_gid}")
-                            # Reset counter to prevent overflow, accepting potential ID conflicts.
-                            gid_counter = 1
-                            logging.warning("Reset global ID counter to prevent overflow. Some nucleus IDs may conflict.")
+                        # Use enhanced ID management to prevent conflicts.
+                        gid_counter, gid_offset_used, was_reset = _get_next_safe_gid_range(
+                            gid_counter, patch_max, max_safe_gid, id_reset_count, id_segment_size
+                        )
 
-                        gid_counter += patch_max
+                        if was_reset:
+                            id_reset_count += 1
+                            logging.info(f"ID counter reset #{id_reset_count} completed. "
+                                        f"New range starts at {gid_offset_used}")
+
+                            # Re-apply the new offset to the patch if it was reset.
+                            if patch_max > 0:
+                                nucleus_mask = patch != 0
+                                # Remove old offset and apply new one.
+                                patch[nucleus_mask] = (patch[nucleus_mask] - gid_counter + patch_max) + gid_offset_used
 
                         # Copy non-zero pixels to the final merged mask.
                         nucleus_pixels = patch != 0
@@ -978,15 +1046,21 @@ def merge_masks_streaming(
                 # Update global ID counter and merge patch into final mask.
                 patch_max = int(patch.max().item()) if patch.size > 0 else 0
 
-                # Check for potential uint32 overflow before updating counter.
-                if gid_counter + patch_max > max_safe_gid:
-                    logging.warning(f"Global ID counter approaching uint32 limit. "
-                                  f"Current: {gid_counter}, patch_max: {patch_max}, limit: {max_safe_gid}")
-                    # Reset counter to prevent overflow, accepting potential ID conflicts.
-                    gid_counter = 1
-                    logging.warning("Reset global ID counter to prevent overflow. Some nucleus IDs may conflict.")
+                # Use enhanced ID management to prevent conflicts.
+                gid_counter, gid_offset_used, was_reset = _get_next_safe_gid_range(
+                    gid_counter, patch_max, max_safe_gid, id_reset_count, id_segment_size
+                )
 
-                gid_counter += patch_max
+                if was_reset:
+                    id_reset_count += 1
+                    logging.info(f"ID counter reset #{id_reset_count} completed. "
+                                f"New range starts at {gid_offset_used}")
+
+                    # Re-apply the new offset to the patch if it was reset.
+                    if patch_max > 0:
+                        nucleus_mask = patch != 0
+                        # Remove old offset and apply new one.
+                        patch[nucleus_mask] = (patch[nucleus_mask] - gid_counter + patch_max) + gid_offset_used
 
                 # Copy non-zero pixels to the final merged mask.
                 nucleus_pixels = patch != 0

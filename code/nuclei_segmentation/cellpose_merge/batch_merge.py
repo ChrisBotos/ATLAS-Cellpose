@@ -654,8 +654,12 @@ def merge_cluster_batched(
     max_safe_gid = 2**31 - 1  # Conservative limit to prevent uint32 overflow.
     if gid_offset >= max_safe_gid:
         logging.warning(f"Global ID offset {gid_offset} approaching uint32 limit {max_safe_gid}. "
-                       f"Resetting to prevent overflow.")
-        gid_offset = 1  # Reset to prevent overflow, accepting potential ID conflicts.
+                       f"Using segmented allocation to minimize conflicts.")
+        # Use a segmented approach: divide the ID space into segments.
+        segment_size = max_safe_gid // 100  # Create 100 segments.
+        segment_number = (gid_offset // segment_size) % 100
+        gid_offset = (segment_number * segment_size) + 1
+        logging.info(f"Adjusted gid_offset to segment {segment_number}: {gid_offset}")
 
     # Create the output merged patch.
     try:
