@@ -104,6 +104,10 @@ def load_config(config_path=None):
         "gpu_adaptive_batching": config.getboolean("tiling", "gpu_adaptive_batching", fallback=True),
         "gpu_aggressive_cleanup": config.getboolean("tiling", "gpu_aggressive_cleanup", fallback=True),
 
+        # Timeout and retry parameters to prevent infinite loops.
+        "gpu_max_retries": config.getint("tiling", "gpu_max_retries", fallback=3),
+        "gpu_timeout_seconds": config.getint("tiling", "gpu_timeout_seconds", fallback=300),
+
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
         "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
         "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),
@@ -124,6 +128,13 @@ def load_config(config_path=None):
         "stitch_threshold": config.getfloat("cellpose", "stitch_threshold", fallback=0.4),
         "channels": get_tuple(config, "cellpose", "channels", default=(0, 0), cast=int),
         "batch_size": choose_batch_size(settings.get("tile_side_length")**2),
+
+        # Parallel processing parameters for improved performance.
+        "enable_parallel_processing": config.getboolean("cellpose", "enable_parallel_processing", fallback=True),
+        "parallel_batch_size": config.getint("cellpose", "parallel_batch_size", fallback=4),
+        "parallel_max_workers": config.getint("cellpose", "parallel_max_workers", fallback=2),
+        "parallel_memory_limit_gb": config.getfloat("cellpose", "parallel_memory_limit_gb", fallback=6.0),
+        "parallel_timeout_seconds": config.getint("cellpose", "parallel_timeout_seconds", fallback=300),
     }
 
     return settings, CELLPOSE_PARAMS, dirs

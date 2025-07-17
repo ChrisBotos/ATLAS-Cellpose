@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import logging
 import math
+import signal
+import time
 import traceback
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple, Optional, Set
@@ -557,9 +559,14 @@ def merge_cluster_batched(
     aggressive_cleanup: bool = True,
     temp_file_path: Optional[Path] = None,
     global_merged_array: Optional[NDArray[np.uint32]] = None,
+    max_retries: int = 3,
+    timeout_seconds: int = 300,
 ) -> MergeResult:
     """
     Merge all tiles in a cluster using batched processing to manage memory usage.
+
+    This function now includes proper timeout and retry mechanisms to prevent infinite loops
+    during GPU batch processing. The timeout ensures that processing cannot get stuck indefinitely.
 
     Parameters
     ----------
@@ -587,6 +594,10 @@ def merge_cluster_batched(
         Path to temporary file for incremental saving of merged results.
     global_merged_array : NDArray[np.uint32], optional
         Reference to the global merged array for incremental updates.
+    max_retries : int, default 3
+        Maximum number of retry attempts for failed batch processing operations.
+    timeout_seconds : int, default 300
+        Maximum time in seconds to wait for batch processing before timing out.
 
     Returns
     -------
@@ -691,231 +702,196 @@ def merge_cluster_batched(
         torch.cuda.synchronize()
         logging.debug("Performed aggressive GPU memory cleanup before batch processing")
 
-    # Process each batch
+    # Process each batch with timeout and retry logic
     current_gid = gid_offset
     batch_results = []
 
+    def timeout_handler(signum, frame):
+        raise TimeoutError("Batch processing timed out")
+
     for batch_idx, batch in enumerate(tqdm(batches, desc="Processing tile batches")):
-        try:
-            logging.debug(f"Processing batch {batch_idx+1}/{len(batches)} with {len(batch)} tiles")
+        retry_count = 0
+        batch_success = False
 
-            # Calculate the bounding box for this batch
-            batch_min_r = min(r for r, _ in batch)
-            batch_min_c = min(c for _, c in batch)
-            batch_max_r = max(r for r, _ in batch)
-            batch_max_c = max(c for _, c in batch)
-
-            batch_y0 = batch_min_r * stride_h
-            batch_x0 = batch_min_c * stride_w
-
-            # Ensure batch starting coordinates are within image bounds.
-            if batch_y0 >= height or batch_x0 >= width:
-                logging.warning(f"Batch starting position ({batch_y0},{batch_x0}) exceeds image bounds ({height},{width}), skipping batch")
-                continue
-
-            # Clamp the bounding box to the actual slide size
-            batch_h = min((batch_max_r - batch_min_r) * stride_h + tile_h, height - batch_y0)
-            batch_w = min((batch_max_c - batch_min_c) * stride_w + tile_w, width - batch_x0)
-
-            # Ensure batch dimensions are positive.
-            if batch_h <= 0 or batch_w <= 0:
-                logging.warning(f"Invalid batch dimensions: {batch_h}×{batch_w} (batch_y0={batch_y0}, batch_x0={batch_x0}), skipping batch")
-                continue
-
-            # Calculate relative position within the cluster
-            rel_y0 = batch_y0 - y0
-            rel_x0 = batch_x0 - x0
-
-            # Create a stack for this batch.
-            T = len(batch)
-
-            # Check for potential memory issues before allocation.
-            batch_elements = T * batch_h * batch_w
-            if batch_elements > 2**31 - 1:
-                raise RuntimeError(f"Batch stack would have {batch_elements} elements, exceeding safe limits. "
-                                 f"Batch size: {T}, dimensions: {batch_h}×{batch_w}")
-
+        while retry_count < max_retries and not batch_success:
             try:
-                batch_stack = np.zeros((T, batch_h, batch_w), dtype=np.uint32)
-            except (MemoryError, OverflowError) as e:
-                raise RuntimeError(f"Failed to allocate memory for batch stack of size ({T}, {batch_h}, {batch_w}): {e}. "
-                                 f"Consider reducing batch size or using CPU processing.")
+                # Set up timeout for this batch
+                if timeout_seconds > 0:
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(timeout_seconds)
 
-            # Load tiles for this batch
-            for t, (r, c) in enumerate(batch):
-                global_y0 = r * stride_h
-                global_x0 = c * stride_w
-                rel_batch_y0 = global_y0 - batch_y0
-                rel_batch_x0 = global_x0 - batch_x0
+                start_time = time.time()
+                logging.debug(f"Processing batch {batch_idx+1}/{len(batches)} with {len(batch)} tiles (attempt {retry_count+1}/{max_retries})")
 
-                # Clamp the tile request to image boundaries
-                ys = slice(global_y0, min(global_y0 + tile_h, height))
-                xs = slice(global_x0, min(global_x0 + tile_w, width))
+                # Calculate the bounding box for this batch
+                batch_min_r = min(r for r, _ in batch)
+                batch_min_c = min(c for _, c in batch)
+                batch_max_r = max(r for r, _ in batch)
+                batch_max_c = max(c for _, c in batch)
 
-                logging.debug(f"Loading tile ({r},{c}) at global=({global_y0},{global_x0}), "
-                             f"slice=({ys.start}:{ys.stop}, {xs.start}:{xs.stop})")
+                batch_y0 = batch_min_r * stride_h
+                batch_x0 = batch_min_c * stride_w
 
-                tile = loader(ys, xs)
-                h, w = tile.shape
+                # Ensure batch starting coordinates are within image bounds.
+                if batch_y0 >= height or batch_x0 >= width:
+                    logging.warning(f"Batch starting position ({batch_y0},{batch_x0}) exceeds image bounds ({height},{width}), skipping batch")
+                    continue
 
-                # Ensure we don't exceed the batch bounds
-                end_y = min(rel_batch_y0 + h, batch_h)
-                end_x = min(rel_batch_x0 + w, batch_w)
+                # Clamp the bounding box to the actual slide size
+                batch_h = min((batch_max_r - batch_min_r) * stride_h + tile_h, height - batch_y0)
+                batch_w = min((batch_max_c - batch_min_c) * stride_w + tile_w, width - batch_x0)
 
-                if end_y > rel_batch_y0 and end_x > rel_batch_x0:
-                    # Adjust tile dimensions if needed
-                    tile_h_to_copy = end_y - rel_batch_y0
-                    tile_w_to_copy = end_x - rel_batch_x0
+                # Ensure batch dimensions are positive.
+                if batch_h <= 0 or batch_w <= 0:
+                    logging.warning(f"Invalid batch dimensions: {batch_h}×{batch_w} (batch_y0={batch_y0}, batch_x0={batch_x0}), skipping batch")
+                    continue
 
-                    batch_stack[t, rel_batch_y0:end_y, rel_batch_x0:end_x] = tile[:tile_h_to_copy, :tile_w_to_copy]
+                # Calculate relative position within the cluster
+                rel_y0 = batch_y0 - y0
+                rel_x0 = batch_x0 - x0
 
-                    logging.debug(f"Placed tile ({r},{c}) in batch stack: "
-                                 f"stack_pos=({rel_batch_y0}:{end_y}, {rel_batch_x0}:{end_x}), "
-                                 f"tile_size=({h},{w}), copied=({tile_h_to_copy},{tile_w_to_copy})")
-                else:
-                    logging.warning(f"Tile ({r},{c}) could not be placed in batch stack - bounds issue")
+                # Create a stack for this batch.
+                T = len(batch)
 
-            # Merge this batch
-            merge_fn = merge_patch_gpu if use_gpu else merge_patch_cpu
-            batch_merged, _ = merge_fn(batch_stack, threshold=threshold)
+                # Check for potential memory issues before allocation.
+                batch_elements = T * batch_h * batch_w
+                if batch_elements > 2**31 - 1:
+                    raise RuntimeError(f"Batch stack would have {batch_elements} elements, exceeding safe limits. "
+                                     f"Batch size: {T}, dimensions: {batch_h}×{batch_w}")
 
-            # Shift labels to ensure uniqueness across batches
-            if np.any(batch_merged > 0):
-                nucleus_mask = batch_merged != 0
-                max_label = int(batch_merged.max())
-                batch_merged = batch_merged.astype(np.uint32, copy=False)
-                batch_merged[nucleus_mask] += current_gid
-                current_gid += max_label
-
-                # Store the batch result for potential boundary processing
-                batch_results.append({
-                    'merged': batch_merged,
-                    'position': (rel_y0, rel_x0),
-                    'size': (batch_h, batch_w),
-                    'tiles': batch
-                })
-
-                # Copy non-zero pixels to the final merged patch
-                merged_patch[rel_y0:rel_y0+batch_h, rel_x0:rel_x0+batch_w][nucleus_mask] = batch_merged[nucleus_mask]
-
-                logging.debug(f"Batch {batch_idx+1} merge completed: "
-                             f"output_size=({batch_h},{batch_w}), "
-                             f"max_label={batch_merged.max()}, "
-                             f"non_zero_pixels={np.count_nonzero(nucleus_mask)}")
-
-                # Incremental saving: Update global array and save to temp file after each batch.
-                if global_merged_array is not None and temp_file_path is not None:
-                    # Update the global merged array with this batch's results.
-                    global_y0 = y0 + rel_y0
-                    global_x0 = x0 + rel_x0
-                    global_merged_array[global_y0:global_y0+batch_h, global_x0:global_x0+batch_w][nucleus_mask] = batch_merged[nucleus_mask]
-
-                    # Save the updated global array to the temp file.
-                    np.save(temp_file_path, global_merged_array)
-                    logging.debug(f"Incremental save completed for batch {batch_idx+1}")
-            else:
-                logging.debug(f"Batch {batch_idx+1} has no nuclei")
-
-            # Clean up to free memory.
-            del batch_stack
-            if use_gpu and aggressive_cleanup:
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-
-        except Exception as e:
-            logging.error(f"Error processing batch {batch_idx+1}: {e}")
-            logging.debug(f"Batch error traceback:\n{traceback.format_exc()}")
-
-            # Enhanced error recovery with better GPU memory management.
-            if use_gpu:
-                # Perform aggressive GPU memory cleanup.
                 try:
+                    batch_stack = np.zeros((T, batch_h, batch_w), dtype=np.uint32)
+                except (MemoryError, OverflowError) as e:
+                    raise RuntimeError(f"Failed to allocate memory for batch stack of size ({T}, {batch_h}, {batch_w}): {e}. "
+                                     f"Consider reducing batch size or using CPU processing.")
+
+                # Load tiles for this batch
+                for t, (r, c) in enumerate(batch):
+                    global_y0 = r * stride_h
+                    global_x0 = c * stride_w
+                    rel_batch_y0 = global_y0 - batch_y0
+                    rel_batch_x0 = global_x0 - batch_x0
+
+                    # Clamp the tile request to image boundaries
+                    ys = slice(global_y0, min(global_y0 + tile_h, height))
+                    xs = slice(global_x0, min(global_x0 + tile_w, width))
+
+                    logging.debug(f"Loading tile ({r},{c}) at global=({global_y0},{global_x0}), "
+                                 f"slice=({ys.start}:{ys.stop}, {xs.start}:{xs.stop})")
+
+                    tile = loader(ys, xs)
+                    h, w = tile.shape
+
+                    # Ensure we don't exceed the batch bounds
+                    end_y = min(rel_batch_y0 + h, batch_h)
+                    end_x = min(rel_batch_x0 + w, batch_w)
+
+                    if end_y > rel_batch_y0 and end_x > rel_batch_x0:
+                        # Adjust tile dimensions if needed
+                        tile_h_to_copy = end_y - rel_batch_y0
+                        tile_w_to_copy = end_x - rel_batch_x0
+
+                        batch_stack[t, rel_batch_y0:end_y, rel_batch_x0:end_x] = tile[:tile_h_to_copy, :tile_w_to_copy]
+
+                        logging.debug(f"Placed tile ({r},{c}) in batch stack: "
+                                     f"stack_pos=({rel_batch_y0}:{end_y}, {rel_batch_x0}:{end_x}), "
+                                     f"tile_size=({h},{w}), copied=({tile_h_to_copy},{tile_w_to_copy})")
+                    else:
+                        logging.warning(f"Tile ({r},{c}) could not be placed in batch stack - bounds issue")
+
+                # Merge this batch
+                merge_fn = merge_patch_gpu if use_gpu else merge_patch_cpu
+                batch_merged, _ = merge_fn(batch_stack, threshold=threshold)
+
+                # Shift labels to ensure uniqueness across batches
+                if np.any(batch_merged > 0):
+                    nucleus_mask = batch_merged != 0
+                    max_label = int(batch_merged.max())
+                    batch_merged = batch_merged.astype(np.uint32, copy=False)
+                    batch_merged[nucleus_mask] += current_gid
+                    current_gid += max_label
+
+                    # Store the batch result for potential boundary processing
+                    batch_results.append({
+                        'merged': batch_merged,
+                        'position': (rel_y0, rel_x0),
+                        'size': (batch_h, batch_w),
+                        'tiles': batch
+                    })
+
+                    # Copy non-zero pixels to the final merged patch
+                    merged_patch[rel_y0:rel_y0+batch_h, rel_x0:rel_x0+batch_w][nucleus_mask] = batch_merged[nucleus_mask]
+
+                    logging.debug(f"Batch {batch_idx+1} merge completed: "
+                                 f"output_size=({batch_h},{batch_w}), "
+                                 f"max_label={batch_merged.max()}, "
+                                 f"non_zero_pixels={np.count_nonzero(nucleus_mask)}")
+
+                    # Incremental saving: Update global array and save to temp file after each batch.
+                    if global_merged_array is not None and temp_file_path is not None:
+                        # Update the global merged array with this batch's results.
+                        global_y0 = y0 + rel_y0
+                        global_x0 = x0 + rel_x0
+                        global_merged_array[global_y0:global_y0+batch_h, global_x0:global_x0+batch_w][nucleus_mask] = batch_merged[nucleus_mask]
+
+                        # Save the updated global array to the temp file.
+                        np.save(temp_file_path, global_merged_array)
+                        logging.debug(f"Incremental save completed for batch {batch_idx+1}")
+                else:
+                    logging.debug(f"Batch {batch_idx+1} has no nuclei")
+
+                # Clean up to free memory.
+                del batch_stack
+                if use_gpu and aggressive_cleanup:
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
 
-                    # Check current GPU memory status.
-                    if torch.cuda.is_available():
-                        allocated = torch.cuda.memory_allocated() / (1024**3)
-                        cached = torch.cuda.memory_reserved() / (1024**3)
-                        logging.info(f"GPU memory after cleanup - Allocated: {allocated:.2f} GB, Cached: {cached:.2f} GB")
-                except Exception as cleanup_error:
-                    logging.warning(f"GPU memory cleanup failed: {cleanup_error}")
+                # Clear timeout and mark success
+                    signal.alarm(0)
 
-            # Determine recovery strategy based on error type.
-            error_str = str(e).lower()
-            is_memory_error = any(keyword in error_str for keyword in [
-                "cuda out of memory", "out of memory", "memory", "allocation failed",
-                "runtime error", "tensor", "device-side assert"
-            ])
+                batch_success = True
+                elapsed_time = time.time() - start_time
+                logging.debug(f"Batch {batch_idx+1} completed successfully in {elapsed_time:.2f} seconds")
 
-            is_tensor_size_error = "tensor would have" in error_str and "elements" in error_str
+            except (TimeoutError, Exception) as e:
+                # Clear timeout
+                if timeout_seconds > 0:
+                    signal.alarm(0)
 
-            if batch_size > 1 and (is_memory_error or is_tensor_size_error):
-                # Calculate recovery batch size based on error type.
-                if is_tensor_size_error:
-                    # For tensor size errors, reduce very aggressively.
-                    new_batch_size = 1
-                    logging.warning(f"Tensor size error detected. Reducing to single tile processing.")
-                elif is_memory_error:
-                    # For memory errors, reduce aggressively but allow some parallelism.
-                    new_batch_size = max(1, batch_size // 4)
-                    logging.warning(f"Memory error detected. Reducing batch size from {batch_size} to {new_batch_size}")
+                retry_count += 1
+                elapsed_time = time.time() - start_time
+
+                if isinstance(e, TimeoutError):
+                    logging.warning(f"Batch {batch_idx+1} timed out after {elapsed_time:.2f} seconds (attempt {retry_count}/{max_retries})")
                 else:
-                    # For other errors, reduce moderately.
-                    new_batch_size = max(1, batch_size // 2)
-                    logging.warning(f"Processing error detected. Reducing batch size from {batch_size} to {new_batch_size}")
+                    logging.error(f"Error processing batch {batch_idx+1} (attempt {retry_count}/{max_retries}): {e}")
+                    logging.debug(f"Batch error traceback:\n{traceback.format_exc()}")
 
-                # Prevent infinite recursion.
-                if new_batch_size == batch_size:
-                    logging.error("Cannot reduce batch size further, falling back to CPU")
-                    use_gpu = False
-                    new_batch_size = 1
-
-                # Recursive retry with reduced parameters.
-                return merge_cluster_batched(
-                    cluster=cluster,
-                    loader=loader,
-                    height=height,
-                    width=width,
-                    tile_h=tile_h,
-                    tile_w=tile_w,
-                    overlap=overlap,
-                    threshold=threshold,
-                    use_gpu=use_gpu,
-                    gid_offset=gid_offset,
-                    batch_size=new_batch_size,
-                    memory_limit_gb=memory_limit_gb * 0.7,  # More aggressive memory reduction.
-                    temp_file_path=temp_file_path,
-                    global_merged_array=global_merged_array,
-                )
-            else:
-                # If we're already at minimum batch size, fall back to CPU
+                # Enhanced error recovery with better GPU memory management.
                 if use_gpu:
-                    logging.warning("Falling back to CPU processing")
+                    try:
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        if torch.cuda.is_available():
+                            allocated = torch.cuda.memory_allocated() / (1024**3)
+                            cached = torch.cuda.memory_reserved() / (1024**3)
+                            logging.info(f"GPU memory after cleanup - Allocated: {allocated:.2f} GB, Cached: {cached:.2f} GB")
+                    except Exception as cleanup_error:
+                        logging.warning(f"GPU memory cleanup failed: {cleanup_error}")
 
-                    # Clean up GPU memory before CPU fallback.
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
+                # If we've exhausted retries, raise the error
+                if retry_count >= max_retries:
+                    if isinstance(e, TimeoutError):
+                        raise RuntimeError(f"Batch {batch_idx+1} failed after {max_retries} timeout attempts")
+                    else:
+                        raise RuntimeError(f"Batch {batch_idx+1} failed after {max_retries} retry attempts: {e}")
 
-                    return merge_cluster_batched(
-                        cluster=cluster,
-                        loader=loader,
-                        height=height,
-                        width=width,
-                        tile_h=tile_h,
-                        tile_w=tile_w,
-                        overlap=overlap,
-                        threshold=threshold,
-                        use_gpu=False,
-                        gid_offset=gid_offset,
-                        batch_size=1,
-                        memory_limit_gb=memory_limit_gb,
-                        temp_file_path=temp_file_path,
-                        global_merged_array=global_merged_array,
-                    )
-                else:
-                    # If we're already on CPU and still failing, raise the error
-                    raise
+                # Wait before retry
+                time.sleep(min(retry_count * 2, 10))  # Exponential backoff, max 10 seconds
+
+        # If we get here without success, something went wrong
+        if not batch_success:
+            raise RuntimeError(f"Batch {batch_idx+1} processing failed unexpectedly")
 
     # TODO: Implement boundary merge processing for overlapping regions between batches
     # This would handle cases where nuclei span across batch boundaries

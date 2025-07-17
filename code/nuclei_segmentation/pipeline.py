@@ -329,6 +329,8 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     gpu_spatial_strategy=settings.get("gpu_spatial_strategy", "adaptive"),
                     gpu_adaptive_batching=settings.get("gpu_adaptive_batching", True),
                     gpu_aggressive_cleanup=settings.get("gpu_aggressive_cleanup", True),
+                    gpu_max_retries=settings.get("gpu_max_retries", 3),
+                    gpu_timeout_seconds=settings.get("gpu_timeout_seconds", 300),
                     output_dir=output_dir,
                 )
                 # Note: The merge_masks_streaming function now saves directly to masks/ directory.

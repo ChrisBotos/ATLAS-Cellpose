@@ -583,6 +583,8 @@ def merge_masks_streaming(
     gpu_spatial_strategy: str = "adaptive",
     gpu_adaptive_batching: bool = True,
     gpu_aggressive_cleanup: bool = True,
+    gpu_max_retries: int = 3,
+    gpu_timeout_seconds: int = 300,
     output_dir: str | Path | None = None,
 ) -> NDArray[np.uint32]:
     """Merge per‑tile instance masks into a 2‑D slide‑level label map.
@@ -903,6 +905,8 @@ def merge_masks_streaming(
                             aggressive_cleanup=gpu_aggressive_cleanup,
                             temp_file_path=temp_merged_path,
                             global_merged_array=merged,
+                            max_retries=gpu_max_retries,
+                            timeout_seconds=gpu_timeout_seconds,
                         )
 
                         # Update global ID counter and merge patch into final mask.
@@ -953,6 +957,8 @@ def merge_masks_streaming(
                         aggressive_cleanup=gpu_aggressive_cleanup,
                         temp_file_path=temp_merged_path,
                         global_merged_array=merged,
+                        max_retries=gpu_max_retries,
+                        timeout_seconds=gpu_timeout_seconds,
                     )
                 else:
                     # Use original approach for smaller clusters

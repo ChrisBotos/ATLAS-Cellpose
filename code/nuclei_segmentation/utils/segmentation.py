@@ -47,7 +47,6 @@ Usage:
 
 from __future__ import annotations
 
-import traceback
 from typing import List, Tuple
 from pathlib import Path
 
@@ -61,6 +60,42 @@ from cellpose_merge.merge_tiles import merge_masks_streaming
 MaskReturn = Tuple[np.memmap, List[None], int]
 
 # -----------------------------------------------------------------------------
+# Helper functions for mask processing.
+# -----------------------------------------------------------------------------
+
+
+def relabel_mask_for_unique_ids(mask: np.ndarray, current_max_id: int) -> np.ndarray:
+    """
+    Relabel a mask to ensure unique IDs across tiles by adding an offset.
+
+    This function takes a mask with potentially overlapping label IDs and shifts
+    all non-zero labels by the current maximum ID to ensure global uniqueness
+    across all processed tiles in the segmentation pipeline.
+
+    Args:
+        mask: Input mask array with integer labels (0 = background).
+        current_max_id: Current maximum label ID used in previous tiles.
+
+    Returns:
+        Relabeled mask with unique IDs starting from current_max_id + 1.
+    """
+    if mask.size == 0 or mask.max() == 0:
+        return mask.copy()
+
+    # Create a copy to avoid modifying the original.
+    unique_mask = mask.copy()
+
+    # Find all non-zero labels.
+    nonzero_mask = unique_mask > 0
+
+    if np.any(nonzero_mask):
+        # Shift all labels by the current maximum ID.
+        unique_mask[nonzero_mask] += current_max_id
+
+    return unique_mask
+
+
+# -----------------------------------------------------------------------------
 # Helper – single‑pass evaluation (no tiling required).
 # -----------------------------------------------------------------------------
 
@@ -71,6 +106,7 @@ def _run_single_pass_cellpose(model, image: np.ndarray, cellpose_params: dict, l
     If Cellpose crashes we return a zero‑filled mask so that downstream logic
     remains robust.  All comments are full sentences.
     """
+    # Todo apply parallelization of the tiles for faster segmentation.
 
     logger.info("Running full‑image Cellpose segmentation (no tiling).")
     try:
@@ -245,86 +281,171 @@ def run_cellpose_on_tiles(
         logger.debug(f"Expected memory usage per tile: ~{(tile_size**2 * 4) / (1024**2):.1f} MB")
 
     # Initialize counters for global label management and statistics.
-    next_global_id = 1  # Ensures unique nucleus IDs across all tiles.
-    total_cells_detected = 0  # Running count of detected nuclei.
+    current_max_id = 0  # Tracks maximum label ID for unique nucleus identification.
+    total_cells = 0  # Running count of detected nuclei.
 
-    '''Process each tile individually with Cellpose segmentation'''
-    for tile_idx, (current_tile, (y_slice, x_slice)) in enumerate(zip(tiles, slices), start=1):
+    '''Process tiles with Cellpose segmentation (parallel or sequential)'''
 
-        # Log detailed progress information for monitoring large image processing.
-        logger.info(f"Processing tile {tile_idx}/{n_tiles}")
-        logger.info(f"  Position: ({y_slice.start}, {x_slice.start})")
-        logger.info(f"  Dimensions: {current_tile.shape}")
+    # Check if parallel processing is enabled and beneficial.
+    use_parallel = (
+        cellpose_params.get("enable_parallel_processing", True) and
+        n_tiles > 1 and  # Only use parallel for multiple tiles.
+        cellpose_params.get("parallel_max_workers", 2) > 1
+    )
+
+    if use_parallel:
+        logger.info(f"Using parallel processing for {n_tiles} tiles")
+        logger.info(f"Parallel config: batch_size={cellpose_params.get('parallel_batch_size', 4)}, "
+                   f"max_workers={cellpose_params.get('parallel_max_workers', 2)}")
+
+        # Import parallel processing function.
+        from .parallel_segmentation import run_cellpose_parallel_batches
+
+        # Prepare tiles for parallel processing.
+        tile_data = [(tile, (y_slice, x_slice)) for tile, (y_slice, x_slice) in zip(tiles, slices)]
 
         try:
-            # Run Cellpose segmentation on the current tile.
-            # The model expects a 3D array with channel dimension, so we add one.
-            cellpose_results = model.eval(
-                current_tile[..., None],  # Add channel dimension for Cellpose.
-                diameter=cellpose_params["diameter"],
-                channels=cellpose_params["channels"],
-                flow_threshold=cellpose_params["flow_threshold"],
-                cellprob_threshold=cellpose_params["cellprob_threshold"],
-                resample=cellpose_params["resample"],
-                augment=False,  # Disable augmentation for consistent results.
-                batch_size=cellpose_params["batch_size"],
-                do_3D=False,  # Process as 2D nuclear segmentation.
+            # Run parallel segmentation.
+            parallel_masks, parallel_flows, total_cells_parallel = run_cellpose_parallel_batches(
+                model=model,
+                tiles=tile_data,
+                cellpose_params=cellpose_params,
+                batch_size=cellpose_params.get("parallel_batch_size", 4),
+                max_workers=cellpose_params.get("parallel_max_workers", 2),
+                memory_limit_gb=cellpose_params.get("parallel_memory_limit_gb", 6.0),
+                timeout_seconds=cellpose_params.get("parallel_timeout_seconds", 300)
             )
 
-            # Extract masks from Cellpose results (first element).
-            raw_masks = cellpose_results[0]
+            # Process parallel results and ensure all tile masks are saved.
+            for tile_idx, (mask, (y_slice, x_slice)) in enumerate(zip(parallel_masks, slices), start=1):
+                if mask.size > 0 and mask.max() > 0:
+                    # Relabel mask to ensure unique IDs across tiles.
+                    unique_mask = relabel_mask_for_unique_ids(mask, current_max_id)
+                    current_max_id = int(unique_mask.max()) if unique_mask.max() > 0 else current_max_id
 
-            # Handle cases where Cellpose returns None (no nuclei detected).
-            if raw_masks is None:
-                tile_segmentation_mask = np.zeros(current_tile.shape, dtype=np.uint32)
-                nuclei_in_tile = 0
-                logger.info(f"  → No nuclei detected in tile {tile_idx}")
-            else:
-                tile_segmentation_mask = raw_masks.astype(np.uint32)
-                nuclei_in_tile = int(tile_segmentation_mask.max())
+                    # Place the processed mask in the memory-mapped array.
+                    masks_mm[y_slice, x_slice] = unique_mask
 
-                if nuclei_in_tile > 0:
-                    # Shift nucleus labels to ensure global uniqueness across all tiles.
-                    # This prevents label conflicts when combining tiles later.
-                    nucleus_pixels = tile_segmentation_mask != 0
-                    tile_segmentation_mask[nucleus_pixels] += next_global_id
+                    tile_cells = int(unique_mask.max() - (current_max_id - int(mask.max()))) if unique_mask.max() > 0 else 0
+                    total_cells += tile_cells
 
-                    # Update the combined segmentation mask with this tile's results.
-                    masks_mm[y_slice, x_slice][nucleus_pixels] = tile_segmentation_mask[nucleus_pixels]
-
-                    # Update global counters for the next tile.
-                    next_global_id += nuclei_in_tile
-                    total_cells_detected += nuclei_in_tile
-
-                    logger.info(f"  → {nuclei_in_tile} nuclei detected and labeled")
+                    logger.info(f"Tile {tile_idx}/{n_tiles}: {tile_cells} nuclei detected")
                 else:
+                    # Create empty mask for tiles with no nuclei.
+                    unique_mask = np.zeros(mask.shape, dtype=np.uint32)
+                    logger.info(f"Tile {tile_idx}/{n_tiles}: No nuclei detected")
+
+                # Always save individual tile mask (even if empty) to prevent merge failures.
+                # Use coordinate-based filename format required by merge system.
+                tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
+                tile_path = tiles_dir / tile_filename
+                np.savez_compressed(tile_path, mask=unique_mask)
+
+                if settings.get("debug_mode", False):
+                    logger.debug(f"  → Saved tile mask to: {tile_filename}")
+
+            logger.info(f"Parallel segmentation completed: {total_cells} total nuclei detected")
+
+        except Exception as parallel_error:
+            import traceback
+            logger.error(f"Parallel processing failed: {parallel_error}")
+            logger.debug(f"Parallel processing error traceback:\n{traceback.format_exc()}")
+            logger.info("Falling back to sequential processing")
+
+            # Ensure we create empty tile masks for all tiles to prevent merge failures.
+            logger.info("Creating empty tile masks for failed parallel processing")
+            for tile_idx, (y_slice, x_slice) in enumerate(slices, start=1):
+                empty_mask = np.zeros((y_slice.stop - y_slice.start, x_slice.stop - x_slice.start), dtype=np.uint32)
+                tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
+                tile_path = tiles_dir / tile_filename
+                np.savez_compressed(tile_path, mask=empty_mask)
+                logger.info(f"Tile {tile_idx}/{n_tiles}: No nuclei detected (parallel processing failed)")
+
+            use_parallel = False
+
+    if not use_parallel:
+        logger.info("Using sequential processing for tiles")
+
+        # Sequential processing (original implementation).
+        for tile_idx, (current_tile, (y_slice, x_slice)) in enumerate(zip(tiles, slices), start=1):
+
+            # Log detailed progress information for monitoring large image processing.
+            logger.info(f"Processing tile {tile_idx}/{n_tiles}")
+            logger.info(f"  Position: ({y_slice.start}, {x_slice.start})")
+            logger.info(f"  Dimensions: {current_tile.shape}")
+
+            try:
+                # Run Cellpose segmentation on the current tile.
+                # The model expects a 3D array with channel dimension, so we add one.
+                cellpose_results = model.eval(
+                    current_tile[..., None],  # Add channel dimension for Cellpose.
+                    diameter=cellpose_params["diameter"],
+                    channels=cellpose_params["channels"],
+                    flow_threshold=cellpose_params["flow_threshold"],
+                    cellprob_threshold=cellpose_params["cellprob_threshold"],
+                    resample=cellpose_params["resample"],
+                    augment=False,  # Disable augmentation for consistent results.
+                    batch_size=cellpose_params["batch_size"],
+                    do_3D=False,  # Process as 2D nuclear segmentation.
+                )
+
+                # Extract masks from Cellpose results (first element).
+                raw_masks = cellpose_results[0]
+
+                # Handle cases where Cellpose returns None (no nuclei detected).
+                if raw_masks is None:
+                    tile_segmentation_mask = np.zeros(current_tile.shape, dtype=np.uint32)
+                    nuclei_in_tile = 0
                     logger.info(f"  → No nuclei detected in tile {tile_idx}")
+                else:
+                    tile_segmentation_mask = raw_masks.astype(np.uint32)
+                    nuclei_in_tile = int(tile_segmentation_mask.max())
 
-            # Save individual tile mask for downstream analysis and quality control.
-            # The filename format (y_start_x_start.npz) is required by the merge system.
-            tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
-            tile_save_path = tiles_dir / tile_filename
-            np.savez_compressed(tile_save_path, mask=tile_segmentation_mask)
+                    if nuclei_in_tile > 0:
+                        # Relabel mask to ensure unique IDs across tiles.
+                        unique_mask = relabel_mask_for_unique_ids(tile_segmentation_mask, current_max_id)
+                        current_max_id = int(unique_mask.max()) if unique_mask.max() > 0 else current_max_id
 
-            if settings.get("debug_mode", False):
-                logger.debug(f"  → Saved tile mask to: {tile_filename}")
+                        # Update the combined segmentation mask with this tile's results.
+                        nucleus_pixels = unique_mask != 0
+                        masks_mm[y_slice, x_slice][nucleus_pixels] = unique_mask[nucleus_pixels]
 
-            # Explicitly release memory to prevent accumulation during large image processing.
-            tile_segmentation_mask = None
-            raw_masks = None
+                        # Update counters.
+                        total_cells += nuclei_in_tile
 
-        except Exception as tile_error:
-            # Log detailed error information for debugging segmentation failures.
-            logger.error(f"✗ Tile {tile_idx} processing failed: {tile_error}")
+                        logger.info(f"  → {nuclei_in_tile} nuclei detected and labeled")
 
-            if settings.get("debug_mode", False):
-                import traceback
-                logger.debug(f"Full error traceback:\n{traceback.format_exc()}")
+                        # Use the unique mask for saving.
+                        tile_segmentation_mask = unique_mask
+                    else:
+                        logger.info(f"  → No nuclei detected in tile {tile_idx}")
 
-            # Create empty mask for failed tile to maintain consistency.
-            empty_mask = np.zeros(current_tile.shape, dtype=np.uint32)
-            tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
-            np.savez_compressed(tiles_dir / tile_filename, mask=empty_mask)
+                # Save individual tile mask for downstream analysis and quality control.
+                # The filename format (y_start_x_start.npz) is required by the merge system.
+                tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
+                tile_save_path = tiles_dir / tile_filename
+                np.savez_compressed(tile_save_path, mask=tile_segmentation_mask)
+
+                if settings.get("debug_mode", False):
+                    logger.debug(f"  → Saved tile mask to: {tile_filename}")
+
+                # Explicitly release memory to prevent accumulation during large image processing.
+                tile_segmentation_mask = None
+                raw_masks = None
+
+            except Exception as tile_error:
+                # Log detailed error information for debugging segmentation failures.
+                logger.error(f"✗ Tile {tile_idx} processing failed: {tile_error}")
+
+                if settings.get("debug_mode", False):
+                    import traceback
+                    logger.debug(f"Full error traceback:\n{traceback.format_exc()}")
+
+                # Create empty mask as fallback.
+                empty_mask = np.zeros(current_tile.shape, dtype=np.uint32)
+                tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
+                tile_save_path = tiles_dir / tile_filename
+                np.savez_compressed(tile_save_path, mask=empty_mask)
 
     '''Finalize segmentation results and prepare outputs'''
     # Ensure all data is written to disk before returning.
@@ -335,18 +456,18 @@ def run_cellpose_on_tiles(
     logger.info("SEGMENTATION SUMMARY")
     logger.info("="*60 + '\n')
     logger.info(f"Total tiles processed: {n_tiles}")
-    logger.info(f"Total nuclei detected: {total_cells_detected}")
-    logger.info(f"Average nuclei per tile: {total_cells_detected/n_tiles:.1f}")
-    logger.info(f"Nuclear density: {total_cells_detected/(H*W)*1e6:.1f} nuclei/mm² (assuming 1 pixel = 1 μm)")
+    logger.info(f"Total nuclei detected: {total_cells}")
+    logger.info(f"Average nuclei per tile: {total_cells/n_tiles:.1f}")
+    logger.info(f"Nuclear density: {total_cells/(H*W)*1e6:.1f} nuclei/mm² (assuming 1 pixel = 1 μm)")
     logger.info(f"Individual tile masks saved to: {tiles_dir}")
     logger.info(f"Combined segmentation mask ready for pipeline processing")
 
     if settings.get("debug_mode", False):
         logger.debug(f"Memory-mapped file size: {masks_mm.nbytes / (1024**2):.1f} MB")
-        logger.debug(f"Next available global ID: {next_global_id}")
+        logger.debug(f"Current maximum ID: {current_max_id}")
 
     logger.info("Tiled segmentation completed successfully")
 
     # Return memory-mapped mask, placeholder flows, and cell count.
     # The flows are set to None to conserve memory during large image processing.
-    return masks_mm, [None, None, None], total_cells_detected
+    return masks_mm, [None, None, None], total_cells

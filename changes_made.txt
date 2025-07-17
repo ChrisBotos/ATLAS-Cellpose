@@ -42,3 +42,7 @@ Now the tiles start from the top left, so they may cover smaller areas on the bo
 13) Improved the merging of masks by making a new dir called cellpose_merge in code.
 This hosts a lot of scripts helping in properly merging the masks according to the 4 step rule.
 Also, the big change is that the script utilize gpu acceleration and batching to merge without memory issues.
+
+14) Implemented parallel processing for cellpose segmentation and merging of masks by running many tiles in parallel.
+
+15) Memory safety and management.
