@@ -322,9 +322,13 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     threshold=settings.get("merge_overlap_threshold", 0.3),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
-                    qc_merge_use_full_image = settings.get("qc_merge_use_full_image", False),
-                    gpu_batch_size=settings.get("gpu_batch_size", 10),
+                    qc_merge_use_full_image=settings.get("qc_merge_use_full_image", False),
+                    gpu_batch_size=settings.get("gpu_batch_size", 1),
                     gpu_memory_limit_gb=settings.get("gpu_memory_limit_gb", 8.0),
+                    gpu_memory_safety_factor=settings.get("gpu_memory_safety_factor", 1.5),
+                    gpu_spatial_strategy=settings.get("gpu_spatial_strategy", "adaptive"),
+                    gpu_adaptive_batching=settings.get("gpu_adaptive_batching", True),
+                    gpu_aggressive_cleanup=settings.get("gpu_aggressive_cleanup", True),
                     output_dir=output_dir,
                 )
                 # Note: The merge_masks_streaming function now saves directly to masks/ directory.

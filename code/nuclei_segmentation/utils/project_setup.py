@@ -98,6 +98,12 @@ def load_config(config_path=None):
         "gpu_batch_size": config.getint("tiling", "gpu_batch_size", fallback=1),
         "gpu_memory_limit_gb": config.getfloat("tiling", "gpu_memory_limit_gb", fallback=8.0),
 
+        # Enhanced GPU memory management parameters for optimized tile merging.
+        "gpu_memory_safety_factor": config.getfloat("tiling", "gpu_memory_safety_factor", fallback=1.5),
+        "gpu_spatial_strategy": config.get("tiling", "gpu_spatial_strategy", fallback="adaptive"),
+        "gpu_adaptive_batching": config.getboolean("tiling", "gpu_adaptive_batching", fallback=True),
+        "gpu_aggressive_cleanup": config.getboolean("tiling", "gpu_aggressive_cleanup", fallback=True),
+
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
         "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
         "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),

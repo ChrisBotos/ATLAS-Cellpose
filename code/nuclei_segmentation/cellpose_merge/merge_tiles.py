@@ -577,8 +577,12 @@ def merge_masks_streaming(
     qc: bool = False,
     qc_dir: str | Path | None = None,
     qc_merge_use_full_image = False,
-    gpu_batch_size: int = 10,
+    gpu_batch_size: int = 1,
     gpu_memory_limit_gb: float = 8.0,
+    gpu_memory_safety_factor: float = 1.5,
+    gpu_spatial_strategy: str = "adaptive",
+    gpu_adaptive_batching: bool = True,
+    gpu_aggressive_cleanup: bool = True,
     output_dir: str | Path | None = None,
 ) -> NDArray[np.uint32]:
     """Merge per‑tile instance masks into a 2‑D slide‑level label map.
@@ -608,13 +612,25 @@ def merge_masks_streaming(
     qc_dir : str | Path | None
         Output folder for QC overlays if *qc* is *True*.
     gpu_batch_size : int, default 1
-        Number of 2x2 tile groups to process simultaneously during GPU-based
-        merging. Smaller values use less GPU memory but may be slower.
-        Larger values process more tiles in parallel but require more memory.
+        Number of tiles to process simultaneously during GPU-based merging.
+        Smaller values use less GPU memory but may be slower for dense clusters.
+        The system will auto-optimize this value based on memory constraints.
     gpu_memory_limit_gb : float, default 8.0
         Maximum GPU memory to use in gigabytes for tile merging operations.
         The system will automatically adjust batch sizes to stay within this limit.
         Set to 0 for automatic detection based on available GPU memory.
+    gpu_memory_safety_factor : float, default 1.5
+        Safety multiplier for GPU memory estimates to prevent out-of-memory errors.
+        Higher values are more conservative but may reduce GPU utilization.
+    gpu_spatial_strategy : str, default "adaptive"
+        Spatial batching strategy for tile grouping: "adaptive", "2x2", "spatial", "hybrid".
+        Adaptive mode automatically selects the best strategy based on tile characteristics.
+    gpu_adaptive_batching : bool, default True
+        Enable adaptive batch sizing based on tile spatial distribution and GPU memory.
+        Improves performance for mixed dense/sparse tile patterns.
+    gpu_aggressive_cleanup : bool, default True
+        Enable aggressive GPU memory cleanup between batches to prevent fragmentation.
+        May slightly reduce performance but improves memory stability.
     output_dir : str | Path | None, default None
         Output directory where temp_merged_segmentations_masks.npy will be created
         and then renamed to segmentations_masks.npy. If None, uses tiles_path parent.
@@ -879,8 +895,12 @@ def merge_masks_streaming(
                             threshold=threshold,
                             use_gpu=True,
                             gid_offset=gid_counter,
-                            batch_size=1,  # Use very conservative batch size for split clusters
-                            memory_limit_gb=gpu_memory_limit_gb * 0.6,  # Use even more conservative memory limit
+                            batch_size=1,  # Use very conservative batch size for split clusters.
+                            memory_limit_gb=gpu_memory_limit_gb * 0.6,  # Use even more conservative memory limit.
+                            memory_safety_factor=gpu_memory_safety_factor,
+                            spatial_strategy=gpu_spatial_strategy,
+                            adaptive_batching=gpu_adaptive_batching,
+                            aggressive_cleanup=gpu_aggressive_cleanup,
                             temp_file_path=temp_merged_path,
                             global_merged_array=merged,
                         )
@@ -925,8 +945,12 @@ def merge_masks_streaming(
                         threshold=threshold,
                         use_gpu=True,
                         gid_offset=gid_counter,
-                        batch_size=max(1, gpu_batch_size // 2),  # Use more conservative batch size
+                        batch_size=max(1, gpu_batch_size // 2),  # Use more conservative batch size.
                         memory_limit_gb=gpu_memory_limit_gb,
+                        memory_safety_factor=gpu_memory_safety_factor,
+                        spatial_strategy=gpu_spatial_strategy,
+                        adaptive_batching=gpu_adaptive_batching,
+                        aggressive_cleanup=gpu_aggressive_cleanup,
                         temp_file_path=temp_merged_path,
                         global_merged_array=merged,
                     )
