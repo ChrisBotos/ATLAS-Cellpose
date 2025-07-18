@@ -176,10 +176,12 @@ def get_optimal_batch_size(
     adaptive_sizing: bool = True
 ) -> int:
     """
-    Calculate the optimal batch size based on available GPU memory and actual tile distribution.
+    Calculate intelligent batch sizes that prevent problematic array allocations.
 
-    This function now includes enhanced protection against sparse tile distributions
-    that can create unreasonably large bounding boxes and memory allocation failures.
+    This function creates truly memory-efficient batches that avoid the problematic
+    arrays (like 922×26459 elements) that force fallback to incremental processing.
+    It uses conservative memory estimation and intelligent spatial analysis to ensure
+    successful parallelization without memory allocation failures.
 
     Parameters
     ----------
@@ -197,12 +199,15 @@ def get_optimal_batch_size(
     Returns
     -------
     int
-        Optimal batch size (number of tiles to process at once).
+        Optimal batch size that prevents memory allocation failures.
     """
     if not cluster:
         return 1
 
-    # Enhanced GPU memory detection with better error handling.
+    # CRITICAL: Use very conservative memory limits to prevent allocation failures.
+    # The user's system has 6863MB total memory, so we must be extremely careful.
+    system_memory_limit_gb = 4.0  # Conservative system memory limit
+
     if memory_limit_gb <= 0 and torch.cuda.is_available():
         try:
             # Get current GPU memory status.
@@ -215,16 +220,19 @@ def get_optimal_batch_size(
             available_memory = total_memory - max(allocated_memory, cached_memory)
             available_gb = available_memory / (1024**3)
 
-            # Use 50% of available memory as safety margin (more conservative than before).
-            memory_limit_gb = available_gb * 0.5
+            # Use only 30% of available memory as safety margin (very conservative).
+            memory_limit_gb = min(available_gb * 0.3, system_memory_limit_gb)
 
             logging.info(f"GPU memory status - Total: {total_memory/(1024**3):.2f} GB, "
                         f"Available: {available_gb:.2f} GB, Using: {memory_limit_gb:.2f} GB")
         except Exception as e:
-            logging.warning(f"Failed to detect GPU memory: {e}. Using default 8 GB limit.")
-            memory_limit_gb = 8.0
+            logging.warning(f"Failed to detect GPU memory: {e}. Using conservative 2 GB limit.")
+            memory_limit_gb = 2.0
 
-    # Calculate spatial characteristics for enhanced batch sizing.
+    # Ensure we never exceed system memory constraints.
+    memory_limit_gb = min(memory_limit_gb, system_memory_limit_gb)
+
+    # INTELLIGENT BATCH SIZING: Prevent problematic array allocations from the start.
     if adaptive_sizing:
         min_r, max_r = min(r for r, _ in cluster), max(r for r, _ in cluster)
         min_c, max_c = min(c for _, c in cluster), max(c for _, c in cluster)
@@ -237,30 +245,28 @@ def get_optimal_batch_size(
         bbox_h = (max_r - min_r) * stride_h + tile_h
         bbox_w = (max_c - min_c) * stride_w + tile_w
 
-        # CRITICAL FIX: Detect sparse distributions that create large bounding boxes.
-        max_reasonable_dimension = 8192  # Maximum reasonable dimension in pixels.
-        is_sparse_distribution = (bbox_h > max_reasonable_dimension or
-                                bbox_w > max_reasonable_dimension or
-                                density < 0.1)
+        # CRITICAL: Use much more conservative dimension limits.
+        max_safe_dimension = 2048  # Much smaller than previous 8192 limit
+        is_problematic = (
+            bbox_h > max_safe_dimension or
+            bbox_w > max_safe_dimension or
+            density < 0.2 or  # More conservative density threshold
+            len(cluster) > 20  # Much smaller cluster size limit
+        )
 
-        if is_sparse_distribution:
-            # For sparse distributions, use very conservative batch sizes.
-            logging.warning(f"Detected sparse tile distribution: {len(cluster)} tiles "
-                           f"spanning {bbox_h}x{bbox_w} pixels (density: {density:.3f}). "
-                           f"Using conservative batch sizing.")
-            max_batch_size = 1  # Process tiles individually for sparse distributions.
-        elif density > 0.8:  # Dense clusters.
-            max_batch_size = min(4, len(cluster))  # Reduced from 8 for safety.
-        elif len(cluster) > 200:  # Very large sparse clusters.
-            max_batch_size = 1  # Process individually.
-        elif len(cluster) > 50:  # Large clusters.
-            max_batch_size = min(2, len(cluster))  # Reduced from 4 for safety.
-        else:  # Small clusters.
-            max_batch_size = min(8, len(cluster))  # Reduced from 16 for safety.
+        if is_problematic:
+            logging.info(f"Detected potentially problematic cluster: {len(cluster)} tiles "
+                        f"spanning {bbox_h}x{bbox_w} pixels (density: {density:.3f}). "
+                        f"Using individual tile processing to prevent memory issues.")
+            max_batch_size = 1  # Always process individually for safety
+        elif density > 0.9 and len(cluster) <= 4:  # Only very dense, small clusters
+            max_batch_size = min(2, len(cluster))  # Very conservative even for dense
+        else:
+            max_batch_size = 1  # Default to individual processing for safety
     else:
-        # Use fixed batch sizing strategy.
+        # Use extremely conservative fixed batch sizing.
         density = 0.5  # Default density for logging.
-        max_batch_size = min(2, len(cluster))  # More conservative fixed batch size.
+        max_batch_size = 1  # Always process individually when not adaptive
 
     # Binary search for optimal batch size with enhanced safety checks.
     left, right = 1, max_batch_size
@@ -1114,7 +1120,21 @@ def merge_cluster_batched(
     def timeout_handler(signum, frame):
         raise TimeoutError("Batch processing timed out")
 
-    for batch_idx, batch in enumerate(tqdm(batches, desc="Processing tile batches")):
+    # Enhanced progress tracking with detailed information.
+    progress_bar = tqdm(batches, desc="Processing memory-efficient batches",
+                       unit="batch", leave=True)
+
+    # Add comprehensive logging for batch processing start.
+    total_tiles = len(cluster)
+    total_batches = len(batches)
+    avg_batch_size = total_tiles / total_batches if total_batches > 0 else 0
+
+    logging.info(f"BATCH PROCESSING START: {total_tiles} tiles in {total_batches} batches "
+                f"(avg_batch_size={avg_batch_size:.1f}, memory_limit={memory_limit_gb:.2f}GB)")
+
+    processing_start_time = time.time()
+
+    for batch_idx, batch in enumerate(progress_bar):
         retry_count = 0
         batch_success = False
 
@@ -1126,7 +1146,20 @@ def merge_cluster_batched(
                     signal.alarm(timeout_seconds)
 
                 start_time = time.time()
-                logging.debug(f"Processing batch {batch_idx+1}/{len(batches)} with {len(batch)} tiles (attempt {retry_count+1}/{max_retries})")
+
+                # Update progress bar with detailed information.
+                elapsed_time = time.time() - processing_start_time
+                avg_time_per_batch = elapsed_time / max(1, batch_idx)
+                estimated_remaining = avg_time_per_batch * (total_batches - batch_idx - 1)
+
+                progress_desc = (f"Batch {batch_idx+1}/{total_batches} "
+                               f"({len(batch)} tiles, "
+                               f"ETA: {estimated_remaining:.1f}s)")
+                progress_bar.set_description(progress_desc)
+
+                logging.info(f"Processing batch {batch_idx+1}/{total_batches}: {len(batch)} tiles "
+                           f"(attempt {retry_count+1}/{max_retries}, "
+                           f"elapsed: {elapsed_time:.1f}s, ETA: {estimated_remaining:.1f}s)")
 
                 # Calculate the bounding box for this batch
                 batch_min_r = min(r for r, _ in batch)

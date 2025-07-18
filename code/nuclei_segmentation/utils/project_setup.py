@@ -108,6 +108,11 @@ def load_config(config_path=None):
         "gpu_max_retries": config.getint("tiling", "gpu_max_retries", fallback=3),
         "gpu_timeout_seconds": config.getint("tiling", "gpu_timeout_seconds", fallback=300),
 
+        # Memory-aware clustering parameters to prevent problematic array allocations.
+        "max_cluster_memory_gb": config.getfloat("tiling", "max_cluster_memory_gb", fallback=2.0),
+        "max_cluster_dimension": config.getint("tiling", "max_cluster_dimension", fallback=4096),
+        "enable_progress_tracking": config.getboolean("tiling", "enable_progress_tracking", fallback=True),
+
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
         "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
         "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),

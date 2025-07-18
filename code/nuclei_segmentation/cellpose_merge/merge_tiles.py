@@ -149,7 +149,91 @@ def _discover_tiles(path: Path) -> Tuple[Dict[Tuple[int, int], Path], List[Tuple
 2.  Graph helpers
 """
 
-def _build_clusters(coords: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
+def _build_memory_aware_clusters(
+    coords: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    max_cluster_memory_gb: float = 2.0,
+    max_cluster_dimension: int = 4096
+) -> List[List[Tuple[int, int]]]:
+    """
+    Build memory-efficient clusters that prevent problematic array allocations.
+
+    This function replaces the simple 4-neighbor connectivity approach with intelligent
+    spatial clustering that considers memory constraints from the start. It creates
+    smaller clusters that can be processed efficiently without memory allocation failures.
+
+    Parameters
+    ----------
+    coords : List[Tuple[int, int]]
+        List of (row, col) coordinates for all tiles.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    max_cluster_memory_gb : float, default 2.0
+        Maximum memory per cluster in gigabytes.
+    max_cluster_dimension : int, default 4096
+        Maximum bounding box dimension per cluster in pixels.
+
+    Returns
+    -------
+    List[List[Tuple[int, int]]]
+        List of memory-efficient clusters.
+    """
+    if not coords:
+        return []
+
+    logging.info(f"Building memory-aware clusters from {len(coords)} tiles "
+                f"(max_memory={max_cluster_memory_gb:.1f}GB, max_dimension={max_cluster_dimension}px)")
+
+    # Calculate stride for bounding box calculations.
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    # Start with traditional 4-neighbor connectivity to find base connected components.
+    base_clusters = _build_traditional_clusters(coords)
+
+    # Split oversized clusters into memory-efficient sub-clusters.
+    final_clusters = []
+
+    for cluster_idx, cluster in enumerate(base_clusters):
+        if len(cluster) <= 1:
+            final_clusters.append(cluster)
+            continue
+
+        # Check if cluster needs splitting.
+        cluster_memory, cluster_dimensions = _estimate_cluster_requirements(
+            cluster, tile_h, tile_w, overlap
+        )
+
+        max_dim = max(cluster_dimensions)
+        needs_splitting = (
+            cluster_memory > max_cluster_memory_gb or
+            max_dim > max_cluster_dimension or
+            len(cluster) > 50  # Hard limit on cluster size
+        )
+
+        if needs_splitting:
+            logging.info(f"Splitting oversized cluster {cluster_idx+1}: {len(cluster)} tiles, "
+                        f"{cluster_memory:.2f}GB, {cluster_dimensions[0]}x{cluster_dimensions[1]}px")
+
+            sub_clusters = _split_cluster_spatially(
+                cluster, tile_h, tile_w, overlap,
+                max_cluster_memory_gb, max_cluster_dimension
+            )
+            final_clusters.extend(sub_clusters)
+        else:
+            final_clusters.append(cluster)
+
+    logging.info(f"Created {len(final_clusters)} memory-efficient clusters "
+                f"(was {len(base_clusters)} base clusters)")
+
+    return final_clusters
+
+
+def _build_traditional_clusters(coords: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
     """Return 4‑neighbour connected components of the coord grid."""
     adj: Dict[Tuple[int, int], List[Tuple[int, int]]] = {c: [] for c in coords}
     for r, c in coords:
@@ -173,6 +257,127 @@ def _build_clusters(coords: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]
             queue.extend(adj[cur])
         clusters.append(comp)
     return clusters
+
+
+def _estimate_cluster_requirements(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int
+) -> Tuple[float, Tuple[int, int]]:
+    """
+    Estimate memory requirements and bounding box dimensions for a cluster.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        List of (row, col) coordinates for tiles in the cluster.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+
+    Returns
+    -------
+    Tuple[float, Tuple[int, int]]
+        Memory requirement in GB and (height, width) dimensions.
+    """
+    if not cluster:
+        return 0.0, (0, 0)
+
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    min_r = min(r for r, _ in cluster)
+    max_r = max(r for r, _ in cluster)
+    min_c = min(c for _, c in cluster)
+    max_c = max(c for _, c in cluster)
+
+    # Calculate bounding box dimensions.
+    bbox_h = (max_r - min_r) * stride_h + tile_h
+    bbox_w = (max_c - min_c) * stride_w + tile_w
+
+    # Estimate memory: (num_tiles, bbox_h, bbox_w) * 4 bytes + overhead.
+    num_tiles = len(cluster)
+    base_memory = num_tiles * bbox_h * bbox_w * 4 / (1024**3)  # GB
+    total_memory = base_memory * 2.5  # Include overhead and safety factor
+
+    return total_memory, (bbox_h, bbox_w)
+
+
+def _split_cluster_spatially(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    max_memory_gb: float,
+    max_dimension: int
+) -> List[List[Tuple[int, int]]]:
+    """
+    Split a large cluster into smaller memory-efficient sub-clusters using spatial partitioning.
+
+    This function uses a recursive spatial splitting approach to create sub-clusters
+    that meet memory and dimension constraints while preserving spatial locality.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        Large cluster to split.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    max_memory_gb : float
+        Maximum memory per sub-cluster in GB.
+    max_dimension : int
+        Maximum bounding box dimension per sub-cluster in pixels.
+
+    Returns
+    -------
+    List[List[Tuple[int, int]]]
+        List of memory-efficient sub-clusters.
+    """
+    if len(cluster) <= 1:
+        return [cluster]
+
+    # Check if current cluster meets constraints.
+    memory, dimensions = _estimate_cluster_requirements(cluster, tile_h, tile_w, overlap)
+    max_dim = max(dimensions)
+
+    if memory <= max_memory_gb and max_dim <= max_dimension and len(cluster) <= 25:
+        return [cluster]
+
+    # Find the dimension with the largest span for splitting.
+    min_r = min(r for r, _ in cluster)
+    max_r = max(r for r, _ in cluster)
+    min_c = min(c for _, c in cluster)
+    max_c = max(c for _, c in cluster)
+
+    row_span = max_r - min_r
+    col_span = max_c - min_c
+
+    # Split along the larger dimension.
+    if row_span >= col_span:
+        # Split horizontally.
+        mid_r = (min_r + max_r) // 2
+        upper_cluster = [(r, c) for r, c in cluster if r <= mid_r]
+        lower_cluster = [(r, c) for r, c in cluster if r > mid_r]
+    else:
+        # Split vertically.
+        mid_c = (min_c + max_c) // 2
+        left_cluster = [(r, c) for r, c in cluster if c <= mid_c]
+        right_cluster = [(r, c) for r, c in cluster if c > mid_c]
+        upper_cluster, lower_cluster = left_cluster, right_cluster
+
+    # Recursively split sub-clusters if needed.
+    result = []
+    for sub_cluster in [upper_cluster, lower_cluster]:
+        if sub_cluster:  # Only process non-empty clusters.
+            result.extend(_split_cluster_spatially(
+                sub_cluster, tile_h, tile_w, overlap, max_memory_gb, max_dimension
+            ))
+
+    return result
 
 
 def _estimate_cluster_memory_requirements(
@@ -643,6 +848,9 @@ def merge_masks_streaming(
     gpu_aggressive_cleanup: bool = True,
     gpu_max_retries: int = 3,
     gpu_timeout_seconds: int = 300,
+    max_cluster_memory_gb: float = 2.0,
+    max_cluster_dimension: int = 4096,
+    enable_progress_tracking: bool = True,
     output_dir: str | Path | None = None,
 ) -> NDArray[np.uint32]:
     """Merge per‑tile instance masks into a 2‑D slide‑level label map.
@@ -878,8 +1086,13 @@ def merge_masks_streaming(
     # Cluster discovery and parallel merge.
     # ------------------------------------------------------------------
 
-    clusters = _build_clusters(coords)
-    logging.info("TILE PROCESSING: Discovered %d independent tile clusters for merging.", len(clusters))
+    # Use memory-aware clustering to prevent problematic array allocations.
+    clusters = _build_memory_aware_clusters(
+        coords, tile_h, tile_w, overlap,
+        max_cluster_memory_gb=max_cluster_memory_gb,
+        max_cluster_dimension=max_cluster_dimension
+    )
+    logging.info("TILE PROCESSING: Created %d memory-efficient tile clusters for merging.", len(clusters))
 
     # Enhanced debugging: Log cluster details.
     for i, cluster in enumerate(clusters):
@@ -912,8 +1125,14 @@ def merge_masks_streaming(
         # GPU processing with batched approach for memory-efficient merging of large datasets.
         from .batch_merge import merge_cluster_batched
 
-        iterable: Iterable[List[Tuple[int, int]]] = clusters
-        for cluster_idx, cl in enumerate(tqdm(iterable, desc="Merging clusters (GPU)"), 1):
+        # Enhanced progress tracking for cluster processing.
+        if enable_progress_tracking:
+            progress_desc = f"Processing {len(clusters)} memory-efficient clusters (GPU)"
+            iterable = tqdm(clusters, desc=progress_desc, unit="cluster", leave=True)
+        else:
+            iterable = clusters
+
+        for cluster_idx, cl in enumerate(iterable, 1):
             try:
                 # Check if cluster can be processed with standard algorithms.
                 cluster_size = len(cl)
