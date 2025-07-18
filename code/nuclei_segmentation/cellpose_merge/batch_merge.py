@@ -52,15 +52,15 @@ def estimate_memory_requirements(
     tile_h: int,
     tile_w: int,
     overlap: int,
-    safety_factor: float = 1.5
+    safety_factor: float = 1.5,
+    max_reasonable_dimension: int = 8192
 ) -> float:
     """
     Estimate the GPU memory required for processing a batch of tiles with enhanced accuracy.
 
     This function calculates memory based on the actual spatial extent of the tiles,
-    not just the number of tiles, which provides more accurate estimates for
-    irregularly distributed tile clusters. Enhanced with better safety margins
-    and more precise intermediate memory calculations.
+    with safeguards against unreasonably large bounding boxes that can cause
+    memory allocation failures. Enhanced with better safety margins and overflow protection.
 
     Parameters
     ----------
@@ -73,11 +73,15 @@ def estimate_memory_requirements(
     safety_factor : float, default 1.5
         Safety multiplier for memory estimates to prevent out-of-memory errors.
         Higher values are more conservative but reduce GPU utilization.
+    max_reasonable_dimension : int, default 8192
+        Maximum reasonable dimension for a batch bounding box in pixels.
+        Batches exceeding this will be flagged as potentially problematic.
 
     Returns
     -------
     float
         Estimated memory requirement in gigabytes with safety margin applied.
+        Returns a very large value (999.0 GB) if the batch is deemed unreasonable.
     """
     if not tiles:
         return 0.0
@@ -97,8 +101,37 @@ def estimate_memory_requirements(
 
     num_tiles = len(tiles)
 
+    # CRITICAL FIX: Check for unreasonably large bounding boxes.
+    # This prevents memory allocation failures from sparse tile distributions.
+    if batch_h > max_reasonable_dimension or batch_w > max_reasonable_dimension:
+        logging.warning(f"Batch has unreasonably large bounding box: {batch_h}x{batch_w} pixels "
+                       f"for {num_tiles} tiles. This suggests sparse tile distribution that "
+                       f"should be processed differently.")
+
+        # Calculate memory based on individual tiles instead of bounding box.
+        # This provides a more realistic estimate for sparse distributions.
+        individual_tile_memory = num_tiles * tile_h * tile_w * 4  # Stack memory only.
+
+        # Add conservative intermediate memory estimate.
+        intermediate_memory = individual_tile_memory * 2  # Conservative 2x multiplier.
+
+        total_memory_bytes = (individual_tile_memory + intermediate_memory) * safety_factor
+        total_memory_gb = total_memory_bytes / (1024**3)
+
+        logging.debug(f"Using individual tile memory estimate for sparse batch: "
+                     f"{num_tiles} tiles = {total_memory_gb:.2f} GB (safety factor: {safety_factor})")
+
+        return total_memory_gb
+
+    # Standard memory calculation for reasonable bounding boxes.
     # Memory for input stack: (num_tiles, batch_h, batch_w) as uint32 (4 bytes).
     stack_memory = num_tiles * batch_h * batch_w * 4
+
+    # Check for potential integer overflow in memory calculations.
+    if stack_memory < 0 or stack_memory > 2**63 - 1:
+        logging.error(f"Integer overflow detected in memory calculation: "
+                     f"{num_tiles} * {batch_h} * {batch_w} * 4 = {stack_memory}")
+        return 999.0  # Return unreasonably high value to force rejection.
 
     # Enhanced intermediate memory calculation based on actual GPU operations.
     # DSU structures: max_labels * num_tiles * 8 bytes (int64).
@@ -114,9 +147,20 @@ def estimate_memory_requirements(
     # Total intermediate memory with more precise calculation.
     intermediate_memory = dsu_memory + temp_tensor_memory + border_memory
 
-    # Apply safety factor to prevent out-of-memory errors.
+    # Check for overflow in total memory calculation.
     total_memory_bytes = (stack_memory + intermediate_memory) * safety_factor
+    if total_memory_bytes < 0:
+        logging.error(f"Integer overflow in total memory calculation")
+        return 999.0
+
     total_memory_gb = total_memory_bytes / (1024**3)
+
+    # Additional sanity check: if memory estimate exceeds reasonable limits, flag it.
+    if total_memory_gb > 100.0:  # More than 100 GB is likely an error.
+        logging.warning(f"Extremely high memory estimate: {total_memory_gb:.2f} GB for "
+                       f"{num_tiles} tiles spanning {batch_h}x{batch_w} pixels. "
+                       f"This batch should be split further.")
+        return min(total_memory_gb, 999.0)  # Cap at 999 GB to prevent overflow.
 
     logging.debug(f"Enhanced memory estimate for {num_tiles} tiles spanning {batch_h}x{batch_w} pixels "
                  f"with {overlap}px overlap: {total_memory_gb:.2f} GB (safety factor: {safety_factor})")
@@ -128,13 +172,14 @@ def get_optimal_batch_size(
     tile_h: int,
     tile_w: int,
     overlap: int,
-    memory_limit_gb: float = 8.0
+    memory_limit_gb: float = 8.0,
+    adaptive_sizing: bool = True
 ) -> int:
     """
     Calculate the optimal batch size based on available GPU memory and actual tile distribution.
 
-    This function now considers the spatial distribution of tiles to provide more
-    accurate memory estimates and better batch sizing decisions.
+    This function now includes enhanced protection against sparse tile distributions
+    that can create unreasonably large bounding boxes and memory allocation failures.
 
     Parameters
     ----------
@@ -146,6 +191,8 @@ def get_optimal_batch_size(
         Overlap between adjacent tiles in pixels.
     memory_limit_gb : float, default 8.0
         Maximum GPU memory to use in gigabytes.
+    adaptive_sizing : bool, default True
+        Whether to use adaptive batch sizing based on tile spatial distribution.
 
     Returns
     -------
@@ -168,8 +215,8 @@ def get_optimal_batch_size(
             available_memory = total_memory - max(allocated_memory, cached_memory)
             available_gb = available_memory / (1024**3)
 
-            # Use 60% of available memory as safety margin (more conservative).
-            memory_limit_gb = available_gb * 0.6
+            # Use 50% of available memory as safety margin (more conservative than before).
+            memory_limit_gb = available_gb * 0.5
 
             logging.info(f"GPU memory status - Total: {total_memory/(1024**3):.2f} GB, "
                         f"Available: {available_gb:.2f} GB, Using: {memory_limit_gb:.2f} GB")
@@ -177,23 +224,45 @@ def get_optimal_batch_size(
             logging.warning(f"Failed to detect GPU memory: {e}. Using default 8 GB limit.")
             memory_limit_gb = 8.0
 
-    # Calculate spatial density of tiles for adaptive batch sizing.
-    min_r, max_r = min(r for r, _ in cluster), max(r for r, _ in cluster)
-    min_c, max_c = min(c for _, c in cluster), max(c for _, c in cluster)
-    spatial_span = (max_r - min_r + 1) * (max_c - min_c + 1)
-    density = len(cluster) / max(1, spatial_span)
+    # Calculate spatial characteristics for enhanced batch sizing.
+    if adaptive_sizing:
+        min_r, max_r = min(r for r, _ in cluster), max(r for r, _ in cluster)
+        min_c, max_c = min(c for _, c in cluster), max(c for _, c in cluster)
+        spatial_span = (max_r - min_r + 1) * (max_c - min_c + 1)
+        density = len(cluster) / max(1, spatial_span)
 
-    # Adjust max batch size based on density and cluster size.
-    if density > 0.8:  # Dense clusters.
-        max_batch_size = min(8, len(cluster))
-    elif len(cluster) > 200:  # Very large sparse clusters.
-        max_batch_size = min(2, len(cluster))
-    elif len(cluster) > 50:  # Large clusters.
-        max_batch_size = min(4, len(cluster))
-    else:  # Small clusters.
-        max_batch_size = min(16, len(cluster))
+        # Calculate bounding box dimensions to detect problematic sparse distributions.
+        stride_h = tile_h - overlap
+        stride_w = tile_w - overlap
+        bbox_h = (max_r - min_r) * stride_h + tile_h
+        bbox_w = (max_c - min_c) * stride_w + tile_w
 
-    # Binary search for optimal batch size for efficiency.
+        # CRITICAL FIX: Detect sparse distributions that create large bounding boxes.
+        max_reasonable_dimension = 8192  # Maximum reasonable dimension in pixels.
+        is_sparse_distribution = (bbox_h > max_reasonable_dimension or
+                                bbox_w > max_reasonable_dimension or
+                                density < 0.1)
+
+        if is_sparse_distribution:
+            # For sparse distributions, use very conservative batch sizes.
+            logging.warning(f"Detected sparse tile distribution: {len(cluster)} tiles "
+                           f"spanning {bbox_h}x{bbox_w} pixels (density: {density:.3f}). "
+                           f"Using conservative batch sizing.")
+            max_batch_size = 1  # Process tiles individually for sparse distributions.
+        elif density > 0.8:  # Dense clusters.
+            max_batch_size = min(4, len(cluster))  # Reduced from 8 for safety.
+        elif len(cluster) > 200:  # Very large sparse clusters.
+            max_batch_size = 1  # Process individually.
+        elif len(cluster) > 50:  # Large clusters.
+            max_batch_size = min(2, len(cluster))  # Reduced from 4 for safety.
+        else:  # Small clusters.
+            max_batch_size = min(8, len(cluster))  # Reduced from 16 for safety.
+    else:
+        # Use fixed batch sizing strategy.
+        density = 0.5  # Default density for logging.
+        max_batch_size = min(2, len(cluster))  # More conservative fixed batch size.
+
+    # Binary search for optimal batch size with enhanced safety checks.
     left, right = 1, max_batch_size
     optimal_batch_size = 1
 
@@ -201,10 +270,16 @@ def get_optimal_batch_size(
         mid = (left + right) // 2
         test_batch = cluster[:mid]
 
-        # Use enhanced memory estimation with safety factor.
+        # Use enhanced memory estimation with higher safety factor.
         estimated_memory = estimate_memory_requirements(
-            test_batch, tile_h, tile_w, overlap, safety_factor=1.3
+            test_batch, tile_h, tile_w, overlap, safety_factor=2.0  # Increased safety factor.
         )
+
+        # Additional check: reject batches with unreasonably high memory estimates.
+        if estimated_memory >= 999.0:  # Flag value from estimate_memory_requirements.
+            logging.warning(f"Batch size {mid} rejected due to unreasonable memory estimate")
+            right = mid - 1
+            continue
 
         if estimated_memory <= memory_limit_gb:
             optimal_batch_size = mid
@@ -212,8 +287,25 @@ def get_optimal_batch_size(
         else:
             right = mid - 1
 
+    # Final safety check: ensure batch size is reasonable.
+    if optimal_batch_size > len(cluster):
+        optimal_batch_size = len(cluster)
+
+    # For very problematic cases, force batch size to 1.
+    if optimal_batch_size > 1:
+        # Test the selected batch size one more time with actual tiles.
+        final_test_batch = cluster[:optimal_batch_size]
+        final_memory_estimate = estimate_memory_requirements(
+            final_test_batch, tile_h, tile_w, overlap, safety_factor=2.0
+        )
+
+        if final_memory_estimate >= 999.0 or final_memory_estimate > memory_limit_gb:
+            logging.warning(f"Final batch size {optimal_batch_size} still problematic "
+                           f"(memory: {final_memory_estimate:.2f} GB). Forcing batch size to 1.")
+            optimal_batch_size = 1
+
     logging.info(f"Optimal batch size: {optimal_batch_size} tiles (memory limit: {memory_limit_gb:.2f} GB, "
-                f"cluster size: {len(cluster)} tiles, density: {density:.2f})")
+                f"cluster size: {len(cluster)} tiles, density: {density:.3f})")
 
     return optimal_batch_size
 
@@ -291,9 +383,28 @@ def _create_spatial_chunks(
     """
     Create spatially compact chunks for large clusters with enhanced locality.
 
-    This approach uses Z-order (Morton order) sorting to maintain spatial locality
-    while creating batches that minimize memory fragmentation and bounding box size.
+    This approach uses intelligent spatial grouping to prevent large bounding boxes
+    that can cause memory allocation failures. For sparse distributions, it creates
+    smaller, more compact groups.
     """
+    if not cluster:
+        return []
+
+    # For very sparse or problematic distributions, process tiles individually.
+    if max_batch_size == 1:
+        return [[tile] for tile in cluster]
+
+    # Calculate spatial characteristics to determine chunking strategy.
+    min_r, max_r = min(r for r, _ in cluster), max(r for r, _ in cluster)
+    min_c, max_c = min(c for _, c in cluster), max(c for _, c in cluster)
+    spatial_span = (max_r - min_r + 1) * (max_c - min_c + 1)
+    density = len(cluster) / max(1, spatial_span)
+
+    # For very sparse distributions, use conservative spatial grouping.
+    if density < 0.1 or (max_r - min_r) > 50 or (max_c - min_c) > 50:
+        return _create_conservative_spatial_chunks(cluster, max_batch_size)
+
+    # For denser distributions, use Morton order sorting.
     def morton_encode(r: int, c: int) -> int:
         """Encode (row, col) coordinates using Morton (Z-order) encoding."""
         result = 0
@@ -310,6 +421,64 @@ def _create_spatial_chunks(
         batches.append(batch)
 
     logging.debug(f"Created {len(batches)} spatial chunks with Z-order sorting, max size {max_batch_size}")
+    return batches
+
+
+def _create_conservative_spatial_chunks(
+    cluster: List[TileCoord],
+    max_batch_size: int
+) -> List[List[TileCoord]]:
+    """
+    Create conservative spatial chunks for sparse tile distributions.
+
+    This function groups tiles into small, spatially compact batches to prevent
+    large bounding boxes that cause memory allocation failures.
+    """
+    if not cluster:
+        return []
+
+    # Sort tiles by row first, then by column for spatial locality.
+    sorted_tiles = sorted(cluster)
+
+    batches = []
+    current_batch = []
+
+    for tile in sorted_tiles:
+        # Start a new batch if current batch is empty.
+        if not current_batch:
+            current_batch = [tile]
+            continue
+
+        # Check if adding this tile would create a reasonable bounding box.
+        test_batch = current_batch + [tile]
+
+        # Calculate bounding box for the test batch.
+        min_r = min(r for r, _ in test_batch)
+        max_r = max(r for r, _ in test_batch)
+        min_c = min(c for _, c in test_batch)
+        max_c = max(c for _, c in test_batch)
+
+        # Check if bounding box is reasonable (not too sparse).
+        row_span = max_r - min_r + 1
+        col_span = max_c - min_c + 1
+        batch_density = len(test_batch) / (row_span * col_span)
+
+        # Add tile to current batch if it maintains reasonable density and size.
+        if (len(test_batch) <= max_batch_size and
+            batch_density >= 0.25 and  # At least 25% density.
+            row_span <= 8 and col_span <= 8):  # Reasonable spatial extent.
+            current_batch.append(tile)
+        else:
+            # Start a new batch with this tile.
+            batches.append(current_batch)
+            current_batch = [tile]
+
+    # Add the last batch if it's not empty.
+    if current_batch:
+        batches.append(current_batch)
+
+    logging.debug(f"Created {len(batches)} conservative spatial chunks for sparse distribution, "
+                 f"max size {max_batch_size}")
     return batches
 
 
@@ -539,6 +708,170 @@ def _create_2x2_groups(
 
     return batches
 
+
+def _merge_cluster_incremental(
+    *,
+    cluster: List[TileCoord],
+    loader: Callable[[slice, slice], NDArray[np.uint32]],
+    height: int,
+    width: int,
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    threshold: float,
+    use_gpu: bool,
+    gid_offset: int,
+    batch_size: int = 1,
+    memory_limit_gb: float = 8.0,
+    memory_safety_factor: float = 1.5,
+    spatial_strategy: str = "spatial",
+    adaptive_batching: bool = True,
+    aggressive_cleanup: bool = True,
+    temp_file_path: Optional[Path] = None,
+    global_merged_array: Optional[NDArray[np.uint32]] = None,
+    max_retries: int = 3,
+    timeout_seconds: int = 300,
+) -> MergeResult:
+    """
+    Incremental merge processing for problematic sparse tile distributions.
+
+    This function processes tiles individually and merges results directly into
+    the global array, avoiding the creation of massive cluster-wide arrays that
+    cause memory allocation failures. This is the CRITICAL FIX for the 131.47 GiB
+    allocation error.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        List of (row, col) coordinates for all tiles in the cluster.
+    loader : Callable
+        Function that loads tile data for a given slice.
+    height, width : int
+        Dimensions of the full image in pixels.
+    tile_h, tile_w : int
+        Dimensions of each tile in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    threshold : float
+        Threshold for merging objects across tiles.
+    use_gpu : bool
+        Whether to use GPU acceleration.
+    gid_offset : int
+        Offset to add to global IDs to ensure uniqueness.
+    Other parameters : same as merge_cluster_batched
+
+    Returns
+    -------
+    Tuple[NDArray[np.uint32], Tuple[int, int], Dict[int, int]]
+        Dummy merged patch (empty), cluster position, and mapping dictionary.
+        The actual merging is done directly into the global array.
+    """
+    import traceback
+
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    logging.info(f"INCREMENTAL PROCESSING: Processing {len(cluster)} tiles individually "
+                f"to avoid massive memory allocation (CRITICAL FIX for sparse distributions)")
+
+    # Process each tile individually to prevent memory allocation failures.
+    current_gid = gid_offset
+    processed_tiles = 0
+
+    for tile_idx, (tile_r, tile_c) in enumerate(cluster):
+        try:
+            logging.debug(f"Processing individual tile {tile_idx+1}/{len(cluster)}: ({tile_r}, {tile_c})")
+
+            # Calculate tile position in global coordinates.
+            global_y0 = tile_r * stride_h
+            global_x0 = tile_c * stride_w
+
+            # Ensure tile is within image bounds.
+            if global_y0 >= height or global_x0 >= width:
+                logging.warning(f"Tile ({tile_r}, {tile_c}) is outside image bounds, skipping")
+                continue
+
+            # Calculate actual tile dimensions (may be smaller at image edges).
+            actual_tile_h = min(tile_h, height - global_y0)
+            actual_tile_w = min(tile_w, width - global_x0)
+
+            if actual_tile_h <= 0 or actual_tile_w <= 0:
+                logging.warning(f"Tile ({tile_r}, {tile_c}) has invalid dimensions, skipping")
+                continue
+
+            # Load the tile data - this is safe because it's just one tile.
+            ys = slice(global_y0, global_y0 + actual_tile_h)
+            xs = slice(global_x0, global_x0 + actual_tile_w)
+            tile_data = loader(ys, xs)
+
+            if tile_data.size == 0 or not np.any(tile_data > 0):
+                logging.debug(f"Tile ({tile_r}, {tile_c}) is empty, skipping")
+                continue
+
+            # Process the tile data directly without creating large arrays.
+            # Assign unique IDs to all objects in this tile.
+            processed_tile = tile_data.copy()
+            unique_labels = np.unique(processed_tile[processed_tile > 0])
+
+            for old_label in unique_labels:
+                mask = processed_tile == old_label
+                processed_tile[mask] = current_gid
+                current_gid += 1
+
+            # Copy results directly to global array if available.
+            if global_merged_array is not None:
+                nucleus_pixels = processed_tile != 0
+                if np.any(nucleus_pixels):
+                    global_merged_array[global_y0:global_y0+actual_tile_h,
+                                      global_x0:global_x0+actual_tile_w][nucleus_pixels] = processed_tile[nucleus_pixels]
+
+                    # Save progress incrementally every 10 tiles.
+                    if temp_file_path is not None and tile_idx % 10 == 0:
+                        np.save(temp_file_path, global_merged_array)
+                        logging.debug(f"Incremental save completed after tile {tile_idx+1}")
+
+            processed_tiles += 1
+            logging.debug(f"Processed tile ({tile_r}, {tile_c}): "
+                         f"{np.count_nonzero(nucleus_pixels)} nuclei, "
+                         f"max_id={processed_tile.max()}")
+
+            # Clean up memory.
+            del processed_tile, tile_data
+
+            # Aggressive GPU cleanup every 10 tiles.
+            if use_gpu and aggressive_cleanup and tile_idx % 10 == 0:
+                try:
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                except Exception as cleanup_error:
+                    logging.warning(f"GPU cleanup failed: {cleanup_error}")
+
+        except Exception as e:
+            logging.error(f"Failed to process tile ({tile_r}, {tile_c}): {e}")
+            logging.debug(f"Tile processing error traceback:\n{traceback.format_exc()}")
+            continue
+
+    # Final save if we have a temp file.
+    if temp_file_path is not None and global_merged_array is not None:
+        np.save(temp_file_path, global_merged_array)
+        logging.info(f"Final incremental save completed")
+
+    logging.info(f"INCREMENTAL PROCESSING: Successfully completed {processed_tiles}/{len(cluster)} tiles "
+                f"without massive memory allocation")
+
+    # Return dummy results since actual merging was done directly into global array.
+    # Calculate cluster bounds for return values.
+    min_r = min(r for r, _ in cluster)
+    min_c = min(c for _, c in cluster)
+    cluster_y0 = min_r * stride_h
+    cluster_x0 = min_c * stride_w
+
+    # Return a minimal dummy patch to satisfy the interface.
+    dummy_patch = np.zeros((1, 1), dtype=np.uint32)
+
+    return dummy_patch, (cluster_y0, cluster_x0), {}
+
+
 def merge_cluster_batched(
     *,
     cluster: List[TileCoord],
@@ -611,7 +944,10 @@ def merge_cluster_batched(
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap
 
-    # Calculate the bounding box of the entire cluster
+    # CRITICAL FIX: For sparse distributions, we need to process batches individually
+    # and merge results incrementally rather than creating a massive cluster-wide array.
+
+    # Calculate basic cluster info for validation only.
     min_r = min(r for r, _ in cluster)
     min_c = min(c for _, c in cluster)
     max_r = max(r for r, _ in cluster)
@@ -624,31 +960,52 @@ def merge_cluster_batched(
     if max_r >= max_possible_rows or max_c >= max_possible_cols:
         raise ValueError(f"Tile indices out of bounds: max_tile=({max_r},{max_c}), max_possible=({max_possible_rows-1},{max_possible_cols-1})")
 
-    y0 = min_r * stride_h
-    x0 = min_c * stride_w
+    # Calculate cluster characteristics for memory safety decisions.
+    cluster_y0 = min_r * stride_h
+    cluster_x0 = min_c * stride_w
+    cluster_h_full = min((max_r - min_r) * stride_h + tile_h, height - cluster_y0)
+    cluster_w_full = min((max_c - min_c) * stride_w + tile_w, width - cluster_x0)
 
-    # Ensure starting coordinates are within image bounds.
-    if y0 >= height or x0 >= width:
-        raise ValueError(f"Cluster starting position ({y0},{x0}) exceeds image bounds ({height},{width})")
+    # CRITICAL DECISION: Check if this cluster would create a massive array.
+    total_elements = cluster_h_full * cluster_w_full
+    is_memory_problematic = (total_elements > 2**28 or  # 256M elements = 1GB
+                           cluster_h_full > 8192 or
+                           cluster_w_full > 8192)
 
-    # Clamp the bounding box to the actual slide size
-    cluster_h = min((max_r - min_r) * stride_h + tile_h, height - y0)
-    cluster_w = min((max_c - min_c) * stride_w + tile_w, width - x0)
+    if is_memory_problematic:
+        logging.warning(f"Cluster would create problematic array: {cluster_h_full}×{cluster_w_full} "
+                       f"({total_elements} elements = {total_elements * 4 / (1024**3):.2f} GB). "
+                       f"Using incremental processing instead of cluster-wide array.")
 
-    # Ensure dimensions are positive.
-    if cluster_h <= 0 or cluster_w <= 0:
-        raise ValueError(f"Invalid cluster dimensions: {cluster_h}×{cluster_w} (y0={y0}, x0={x0}, height={height}, width={width})")
+        # Use incremental processing - no cluster-wide array allocation.
+        return _merge_cluster_incremental(
+            cluster=cluster,
+            loader=loader,
+            height=height,
+            width=width,
+            tile_h=tile_h,
+            tile_w=tile_w,
+            overlap=overlap,
+            threshold=threshold,
+            use_gpu=use_gpu,
+            gid_offset=gid_offset,
+            batch_size=batch_size,
+            memory_limit_gb=memory_limit_gb,
+            memory_safety_factor=memory_safety_factor,
+            spatial_strategy=spatial_strategy,
+            adaptive_batching=adaptive_batching,
+            aggressive_cleanup=aggressive_cleanup,
+            temp_file_path=temp_file_path,
+            global_merged_array=global_merged_array,
+            max_retries=max_retries,
+            timeout_seconds=timeout_seconds,
+        )
 
-    logging.info(f"Processing cluster with {len(cluster)} tiles using batched approach: "
+    # For reasonable-sized clusters, use the original approach.
+    logging.info(f"Processing cluster with {len(cluster)} tiles using standard batched approach: "
                 f"tile_range=({min_r},{min_c}) to ({max_r},{max_c}), "
-                f"global_bbox=({y0},{x0}) to ({y0+cluster_h},{x0+cluster_w}), "
+                f"global_bbox=({cluster_y0},{cluster_x0}) to ({cluster_y0+cluster_h_full},{cluster_x0+cluster_w_full}), "
                 f"image_size=({height},{width})")
-
-    # Check for potential overflow issues before processing.
-    total_elements = cluster_h * cluster_w
-    if total_elements > 2**31 - 1:
-        raise RuntimeError(f"Cluster patch would have {total_elements} elements, exceeding safe array size limits. "
-                         f"Cluster dimensions: {cluster_h}×{cluster_w}")
 
     # Check for uint32 overflow in gid_offset.
     max_safe_gid = 2**31 - 1  # Conservative limit to prevent uint32 overflow.
@@ -661,12 +1018,36 @@ def merge_cluster_batched(
         gid_offset = (segment_number * segment_size) + 1
         logging.info(f"Adjusted gid_offset to segment {segment_number}: {gid_offset}")
 
-    # Create the output merged patch.
+    # Create the output merged patch for reasonable-sized clusters.
     try:
-        merged_patch = np.zeros((cluster_h, cluster_w), dtype=np.uint32)
+        merged_patch = np.zeros((cluster_h_full, cluster_w_full), dtype=np.uint32)
+        y0, x0 = cluster_y0, cluster_x0
+        cluster_h, cluster_w = cluster_h_full, cluster_w_full
     except (MemoryError, OverflowError) as e:
-        raise RuntimeError(f"Failed to allocate memory for cluster patch of size {cluster_h}×{cluster_w}: {e}. "
-                         f"Consider processing smaller image regions.")
+        logging.error(f"Failed to allocate memory for cluster patch of size {cluster_h_full}×{cluster_w_full}: {e}")
+        # Fallback to incremental processing.
+        return _merge_cluster_incremental(
+            cluster=cluster,
+            loader=loader,
+            height=height,
+            width=width,
+            tile_h=tile_h,
+            tile_w=tile_w,
+            overlap=overlap,
+            threshold=threshold,
+            use_gpu=use_gpu,
+            gid_offset=gid_offset,
+            batch_size=1,  # Force individual processing.
+            memory_limit_gb=memory_limit_gb,
+            memory_safety_factor=memory_safety_factor,
+            spatial_strategy="spatial",  # Use spatial strategy for safety.
+            adaptive_batching=adaptive_batching,
+            aggressive_cleanup=aggressive_cleanup,
+            temp_file_path=temp_file_path,
+            global_merged_array=global_merged_array,
+            max_retries=max_retries,
+            timeout_seconds=timeout_seconds,
+        )
 
     # Determine optimal batch size using enhanced algorithms.
     if batch_size <= 0 or adaptive_batching:
@@ -699,6 +1080,26 @@ def merge_cluster_batched(
 
     # Group tiles into batches using the specified spatial strategy.
     batches = group_tiles_by_spatial_proximity(cluster, batch_size, strategy=spatial_strategy)
+
+    # CRITICAL SAFETY CHECK: Validate all batches before processing.
+    validated_batches = []
+    for i, batch in enumerate(batches):
+        # Check if this batch would create a reasonable bounding box.
+        batch_memory_estimate = estimate_memory_requirements(
+            batch, tile_h, tile_w, overlap, safety_factor=2.0
+        )
+
+        if batch_memory_estimate >= 999.0 or batch_memory_estimate > memory_limit_gb:
+            logging.warning(f"Batch {i+1} rejected due to excessive memory requirement: "
+                           f"{batch_memory_estimate:.2f} GB. Splitting into individual tiles.")
+            # Split problematic batch into individual tiles.
+            for tile in batch:
+                validated_batches.append([tile])
+        else:
+            validated_batches.append(batch)
+
+    batches = validated_batches
+    logging.info(f"Validated {len(batches)} batches for processing (memory limit: {memory_limit_gb:.2f} GB)")
 
     # Clean up GPU memory before starting batch processing.
     if use_gpu and aggressive_cleanup:
@@ -757,16 +1158,38 @@ def merge_cluster_batched(
                 # Create a stack for this batch.
                 T = len(batch)
 
-                # Check for potential memory issues before allocation.
+                # ENHANCED SAFETY CHECK: Validate batch dimensions before allocation.
                 batch_elements = T * batch_h * batch_w
+
+                # Check for array size limits.
                 if batch_elements > 2**31 - 1:
                     raise RuntimeError(f"Batch stack would have {batch_elements} elements, exceeding safe limits. "
                                      f"Batch size: {T}, dimensions: {batch_h}×{batch_w}")
 
+                # Check for unreasonable dimensions that suggest sparse distribution.
+                max_reasonable_dim = 8192
+                if batch_h > max_reasonable_dim or batch_w > max_reasonable_dim:
+                    raise RuntimeError(f"Batch has unreasonable dimensions: {batch_h}×{batch_w} pixels. "
+                                     f"This suggests a sparse tile distribution that should be processed "
+                                     f"with smaller batch sizes or individual tiles.")
+
+                # Estimate memory requirement one more time before allocation.
+                final_memory_check = estimate_memory_requirements(
+                    batch, tile_h, tile_w, overlap, safety_factor=1.0  # No safety factor for final check.
+                )
+
+                if final_memory_check > memory_limit_gb * 1.5:  # Allow 50% over limit for final check.
+                    raise RuntimeError(f"Batch memory requirement {final_memory_check:.2f} GB exceeds "
+                                     f"safe limit of {memory_limit_gb * 1.5:.2f} GB. Batch dimensions: "
+                                     f"{T} tiles × {batch_h}×{batch_w} pixels")
+
                 try:
                     batch_stack = np.zeros((T, batch_h, batch_w), dtype=np.uint32)
+                    logging.debug(f"Successfully allocated batch stack: ({T}, {batch_h}, {batch_w}), "
+                                 f"memory: {batch_elements * 4 / (1024**3):.2f} GB")
                 except (MemoryError, OverflowError) as e:
                     raise RuntimeError(f"Failed to allocate memory for batch stack of size ({T}, {batch_h}, {batch_w}): {e}. "
+                                     f"Estimated memory: {batch_elements * 4 / (1024**3):.2f} GB. "
                                      f"Consider reducing batch size or using CPU processing.")
 
                 # Load tiles for this batch

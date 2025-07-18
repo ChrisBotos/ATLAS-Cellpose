@@ -122,8 +122,35 @@ def merge_patch_cpu(
     mapping : Dict[int, int]
         Mapping from original **local** IDs (``tile_id << 32 | label``) to **global** IDs.
     """
+    import logging
 
     T, H, W = patch.shape
+
+    # CRITICAL SAFETY CHECK: Prevent massive CPU allocations as emergency fallback.
+    total_elements = T * H * W
+    max_cpu_elements = 2**28  # 256M elements = ~1GB for uint32.
+
+    if total_elements > max_cpu_elements:
+        raise RuntimeError(f"CPU patch would have {total_elements} elements "
+                         f"({total_elements * 4 / (1024**3):.2f} GB), exceeding safe CPU limit "
+                         f"of {max_cpu_elements} elements ({max_cpu_elements * 4 / (1024**3):.2f} GB). "
+                         f"Patch shape: ({T}, {H}, {W}). "
+                         f"This indicates a problematic sparse tile distribution that should "
+                         f"use incremental processing instead.")
+
+    # Additional dimension checks for sparse distributions.
+    if H > 8192 or W > 8192:
+        logging.warning(f"Large CPU patch dimensions detected: {H}×{W} pixels. "
+                       f"This may indicate a sparse tile distribution.")
+
+        # For very large dimensions, be extra conservative.
+        if H > 16384 or W > 16384:
+            raise RuntimeError(f"CPU patch dimensions {H}×{W} are too large for safe processing. "
+                             f"This indicates a sparse tile distribution that should use "
+                             f"incremental processing instead.")
+
+    logging.debug(f"CPU merge processing patch: ({T}, {H}, {W}), "
+                 f"memory estimate: {total_elements * 4 / (1024**3):.2f} GB")
     global_next = count(1)  # IDs start at 1.
     dsu = DSUCPU()
 

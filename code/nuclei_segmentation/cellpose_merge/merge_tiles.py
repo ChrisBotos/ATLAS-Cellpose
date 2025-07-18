@@ -332,7 +332,7 @@ def _split_large_cluster(
         sub_cluster = sorted_cluster[i:i + max_cluster_size]
         sub_clusters.append(sub_cluster)
 
-    logging.info(f"Split large cluster of {len(cluster)} tiles into {len(sub_clusters)} sub-clusters")
+    logging.info(f"TILE PROCESSING: Split large cluster of {len(cluster)} image tiles into {len(sub_clusters)} sub-clusters for memory management")
 
     return sub_clusters
 
@@ -459,7 +459,7 @@ def _split_cluster_adaptively(
                     # Default splitting strategy.
                     new_max_size = max(1, current_size // 2)
 
-                logging.debug(f"Iteration {iteration+1}: Splitting cluster of {current_size} tiles "
+                logging.debug(f"TILE PROCESSING: Iteration {iteration+1}: Splitting cluster of {current_size} image tiles "
                              f"into chunks of {new_max_size} (reason: {reason})")
 
                 sub_clusters = _split_large_cluster(cl, max_cluster_size=new_max_size)
@@ -879,7 +879,7 @@ def merge_masks_streaming(
     # ------------------------------------------------------------------
 
     clusters = _build_clusters(coords)
-    logging.info("Discovered %d independent tile clusters.", len(clusters))
+    logging.info("TILE PROCESSING: Discovered %d independent tile clusters for merging.", len(clusters))
 
     # Enhanced debugging: Log cluster details.
     for i, cluster in enumerate(clusters):
@@ -892,7 +892,7 @@ def merge_masks_streaming(
         cluster_h = min((cluster_max_r - cluster_min_r) * stride_h + tile_h, height - cluster_y0)
         cluster_w = min((cluster_max_c - cluster_min_c) * stride_w + tile_w, width - cluster_x0)
 
-        logging.info(f"Cluster {i+1}: {len(cluster)} tiles, "
+        logging.info(f"TILE CLUSTER {i+1}: {len(cluster)} image tiles, "
                     f"tile_range=({cluster_min_r},{cluster_min_c}) to ({cluster_max_r},{cluster_max_c}), "
                     f"global_bbox=({cluster_y0},{cluster_x0}) to ({cluster_y0+cluster_h},{cluster_x0+cluster_w})")
 
@@ -924,7 +924,7 @@ def merge_masks_streaming(
 
                 if not is_feasible:
                     logging.warning(f"Cluster {cluster_idx} is not feasible for standard processing: {reason}")
-                    logging.info(f"Attempting to split cluster of {cluster_size} tiles into smaller sub-clusters")
+                    logging.info(f"TILE PROCESSING: Attempting to split cluster of {cluster_size} image tiles into smaller sub-clusters for memory management")
 
                     # Try to split the cluster into smaller, manageable pieces using adaptive splitting.
                     sub_clusters = _split_cluster_adaptively(
@@ -1127,7 +1127,7 @@ def merge_masks_streaming(
             )
             if not is_feasible:
                 logging.warning(f"CPU cluster {i+1} is not feasible for standard processing: {reason}")
-                logging.info(f"Splitting CPU cluster {i+1} of {len(cl)} tiles into smaller sub-clusters")
+                logging.info(f"TILE PROCESSING: Splitting CPU cluster {i+1} of {len(cl)} image tiles into smaller sub-clusters for memory management")
 
                 # Split the cluster into smaller pieces using adaptive splitting.
                 sub_clusters = _split_cluster_adaptively(

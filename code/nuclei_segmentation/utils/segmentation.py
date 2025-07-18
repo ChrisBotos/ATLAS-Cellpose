@@ -359,7 +359,7 @@ def run_cellpose_on_tiles(
                 tile_filename = f"{y_slice.start}_{x_slice.start}.npz"
                 tile_path = tiles_dir / tile_filename
                 np.savez_compressed(tile_path, mask=empty_mask)
-                logger.info(f"Tile {tile_idx}/{n_tiles}: No nuclei detected (parallel processing failed)")
+                logger.info(f"NUCLEI DETECTION: Tile {tile_idx}/{n_tiles}: No nuclei detected (parallel processing failed)")
 
             use_parallel = False
 
@@ -396,10 +396,11 @@ def run_cellpose_on_tiles(
                 if raw_masks is None:
                     tile_segmentation_mask = np.zeros(current_tile.shape, dtype=np.uint32)
                     nuclei_in_tile = 0
-                    logger.info(f"  → No nuclei detected in tile {tile_idx}")
+                    logger.info(f"  → NUCLEI COUNT: No nuclei detected in tile {tile_idx}")
                 else:
                     tile_segmentation_mask = raw_masks.astype(np.uint32)
-                    nuclei_in_tile = int(tile_segmentation_mask.max())
+                    # Count unique non-zero labels (correct method for nuclei counting).
+                    nuclei_in_tile = len(np.unique(tile_segmentation_mask[tile_segmentation_mask > 0]))
 
                     if nuclei_in_tile > 0:
                         # Relabel mask to ensure unique IDs across tiles.
@@ -413,7 +414,7 @@ def run_cellpose_on_tiles(
                         # Update counters.
                         total_cells += nuclei_in_tile
 
-                        logger.info(f"  → {nuclei_in_tile} nuclei detected and labeled")
+                        logger.info(f"  → NUCLEI COUNT: {nuclei_in_tile} nuclei detected and labeled in tile {tile_idx}")
 
                         # Use the unique mask for saving.
                         tile_segmentation_mask = unique_mask

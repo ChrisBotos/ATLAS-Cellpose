@@ -199,11 +199,12 @@ def process_cellpose_batch(
                     cell_count = 0
                 else:
                     mask = mask.astype(np.uint32)
-                    cell_count = int(mask.max()) if mask.size > 0 else 0
+                    # Count unique non-zero labels (correct method for nuclei counting).
+                    cell_count = len(np.unique(mask[mask > 0])) if mask.size > 0 else 0
 
                 results.append((mask, slice_info, cell_count))
 
-                logging.debug(f"Batch {batch_idx}, tile {tile_idx+1}: {cell_count} cells detected")
+                logging.debug(f"NUCLEI COUNT: Batch {batch_idx}, tile {tile_idx+1}: {cell_count} nuclei detected")
 
                 # Clear intermediate results to free memory.
                 cellpose_results = None
@@ -218,7 +219,7 @@ def process_cellpose_batch(
         total_cells = sum(result[2] for result in results)
         final_memory = check_memory_usage()
 
-        logging.info(f"Batch {batch_idx} completed: {len(results)} tiles, {total_cells} total cells, "
+        logging.info(f"BATCH PROCESSING: Batch {batch_idx} completed: {len(results)} image tiles, {total_cells} total nuclei detected, "
                     f"{elapsed_time:.2f}s, memory: {final_memory:.1f} MB")
 
         return results

@@ -62,13 +62,41 @@ def merge_patch_gpu(
 
     T, H, W = patch.shape
 
-    # Check for tensor size limits before processing.
+    # ENHANCED SAFETY CHECKS: Multiple layers of protection against large allocations.
     total_elements = T * H * W
     max_tensor_elements = 2**31 - 1  # PyTorch INT_MAX limit.
 
+    # Check for PyTorch tensor size limits.
     if total_elements > max_tensor_elements:
         raise RuntimeError(f"Tensor would have {total_elements} elements, exceeding PyTorch limit of {max_tensor_elements}. "
                          f"Consider using CPU processing or smaller batches.")
+
+    # CRITICAL SAFETY CHECK: Prevent unreasonably large GPU allocations.
+    # This is the key fix for the 131.47 GiB allocation error.
+    memory_estimate_gb = total_elements * 4 / (1024**3)  # 4 bytes per uint32.
+    max_reasonable_gpu_memory = 16.0  # 16 GB maximum for any single tensor.
+
+    if memory_estimate_gb > max_reasonable_gpu_memory:
+        raise RuntimeError(f"GPU tensor would require {memory_estimate_gb:.2f} GB memory, "
+                         f"exceeding reasonable limit of {max_reasonable_gpu_memory} GB. "
+                         f"Tensor shape: ({T}, {H}, {W}). "
+                         f"This suggests a sparse tile distribution that should be processed "
+                         f"with incremental methods instead of GPU batch processing.")
+
+    # Additional dimension checks for sparse distributions.
+    import logging
+    if H > 8192 or W > 8192:
+        logging.warning(f"Large tensor dimensions detected: {H}×{W} pixels. "
+                       f"This may indicate a sparse tile distribution.")
+
+        # For very large dimensions, be extra conservative.
+        if H > 16384 or W > 16384:
+            raise RuntimeError(f"Tensor dimensions {H}×{W} are too large for GPU processing. "
+                             f"This indicates a sparse tile distribution that should use "
+                             f"incremental processing instead.")
+
+    logging.debug(f"GPU merge processing tensor: ({T}, {H}, {W}), "
+                 f"memory estimate: {memory_estimate_gb:.2f} GB")
 
     # CUDA kernels don’t support uint32.  Promote to signed 64-bit once.
     try:
