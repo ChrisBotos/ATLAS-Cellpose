@@ -113,6 +113,17 @@ def load_config(config_path=None):
         "max_cluster_dimension": config.getint("tiling", "max_cluster_dimension", fallback=4096),
         "enable_progress_tracking": config.getboolean("tiling", "enable_progress_tracking", fallback=True),
 
+        # Adaptive cluster subdivision parameters to prevent massive GPU memory allocations.
+        "max_cluster_gpu_memory_gb": config.getfloat("tiling", "max_cluster_gpu_memory_gb", fallback=4.0),
+        "cluster_subdivision_strategy": config.get("tiling", "cluster_subdivision_strategy", fallback="spatial_quadtree"),
+        "max_subdivision_depth": config.getint("tiling", "max_subdivision_depth", fallback=6),
+        "min_cluster_size_after_subdivision": config.getint("tiling", "min_cluster_size_after_subdivision", fallback=2),
+
+        # uint32 ID management parameters to prevent overflow errors.
+        "uint32_id_management": config.get("tiling", "uint32_id_management", fallback="hybrid"),
+        "uint32_conservative_limit": config.getint("tiling", "uint32_conservative_limit", fallback=2000000000),
+        "uint32_segment_size": config.getint("tiling", "uint32_segment_size", fallback=100000000),
+
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
         "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
         "skip_and_copy_preprocessing": config.getboolean("using_previous_results", "skip_and_copy_preprocessing", fallback=False),

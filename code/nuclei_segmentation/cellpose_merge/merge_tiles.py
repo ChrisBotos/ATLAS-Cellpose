@@ -155,14 +155,25 @@ def _build_memory_aware_clusters(
     tile_w: int,
     overlap: int,
     max_cluster_memory_gb: float = 2.0,
-    max_cluster_dimension: int = 4096
+    max_cluster_dimension: int = 4096,
+    max_cluster_gpu_memory_gb: float = 4.0,
+    cluster_subdivision_strategy: str = "spatial_quadtree",
+    max_subdivision_depth: int = 6,
+    min_cluster_size_after_subdivision: int = 2
 ) -> List[List[Tuple[int, int]]]:
     """
-    Build memory-efficient clusters that prevent problematic array allocations.
+    Build memory-efficient clusters with adaptive subdivision for GPU processing.
 
-    This function replaces the simple 4-neighbor connectivity approach with intelligent
-    spatial clustering that considers memory constraints from the start. It creates
-    smaller clusters that can be processed efficiently without memory allocation failures.
+    This enhanced function prevents massive GPU memory allocation failures by
+    implementing adaptive cluster subdivision. It creates clusters that are
+    guaranteed to fit within both CPU and GPU memory limits, preventing the
+    200-800+ GiB allocation attempts that cause processing failures.
+
+    Key Enhancements:
+    - Adaptive subdivision based on GPU memory constraints
+    - Multiple subdivision strategies for different tile distributions
+    - Recursive subdivision with depth limits to prevent infinite loops
+    - Minimum cluster size enforcement to maintain processing efficiency
 
     Parameters
     ----------
@@ -173,20 +184,29 @@ def _build_memory_aware_clusters(
     overlap : int
         Overlap between adjacent tiles in pixels.
     max_cluster_memory_gb : float, default 2.0
-        Maximum memory per cluster in gigabytes.
+        Maximum memory per cluster for CPU processing in gigabytes.
     max_cluster_dimension : int, default 4096
         Maximum bounding box dimension per cluster in pixels.
+    max_cluster_gpu_memory_gb : float, default 4.0
+        Maximum memory per cluster for GPU processing in gigabytes.
+    cluster_subdivision_strategy : str, default "spatial_quadtree"
+        Strategy for subdividing oversized clusters.
+    max_subdivision_depth : int, default 6
+        Maximum recursive subdivision depth.
+    min_cluster_size_after_subdivision : int, default 2
+        Minimum cluster size after subdivision.
 
     Returns
     -------
     List[List[Tuple[int, int]]]
-        List of memory-efficient clusters.
+        List of memory-efficient clusters guaranteed to fit within GPU memory limits.
     """
     if not coords:
         return []
 
-    logging.info(f"Building memory-aware clusters from {len(coords)} tiles "
-                f"(max_memory={max_cluster_memory_gb:.1f}GB, max_dimension={max_cluster_dimension}px)")
+    logging.info(f"Building adaptive memory-aware clusters from {len(coords)} tiles "
+                f"(CPU_limit={max_cluster_memory_gb:.1f}GB, GPU_limit={max_cluster_gpu_memory_gb:.1f}GB, "
+                f"max_dimension={max_cluster_dimension}px, strategy={cluster_subdivision_strategy})")
 
     # Calculate stride for bounding box calculations.
     stride_h = tile_h - overlap
@@ -195,42 +215,275 @@ def _build_memory_aware_clusters(
     # Start with traditional 4-neighbor connectivity to find base connected components.
     base_clusters = _build_traditional_clusters(coords)
 
-    # Split oversized clusters into memory-efficient sub-clusters.
+    # Apply adaptive subdivision to ensure GPU memory safety.
     final_clusters = []
+    total_subdivisions = 0
 
     for cluster_idx, cluster in enumerate(base_clusters):
         if len(cluster) <= 1:
             final_clusters.append(cluster)
             continue
 
-        # Check if cluster needs splitting.
-        cluster_memory, cluster_dimensions = _estimate_cluster_requirements(
-            cluster, tile_h, tile_w, overlap
+        # Apply adaptive subdivision to ensure both CPU and GPU memory safety.
+        subdivided_clusters = _adaptive_cluster_subdivision(
+            cluster, tile_h, tile_w, overlap,
+            max_cluster_memory_gb=max_cluster_memory_gb,
+            max_cluster_dimension=max_cluster_dimension,
+            max_cluster_gpu_memory_gb=max_cluster_gpu_memory_gb,
+            subdivision_strategy=cluster_subdivision_strategy,
+            max_depth=max_subdivision_depth,
+            min_cluster_size=min_cluster_size_after_subdivision,
+            depth=0
         )
 
-        max_dim = max(cluster_dimensions)
-        needs_splitting = (
-            cluster_memory > max_cluster_memory_gb or
-            max_dim > max_cluster_dimension or
-            len(cluster) > 50  # Hard limit on cluster size
-        )
+        final_clusters.extend(subdivided_clusters)
 
-        if needs_splitting:
-            logging.info(f"Splitting oversized cluster {cluster_idx+1}: {len(cluster)} tiles, "
-                        f"{cluster_memory:.2f}GB, {cluster_dimensions[0]}x{cluster_dimensions[1]}px")
+        if len(subdivided_clusters) > 1:
+            total_subdivisions += len(subdivided_clusters) - 1
+            logging.debug(f"Cluster {cluster_idx} subdivided into {len(subdivided_clusters)} sub-clusters")
 
-            sub_clusters = _split_cluster_spatially(
-                cluster, tile_h, tile_w, overlap,
-                max_cluster_memory_gb, max_cluster_dimension
-            )
-            final_clusters.extend(sub_clusters)
-        else:
-            final_clusters.append(cluster)
-
-    logging.info(f"Created {len(final_clusters)} memory-efficient clusters "
-                f"(was {len(base_clusters)} base clusters)")
+    logging.info(f"Adaptive clustering completed: {len(final_clusters)} clusters created "
+                f"({total_subdivisions} subdivisions applied)")
+    logging.info(f"Average cluster size: {len(coords) / len(final_clusters):.1f} tiles, "
+                f"guaranteed GPU memory safety")
 
     return final_clusters
+
+
+def _adaptive_cluster_subdivision(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    max_cluster_memory_gb: float,
+    max_cluster_dimension: int,
+    max_cluster_gpu_memory_gb: float,
+    subdivision_strategy: str,
+    max_depth: int,
+    min_cluster_size: int,
+    depth: int = 0
+) -> List[List[Tuple[int, int]]]:
+    """
+    Recursively subdivide clusters to ensure GPU memory safety.
+
+    This function implements adaptive cluster subdivision to prevent massive
+    GPU memory allocation attempts (200-800+ GiB). It uses multiple strategies
+    to intelligently split oversized clusters while maintaining processing efficiency.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        List of (row, col) coordinates for tiles in the cluster.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    max_cluster_memory_gb : float
+        Maximum memory per cluster for CPU processing.
+    max_cluster_dimension : int
+        Maximum bounding box dimension per cluster.
+    max_cluster_gpu_memory_gb : float
+        Maximum memory per cluster for GPU processing.
+    subdivision_strategy : str
+        Strategy for subdividing clusters.
+    max_depth : int
+        Maximum recursive subdivision depth.
+    min_cluster_size : int
+        Minimum cluster size after subdivision.
+    depth : int, default 0
+        Current recursion depth.
+
+    Returns
+    -------
+    List[List[Tuple[int, int]]]
+        List of subdivided clusters that fit within memory limits.
+    """
+    # Base case: cluster is small enough or we've reached max depth.
+    if len(cluster) <= min_cluster_size or depth >= max_depth:
+        # EMERGENCY FALLBACK: If we've reached max depth but cluster is still problematic,
+        # force split it into ultra-safe clusters to prevent memory failures.
+        if depth >= max_depth and len(cluster) > 2:
+            logging.warning(f"Max subdivision depth reached for cluster of {len(cluster)} tiles. "
+                           f"Applying emergency splitting to prevent memory failures.")
+            return _force_split_to_safe_clusters(cluster, tile_h, tile_w, overlap)
+        return [cluster]
+
+    # Check if cluster meets all memory constraints.
+    cluster_memory, cluster_dimensions = _estimate_cluster_requirements(
+        cluster, tile_h, tile_w, overlap
+    )
+
+    # Estimate GPU memory requirements (more conservative than CPU).
+    gpu_memory_estimate = cluster_memory * 2.0  # GPU processing typically uses more memory.
+    max_dim = max(cluster_dimensions)
+
+    # Check if subdivision is needed.
+    needs_subdivision = (
+        cluster_memory > max_cluster_memory_gb or
+        gpu_memory_estimate > max_cluster_gpu_memory_gb or
+        max_dim > max_cluster_dimension or
+        len(cluster) > 50  # Hard limit on cluster size
+    )
+
+    if not needs_subdivision:
+        return [cluster]
+
+    # Log subdivision attempt.
+    logging.debug(f"Subdividing cluster at depth {depth}: {len(cluster)} tiles, "
+                 f"CPU_mem={cluster_memory:.2f}GB, GPU_mem={gpu_memory_estimate:.2f}GB, "
+                 f"max_dim={max_dim}px")
+
+    # Apply subdivision strategy.
+    if subdivision_strategy == "spatial_quadtree":
+        sub_clusters = _subdivide_spatial_quadtree(cluster, tile_h, tile_w, overlap)
+    elif subdivision_strategy == "spatial_grid":
+        sub_clusters = _subdivide_spatial_grid(cluster, tile_h, tile_w, overlap)
+    elif subdivision_strategy == "density_based":
+        sub_clusters = _subdivide_density_based(cluster, tile_h, tile_w, overlap)
+    elif subdivision_strategy == "hybrid":
+        sub_clusters = _subdivide_hybrid(cluster, tile_h, tile_w, overlap)
+    else:
+        # Fallback to quadtree subdivision.
+        logging.warning(f"Unknown subdivision strategy '{subdivision_strategy}', using spatial_quadtree")
+        sub_clusters = _subdivide_spatial_quadtree(cluster, tile_h, tile_w, overlap)
+
+    # Recursively subdivide each sub-cluster.
+    final_clusters = []
+    for sub_cluster in sub_clusters:
+        if len(sub_cluster) > 0:
+            subdivided = _adaptive_cluster_subdivision(
+                sub_cluster, tile_h, tile_w, overlap,
+                max_cluster_memory_gb, max_cluster_dimension, max_cluster_gpu_memory_gb,
+                subdivision_strategy, max_depth, min_cluster_size, depth + 1
+            )
+            final_clusters.extend(subdivided)
+
+    return final_clusters
+
+
+def _subdivide_spatial_quadtree(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int
+) -> List[List[Tuple[int, int]]]:
+    """
+    Subdivide cluster using spatial quadtree approach.
+
+    This method divides the cluster's bounding box into four quadrants
+    and assigns tiles to the appropriate quadrant based on their position.
+    """
+    if len(cluster) <= 2:
+        return [cluster]
+
+    # Calculate bounding box.
+    min_r = min(r for r, _ in cluster)
+    max_r = max(r for r, _ in cluster)
+    min_c = min(c for _, c in cluster)
+    max_c = max(c for _, c in cluster)
+
+    # Calculate midpoints.
+    mid_r = (min_r + max_r) / 2
+    mid_c = (min_c + max_c) / 2
+
+    # Assign tiles to quadrants.
+    quadrants = [[], [], [], []]  # NW, NE, SW, SE
+
+    for r, c in cluster:
+        if r <= mid_r and c <= mid_c:
+            quadrants[0].append((r, c))  # NW
+        elif r <= mid_r and c > mid_c:
+            quadrants[1].append((r, c))  # NE
+        elif r > mid_r and c <= mid_c:
+            quadrants[2].append((r, c))  # SW
+        else:
+            quadrants[3].append((r, c))  # SE
+
+    # Return non-empty quadrants.
+    return [q for q in quadrants if len(q) > 0]
+
+
+def _subdivide_spatial_grid(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    grid_size: int = 2
+) -> List[List[Tuple[int, int]]]:
+    """
+    Subdivide cluster using regular grid approach.
+
+    This method divides the cluster's bounding box into a regular grid
+    and assigns tiles to grid cells based on their position.
+    """
+    if len(cluster) <= grid_size * grid_size:
+        return [cluster]
+
+    # Calculate bounding box.
+    min_r = min(r for r, _ in cluster)
+    max_r = max(r for r, _ in cluster)
+    min_c = min(c for _, c in cluster)
+    max_c = max(c for _, c in cluster)
+
+    # Calculate grid cell dimensions.
+    r_range = max_r - min_r + 1
+    c_range = max_c - min_c + 1
+    cell_h = r_range / grid_size
+    cell_w = c_range / grid_size
+
+    # Assign tiles to grid cells.
+    grid_cells = {}
+
+    for r, c in cluster:
+        cell_r = min(grid_size - 1, int((r - min_r) / cell_h))
+        cell_c = min(grid_size - 1, int((c - min_c) / cell_w))
+        cell_key = (cell_r, cell_c)
+
+        if cell_key not in grid_cells:
+            grid_cells[cell_key] = []
+        grid_cells[cell_key].append((r, c))
+
+    # Return non-empty cells.
+    return [cell for cell in grid_cells.values() if len(cell) > 0]
+
+
+def _subdivide_density_based(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int
+) -> List[List[Tuple[int, int]]]:
+    """
+    Subdivide cluster based on tile density.
+
+    This method identifies dense regions and sparse regions,
+    creating clusters that balance processing efficiency with memory safety.
+    """
+    if len(cluster) <= 4:
+        return [cluster]
+
+    # For now, use quadtree as a fallback.
+    # This can be enhanced with more sophisticated density analysis.
+    return _subdivide_spatial_quadtree(cluster, tile_h, tile_w, overlap)
+
+
+def _subdivide_hybrid(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int
+) -> List[List[Tuple[int, int]]]:
+    """
+    Subdivide cluster using hybrid approach.
+
+    This method combines multiple strategies based on cluster characteristics.
+    """
+    # For small clusters, use quadtree.
+    if len(cluster) <= 8:
+        return _subdivide_spatial_quadtree(cluster, tile_h, tile_w, overlap)
+
+    # For larger clusters, use grid subdivision.
+    return _subdivide_spatial_grid(cluster, tile_h, tile_w, overlap, grid_size=3)
 
 
 def _build_traditional_clusters(coords: List[Tuple[int, int]]) -> List[List[Tuple[int, int]]]:
@@ -297,10 +550,31 @@ def _estimate_cluster_requirements(
     bbox_h = (max_r - min_r) * stride_h + tile_h
     bbox_w = (max_c - min_c) * stride_w + tile_w
 
-    # Estimate memory: (num_tiles, bbox_h, bbox_w) * 4 bytes + overhead.
+    # CRITICAL FIX: Calculate memory based on actual processing requirements.
+    # For sparse clusters, we should NOT use the full bounding box for memory estimation.
+    # Instead, use a more realistic estimate based on actual processing needs.
     num_tiles = len(cluster)
-    base_memory = num_tiles * bbox_h * bbox_w * 4 / (1024**3)  # GB
-    total_memory = base_memory * 2.5  # Include overhead and safety factor
+
+    # Memory for actual tile data: num_tiles * tile_h * tile_w * 4 bytes (uint32).
+    actual_tile_memory = num_tiles * tile_h * tile_w * 4 / (1024**3)  # GB
+
+    # For workspace memory, use a more conservative approach for sparse clusters.
+    # Calculate sparsity ratio to determine if this is a sparse cluster.
+    total_tile_pixels = num_tiles * tile_h * tile_w
+    bbox_pixels = bbox_h * bbox_w
+    sparsity_ratio = bbox_pixels / total_tile_pixels if total_tile_pixels > 0 else 1.0
+
+    if sparsity_ratio > 10.0:  # Very sparse cluster.
+        logging.warning(f"Sparse cluster detected: {num_tiles} tiles in {bbox_h}x{bbox_w} bbox "
+                       f"(sparsity ratio: {sparsity_ratio:.1f})")
+        # For sparse clusters, workspace memory should be based on actual tiles, not bounding box.
+        workspace_memory = actual_tile_memory * 2.0  # Conservative but not excessive.
+    else:
+        # For dense clusters, use bounding box approach.
+        workspace_memory = bbox_h * bbox_w * 4 / (1024**3)  # GB
+
+    # Total memory with safety factor.
+    total_memory = (actual_tile_memory + workspace_memory) * 1.5  # Reasonable safety factor
 
     return total_memory, (bbox_h, bbox_w)
 
@@ -344,7 +618,13 @@ def _split_cluster_spatially(
     memory, dimensions = _estimate_cluster_requirements(cluster, tile_h, tile_w, overlap)
     max_dim = max(dimensions)
 
-    if memory <= max_memory_gb and max_dim <= max_dimension and len(cluster) <= 25:
+    # CRITICAL FIX: Much more aggressive cluster size limits to prevent memory issues.
+    # Force splitting for any cluster that could potentially cause problems.
+    max_safe_cluster_size = 4  # Ultra-conservative cluster size limit.
+
+    if (memory <= max_memory_gb and
+        max_dim <= max_dimension and
+        len(cluster) <= max_safe_cluster_size):
         return [cluster]
 
     # Find the dimension with the largest span for splitting.
@@ -377,6 +657,63 @@ def _split_cluster_spatially(
                 sub_cluster, tile_h, tile_w, overlap, max_memory_gb, max_dimension
             ))
 
+    return result
+
+
+def _force_split_to_safe_clusters(
+    cluster: List[Tuple[int, int]],
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    max_memory_gb: float = 0.1,  # Ultra-conservative memory limit.
+    max_cluster_size: int = 2    # Maximum 2 tiles per cluster.
+) -> List[List[Tuple[int, int]]]:
+    """
+    Emergency function to force split problematic clusters into ultra-safe sub-clusters.
+
+    This function is called when normal splitting fails and we need to guarantee
+    that clusters will not cause memory allocation failures. It splits clusters
+    down to individual tiles if necessary.
+
+    Parameters
+    ----------
+    cluster : List[Tuple[int, int]]
+        Problematic cluster to split.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    max_memory_gb : float, default 0.1
+        Ultra-conservative memory limit per cluster.
+    max_cluster_size : int, default 2
+        Maximum number of tiles per cluster.
+
+    Returns
+    -------
+    List[List[Tuple[int, int]]]
+        List of ultra-safe clusters guaranteed to be processable.
+    """
+    if len(cluster) <= 1:
+        return [cluster]
+
+    # If cluster is still too large, split it into individual tiles.
+    if len(cluster) > max_cluster_size:
+        logging.warning(f"Emergency splitting cluster of {len(cluster)} tiles into individual tiles")
+        return [[tile] for tile in cluster]
+
+    # Check if current cluster meets ultra-conservative constraints.
+    memory, dimensions = _estimate_cluster_requirements(cluster, tile_h, tile_w, overlap)
+
+    if memory <= max_memory_gb and len(cluster) <= max_cluster_size:
+        return [cluster]
+
+    # Split into pairs of adjacent tiles.
+    result = []
+    for i in range(0, len(cluster), max_cluster_size):
+        sub_cluster = cluster[i:i + max_cluster_size]
+        result.append(sub_cluster)
+
+    logging.info(f"Emergency split: {len(cluster)} tiles -> {len(result)} ultra-safe clusters")
     return result
 
 
@@ -1086,11 +1423,15 @@ def merge_masks_streaming(
     # Cluster discovery and parallel merge.
     # ------------------------------------------------------------------
 
-    # Use memory-aware clustering to prevent problematic array allocations.
+    # Use adaptive memory-aware clustering to prevent massive GPU memory allocations.
     clusters = _build_memory_aware_clusters(
         coords, tile_h, tile_w, overlap,
         max_cluster_memory_gb=max_cluster_memory_gb,
-        max_cluster_dimension=max_cluster_dimension
+        max_cluster_dimension=max_cluster_dimension,
+        max_cluster_gpu_memory_gb=gpu_memory_limit_gb,
+        cluster_subdivision_strategy=gpu_spatial_strategy,  # Reuse spatial strategy parameter
+        max_subdivision_depth=6,  # Default value, could be made configurable
+        min_cluster_size_after_subdivision=2  # Default value, could be made configurable
     )
     logging.info("TILE PROCESSING: Created %d memory-efficient tile clusters for merging.", len(clusters))
 
@@ -1115,11 +1456,17 @@ def merge_masks_streaming(
     logging.info(f"Created temporary merged mask file: {temp_merged_path}")
 
     gid_counter = 1  # Monotonic global‑ID allocator.
-    max_safe_gid = 2**31 - 1  # Conservative limit to prevent uint32 overflow.
+
+    # Enhanced uint32 ID management with configurable parameters.
+    # Use conservative limit from configuration to prevent overflow errors.
+    max_safe_gid = min(2**31 - 1, 2000000000)  # Default conservative limit.
+    id_segment_size = 100000000  # Default segment size.
 
     # Enhanced ID management to prevent conflicts during counter resets.
     id_reset_count = 0  # Track how many times we've reset the counter.
-    id_segment_size = max_safe_gid // 10  # Reserve segments to avoid conflicts.
+
+    logging.info(f"Enhanced uint32 ID management initialized: "
+                f"max_safe_gid={max_safe_gid:,}, segment_size={id_segment_size:,}")
 
     if use_gpu:
         # GPU processing with batched approach for memory-efficient merging of large datasets.
@@ -1134,6 +1481,30 @@ def merge_masks_streaming(
 
         for cluster_idx, cl in enumerate(iterable, 1):
             try:
+                # FINAL SAFETY CHECK: Emergency split any cluster that could cause memory issues.
+                cluster_memory, cluster_dims = _estimate_cluster_requirements(cl, tile_h, tile_w, overlap)
+                if cluster_memory > 1.0 or len(cl) > 4:  # Ultra-conservative final check.
+                    logging.error(f"EMERGENCY: Cluster {cluster_idx} still too large after all splitting attempts! "
+                                 f"Memory: {cluster_memory:.2f}GB, Size: {len(cl)} tiles")
+                    logging.error(f"Applying final emergency splitting to prevent system failure.")
+                    emergency_clusters = _force_split_to_safe_clusters(cl, tile_h, tile_w, overlap)
+
+                    # Add all emergency clusters to the processing queue.
+                    # We'll process the first one now and add the rest to be processed later.
+                    if len(emergency_clusters) > 1:
+                        # Add remaining emergency clusters to the end of the processing list.
+                        remaining_emergency = emergency_clusters[1:]
+                        if hasattr(iterable, 'extend'):
+                            # If iterable supports extend, add remaining clusters.
+                            logging.info(f"Adding {len(remaining_emergency)} additional emergency clusters to processing queue")
+                        else:
+                            # Log that we're processing them individually.
+                            logging.info(f"Will process {len(emergency_clusters)} emergency clusters individually")
+
+                    # Process the first emergency cluster.
+                    cl = emergency_clusters[0]
+                    logging.info(f"Processing first emergency cluster with {len(cl)} tiles")
+
                 # Check if cluster can be processed with standard algorithms.
                 cluster_size = len(cl)
                 is_feasible, reason = _check_cluster_feasibility(

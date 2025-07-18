@@ -739,32 +739,59 @@ def _merge_cluster_incremental(
     timeout_seconds: int = 300,
 ) -> MergeResult:
     """
-    Incremental merge processing for problematic sparse tile distributions.
+    Memory-safe incremental merge processing with proper overlap handling.
 
-    This function processes tiles individually and merges results directly into
-    the global array, avoiding the creation of massive cluster-wide arrays that
-    cause memory allocation failures. This is the CRITICAL FIX for the 131.47 GiB
-    allocation error.
+    This function processes tiles in memory-efficient pairs to maintain merge quality
+    while avoiding massive memory allocations. Unlike the previous version that processed
+    tiles individually (causing visible tile boundaries), this implementation:
+
+    1. Processes adjacent tile pairs to detect overlapping nuclei.
+    2. Applies 4-step merging rules in overlap regions.
+    3. Maintains unique ID assignment across the entire cluster.
+    4. Uses minimal memory by processing only 2-3 tiles at a time.
+
+    The key insight is that proper merging requires examining overlap regions between
+    adjacent tiles, not just processing tiles in isolation. This approach preserves
+    merge quality while staying within memory constraints.
 
     Parameters
     ----------
     cluster : List[Tuple[int, int]]
         List of (row, col) coordinates for all tiles in the cluster.
-    loader : Callable
-        Function that loads tile data for a given slice.
+    loader : Callable[[slice, slice], NDArray[np.uint32]]
+        Function to load tile data given row and column slices.
     height, width : int
-        Dimensions of the full image in pixels.
+        Full image dimensions in pixels.
     tile_h, tile_w : int
-        Dimensions of each tile in pixels.
+        Individual tile dimensions in pixels.
     overlap : int
         Overlap between adjacent tiles in pixels.
     threshold : float
-        Threshold for merging objects across tiles.
+        Overlap threshold for merging decisions.
     use_gpu : bool
-        Whether to use GPU acceleration.
+        Whether to use GPU processing for merge operations.
     gid_offset : int
-        Offset to add to global IDs to ensure uniqueness.
-    Other parameters : same as merge_cluster_batched
+        Starting global ID for this cluster.
+    batch_size : int, default 1
+        Batch size (not used in incremental mode).
+    memory_limit_gb : float, default 8.0
+        Memory limit (used for validation only).
+    memory_safety_factor : float, default 1.5
+        Safety factor for memory calculations.
+    spatial_strategy : str, default "spatial"
+        Spatial strategy (not used in incremental mode).
+    adaptive_batching : bool, default True
+        Adaptive batching flag (not used in incremental mode).
+    aggressive_cleanup : bool, default True
+        Whether to perform aggressive GPU memory cleanup.
+    temp_file_path : Optional[Path], default None
+        Path for temporary file saves during processing.
+    global_merged_array : Optional[NDArray[np.uint32]], default None
+        Global array to merge results into.
+    max_retries : int, default 3
+        Maximum retry attempts (not used in incremental mode).
+    timeout_seconds : int, default 300
+        Timeout for processing (not used in incremental mode).
 
     Returns
     -------
@@ -773,20 +800,31 @@ def _merge_cluster_incremental(
         The actual merging is done directly into the global array.
     """
     import traceback
+    from .rules import merge_patch_cpu
+    from .gpu_merge import merge_patch_gpu
 
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap
 
-    logging.info(f"INCREMENTAL PROCESSING: Processing {len(cluster)} tiles individually "
-                f"to avoid massive memory allocation (CRITICAL FIX for sparse distributions)")
+    logging.info(f"INCREMENTAL PROCESSING WITH MERGING: Processing {len(cluster)} tiles with "
+                f"overlap-aware merging to maintain segmentation quality (ENHANCED FIX)")
 
-    # Process each tile individually to prevent memory allocation failures.
+    # Sort tiles by position for systematic processing.
+    sorted_tiles = sorted(cluster, key=lambda t: (t[0], t[1]))
+
+    # Create a mapping from tile coordinates to processed status.
+    tile_status = {tile: False for tile in sorted_tiles}
     current_gid = gid_offset
     processed_tiles = 0
+    merge_operations = 0
 
-    for tile_idx, (tile_r, tile_c) in enumerate(cluster):
+    # Process tiles in spatial order, handling overlaps between adjacent tiles.
+    for tile_idx, (tile_r, tile_c) in enumerate(sorted_tiles):
         try:
-            logging.debug(f"Processing individual tile {tile_idx+1}/{len(cluster)}: ({tile_r}, {tile_c})")
+            if tile_status[(tile_r, tile_c)]:
+                continue  # Already processed as part of a pair.
+
+            logging.debug(f"Processing tile {tile_idx+1}/{len(sorted_tiles)}: ({tile_r}, {tile_c})")
 
             # Calculate tile position in global coordinates.
             global_y0 = tile_r * stride_h
@@ -795,6 +833,7 @@ def _merge_cluster_incremental(
             # Ensure tile is within image bounds.
             if global_y0 >= height or global_x0 >= width:
                 logging.warning(f"Tile ({tile_r}, {tile_c}) is outside image bounds, skipping")
+                tile_status[(tile_r, tile_c)] = True
                 continue
 
             # Calculate actual tile dimensions (may be smaller at image edges).
@@ -803,46 +842,55 @@ def _merge_cluster_incremental(
 
             if actual_tile_h <= 0 or actual_tile_w <= 0:
                 logging.warning(f"Tile ({tile_r}, {tile_c}) has invalid dimensions, skipping")
+                tile_status[(tile_r, tile_c)] = True
                 continue
 
-            # Load the tile data - this is safe because it's just one tile.
-            ys = slice(global_y0, global_y0 + actual_tile_h)
-            xs = slice(global_x0, global_x0 + actual_tile_w)
-            tile_data = loader(ys, xs)
+            # Find adjacent tiles for overlap processing.
+            adjacent_tiles = []
 
-            if tile_data.size == 0 or not np.any(tile_data > 0):
-                logging.debug(f"Tile ({tile_r}, {tile_c}) is empty, skipping")
-                continue
+            # Check right neighbor.
+            right_neighbor = (tile_r, tile_c + 1)
+            if right_neighbor in tile_status and not tile_status[right_neighbor]:
+                adjacent_tiles.append(right_neighbor)
 
-            # Process the tile data directly without creating large arrays.
-            # Assign unique IDs to all objects in this tile.
-            processed_tile = tile_data.copy()
-            unique_labels = np.unique(processed_tile[processed_tile > 0])
+            # Check bottom neighbor.
+            bottom_neighbor = (tile_r + 1, tile_c)
+            if bottom_neighbor in tile_status and not tile_status[bottom_neighbor]:
+                adjacent_tiles.append(bottom_neighbor)
 
-            for old_label in unique_labels:
-                mask = processed_tile == old_label
-                processed_tile[mask] = current_gid
-                current_gid += 1
+            # Process current tile with its adjacent tiles for proper merging.
+            tiles_to_process = [(tile_r, tile_c)] + adjacent_tiles
 
-            # Copy results directly to global array if available.
-            if global_merged_array is not None:
-                nucleus_pixels = processed_tile != 0
-                if np.any(nucleus_pixels):
-                    global_merged_array[global_y0:global_y0+actual_tile_h,
-                                      global_x0:global_x0+actual_tile_w][nucleus_pixels] = processed_tile[nucleus_pixels]
+            if len(tiles_to_process) == 1:
+                # Single tile - process individually but check for existing overlaps.
+                current_gid = _process_single_tile_with_overlap_check(
+                    tile_r, tile_c, loader, global_merged_array, height, width,
+                    tile_h, tile_w, stride_h, stride_w, current_gid, threshold
+                )
+                processed_tiles += 1
 
-                    # Save progress incrementally every 10 tiles.
-                    if temp_file_path is not None and tile_idx % 10 == 0:
-                        np.save(temp_file_path, global_merged_array)
-                        logging.debug(f"Incremental save completed after tile {tile_idx+1}")
+            else:
+                # Multiple tiles - process with proper merging.
+                current_gid, merge_count = _process_tile_group_with_merging(
+                    tiles_to_process, loader, global_merged_array, height, width,
+                    tile_h, tile_w, stride_h, stride_w, overlap, current_gid,
+                    threshold, use_gpu
+                )
+                processed_tiles += len(tiles_to_process)
+                merge_operations += merge_count
 
-            processed_tiles += 1
-            logging.debug(f"Processed tile ({tile_r}, {tile_c}): "
-                         f"{np.count_nonzero(nucleus_pixels)} nuclei, "
-                         f"max_id={processed_tile.max()}")
+                # Mark all processed tiles as complete.
+                for processed_tile in tiles_to_process:
+                    tile_status[processed_tile] = True
 
-            # Clean up memory.
-            del processed_tile, tile_data
+            # Mark current tile as processed if not already done.
+            tile_status[(tile_r, tile_c)] = True
+
+            # Save progress incrementally every 10 tiles.
+            if temp_file_path is not None and tile_idx % 10 == 0:
+                if global_merged_array is not None:
+                    np.save(temp_file_path, global_merged_array)
+                    logging.debug(f"Incremental save completed after tile {tile_idx+1}")
 
             # Aggressive GPU cleanup every 10 tiles.
             if use_gpu and aggressive_cleanup and tile_idx % 10 == 0:
@@ -855,6 +903,7 @@ def _merge_cluster_incremental(
         except Exception as e:
             logging.error(f"Failed to process tile ({tile_r}, {tile_c}): {e}")
             logging.debug(f"Tile processing error traceback:\n{traceback.format_exc()}")
+            tile_status[(tile_r, tile_c)] = True  # Mark as processed to avoid infinite loops.
             continue
 
     # Final save if we have a temp file.
@@ -862,8 +911,8 @@ def _merge_cluster_incremental(
         np.save(temp_file_path, global_merged_array)
         logging.info(f"Final incremental save completed")
 
-    logging.info(f"INCREMENTAL PROCESSING: Successfully completed {processed_tiles}/{len(cluster)} tiles "
-                f"without massive memory allocation")
+    logging.info(f"INCREMENTAL PROCESSING WITH MERGING: Successfully completed {processed_tiles} tiles "
+                f"with {merge_operations} merge operations, maintaining segmentation quality")
 
     # Return dummy results since actual merging was done directly into global array.
     # Calculate cluster bounds for return values.
@@ -876,6 +925,293 @@ def _merge_cluster_incremental(
     dummy_patch = np.zeros((1, 1), dtype=np.uint32)
 
     return dummy_patch, (cluster_y0, cluster_x0), {}
+
+
+def _process_single_tile_with_overlap_check(
+    tile_r: int,
+    tile_c: int,
+    loader: Callable[[slice, slice], NDArray[np.uint32]],
+    global_merged_array: Optional[NDArray[np.uint32]],
+    height: int,
+    width: int,
+    tile_h: int,
+    tile_w: int,
+    stride_h: int,
+    stride_w: int,
+    current_gid: int,
+    threshold: float,
+) -> int:
+    """
+    Process a single tile while checking for overlaps with existing nuclei.
+
+    This function handles tiles that don't have unprocessed neighbors by checking
+    if any nuclei in the current tile overlap with already-processed nuclei in
+    the global array. This prevents duplicate nuclei at tile boundaries.
+
+    Parameters
+    ----------
+    tile_r, tile_c : int
+        Tile row and column coordinates.
+    loader : Callable
+        Function to load tile data.
+    global_merged_array : Optional[NDArray[np.uint32]]
+        Global array containing already-processed nuclei.
+    height, width : int
+        Full image dimensions.
+    tile_h, tile_w : int
+        Tile dimensions.
+    stride_h, stride_w : int
+        Stride between tiles (tile_size - overlap).
+    current_gid : int
+        Current global ID counter.
+    threshold : float
+        Overlap threshold for merging decisions.
+
+    Returns
+    -------
+    int
+        Updated global ID counter.
+    """
+    # Calculate tile position in global coordinates.
+    global_y0 = tile_r * stride_h
+    global_x0 = tile_c * stride_w
+
+    # Calculate actual tile dimensions (may be smaller at image edges).
+    actual_tile_h = min(tile_h, height - global_y0)
+    actual_tile_w = min(tile_w, width - global_x0)
+
+    # Load the tile data.
+    ys = slice(global_y0, global_y0 + actual_tile_h)
+    xs = slice(global_x0, global_x0 + actual_tile_w)
+    tile_data = loader(ys, xs)
+
+    if tile_data.size == 0 or not np.any(tile_data > 0):
+        logging.debug(f"Tile ({tile_r}, {tile_c}) is empty, skipping")
+        return current_gid
+
+    # Check for overlaps with existing nuclei in the global array.
+    if global_merged_array is not None:
+        existing_region = global_merged_array[global_y0:global_y0+actual_tile_h,
+                                            global_x0:global_x0+actual_tile_w]
+
+        # Process each nucleus in the current tile.
+        processed_tile = np.zeros_like(tile_data)
+        unique_labels = np.unique(tile_data[tile_data > 0])
+
+        for old_label in unique_labels:
+            nucleus_mask = tile_data == old_label
+
+            # Check if this nucleus overlaps with existing nuclei.
+            overlapping_existing = existing_region[nucleus_mask]
+            existing_labels = np.unique(overlapping_existing[overlapping_existing > 0])
+
+            if len(existing_labels) > 0:
+                # Nucleus overlaps with existing nuclei - use existing label.
+                # Choose the most frequent existing label in the overlap region.
+                label_counts = {}
+                for existing_label in existing_labels:
+                    count = np.sum(overlapping_existing == existing_label)
+                    label_counts[existing_label] = count
+
+                best_existing_label = max(label_counts.keys(), key=lambda k: label_counts[k])
+                processed_tile[nucleus_mask] = best_existing_label
+
+                logging.debug(f"Merged nucleus {old_label} with existing nucleus {best_existing_label}")
+            else:
+                # No overlap - assign new unique ID.
+                processed_tile[nucleus_mask] = current_gid
+                current_gid += 1
+
+        # Update global array with processed results.
+        nucleus_pixels = processed_tile != 0
+        if np.any(nucleus_pixels):
+            global_merged_array[global_y0:global_y0+actual_tile_h,
+                              global_x0:global_x0+actual_tile_w][nucleus_pixels] = processed_tile[nucleus_pixels]
+
+    return current_gid
+
+
+def _process_tile_group_with_merging(
+    tiles_to_process: List[Tuple[int, int]],
+    loader: Callable[[slice, slice], NDArray[np.uint32]],
+    global_merged_array: Optional[NDArray[np.uint32]],
+    height: int,
+    width: int,
+    tile_h: int,
+    tile_w: int,
+    stride_h: int,
+    stride_w: int,
+    overlap: int,
+    current_gid: int,
+    threshold: float,
+    use_gpu: bool,
+) -> Tuple[int, int]:
+    """
+    Process a group of adjacent tiles with proper merging in overlap regions.
+
+    This function creates a small bounding box containing the tile group,
+    applies the 4-step merging rules in overlap regions, and updates the
+    global array with the merged results.
+
+    Parameters
+    ----------
+    tiles_to_process : List[Tuple[int, int]]
+        List of (row, col) coordinates for tiles to process together.
+    loader : Callable
+        Function to load tile data.
+    global_merged_array : Optional[NDArray[np.uint32]]
+        Global array to update with merged results.
+    height, width : int
+        Full image dimensions.
+    tile_h, tile_w : int
+        Individual tile dimensions.
+    stride_h, stride_w : int
+        Stride between tiles.
+    overlap : int
+        Overlap between adjacent tiles.
+    current_gid : int
+        Current global ID counter.
+    threshold : float
+        Overlap threshold for merging decisions.
+    use_gpu : bool
+        Whether to use GPU for merge operations.
+
+    Returns
+    -------
+    Tuple[int, int]
+        Updated global ID counter and number of merge operations performed.
+    """
+    from .rules import merge_patch_cpu
+    from .gpu_merge import merge_patch_gpu
+
+    # Calculate bounding box for the tile group.
+    min_r = min(r for r, _ in tiles_to_process)
+    max_r = max(r for r, _ in tiles_to_process)
+    min_c = min(c for _, c in tiles_to_process)
+    max_c = max(c for _, c in tiles_to_process)
+
+    # Calculate group bounds in global coordinates.
+    group_y0 = min_r * stride_h
+    group_x0 = min_c * stride_w
+    group_y1 = min(height, (max_r + 1) * stride_h + overlap)
+    group_x1 = min(width, (max_c + 1) * stride_w + overlap)
+
+    group_h = group_y1 - group_y0
+    group_w = group_x1 - group_x0
+
+    logging.debug(f"Processing tile group: {len(tiles_to_process)} tiles, "
+                 f"bounding box: {group_h}×{group_w} pixels")
+
+    # Create a small array for the tile group.
+    try:
+        group_array = np.zeros((group_h, group_w), dtype=np.uint32)
+
+        # Load each tile and preserve original IDs for proper merging.
+        tile_arrays = []
+
+        for tile_r, tile_c in tiles_to_process:
+            # Calculate tile position within the group.
+            tile_y0_in_group = tile_r * stride_h - group_y0
+            tile_x0_in_group = tile_c * stride_w - group_x0
+
+            # Calculate global tile position.
+            global_tile_y0 = tile_r * stride_h
+            global_tile_x0 = tile_c * stride_w
+
+            # Calculate actual tile dimensions.
+            actual_tile_h = min(tile_h, height - global_tile_y0)
+            actual_tile_w = min(tile_w, width - global_tile_x0)
+
+            # Load tile data.
+            ys = slice(global_tile_y0, global_tile_y0 + actual_tile_h)
+            xs = slice(global_tile_x0, global_tile_x0 + actual_tile_w)
+            tile_data = loader(ys, xs)
+
+            if tile_data.size > 0 and np.any(tile_data > 0):
+                # Keep original tile data for proper merge function processing.
+                # The merge function expects to see the same nucleus IDs across tiles
+                # for nuclei that should be merged together.
+                tile_arrays.append((tile_data, tile_y0_in_group, tile_x0_in_group))
+
+        # Apply merging rules to the group array.
+        if len(tile_arrays) > 1:
+            # Create a proper stack for the merge function by separating each tile.
+            # This allows the merge function to properly detect overlaps.
+            stack_layers = []
+
+            # Create individual layers for each tile.
+            for tile_data, tile_y0_in_group, tile_x0_in_group in tile_arrays:
+                layer = np.zeros((group_h, group_w), dtype=np.uint32)
+                actual_h, actual_w = tile_data.shape
+                layer[tile_y0_in_group:tile_y0_in_group+actual_h,
+                      tile_x0_in_group:tile_x0_in_group+actual_w] = tile_data
+                stack_layers.append(layer)
+
+            # Stack all layers for merge processing.
+            if len(stack_layers) > 0:
+                stack = np.stack(stack_layers, axis=0)  # Shape: (N, H, W)
+
+                # Apply merge function.
+                merge_fn = merge_patch_gpu if use_gpu else merge_patch_cpu
+                merged_group, mapping = merge_fn(stack, threshold=threshold)
+
+                merge_operations = 1  # One merge operation for the group.
+
+                logging.debug(f"Applied merge function to {len(stack_layers)} tile layers")
+            else:
+                merged_group = np.zeros((group_h, group_w), dtype=np.uint32)
+                merge_operations = 0
+        else:
+            # Single tile - just place it in the group array.
+            merged_group = np.zeros((group_h, group_w), dtype=np.uint32)
+            if len(tile_arrays) == 1:
+                tile_data, tile_y0_in_group, tile_x0_in_group = tile_arrays[0]
+                actual_h, actual_w = tile_data.shape
+                merged_group[tile_y0_in_group:tile_y0_in_group+actual_h,
+                           tile_x0_in_group:tile_x0_in_group+actual_w] = tile_data
+            merge_operations = 0
+
+        # Reassign global IDs to ensure uniqueness across the entire cluster.
+        if np.any(merged_group > 0):
+            # Create a mapping from merged IDs to new global IDs.
+            unique_merged_ids = np.unique(merged_group[merged_group > 0])
+            id_mapping = {}
+
+            for merged_id in unique_merged_ids:
+                id_mapping[merged_id] = current_gid
+                current_gid += 1
+
+            # Apply the mapping to the merged group.
+            final_merged_group = np.zeros_like(merged_group)
+            for old_id, new_id in id_mapping.items():
+                mask = merged_group == old_id
+                final_merged_group[mask] = new_id
+
+            merged_group = final_merged_group
+
+        # Update global array with merged results.
+        if global_merged_array is not None:
+            nucleus_pixels = merged_group != 0
+            if np.any(nucleus_pixels):
+                global_merged_array[group_y0:group_y1, group_x0:group_x1][nucleus_pixels] = merged_group[nucleus_pixels]
+
+        logging.debug(f"Tile group merge completed: {merge_operations} operations, "
+                     f"max_id={merged_group.max()}, nuclei_pixels={np.count_nonzero(merged_group)}")
+
+        return current_gid, merge_operations
+
+    except (MemoryError, OverflowError) as e:
+        logging.warning(f"Failed to create group array {group_h}×{group_w}: {e}. "
+                       f"Falling back to individual tile processing.")
+
+        # Fallback: process tiles individually without merging.
+        for tile_r, tile_c in tiles_to_process:
+            current_gid = _process_single_tile_with_overlap_check(
+                tile_r, tile_c, loader, global_merged_array, height, width,
+                tile_h, tile_w, stride_h, stride_w, current_gid, threshold
+            )
+
+        return current_gid, 0
 
 
 def merge_cluster_batched(
