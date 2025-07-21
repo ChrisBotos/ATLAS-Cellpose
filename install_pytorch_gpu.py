@@ -41,7 +41,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('pytorch_gpu_install.log')
+            logging.FileHandler('logs/pytorch_gpu_install.log')
         ]
     )
     return logging.getLogger(__name__)

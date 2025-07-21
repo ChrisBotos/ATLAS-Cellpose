@@ -14,13 +14,15 @@ __pycache__/
 results/*
 !results/.gitkeep
 
+test_results/*
+!test_results/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
 # Data directory - keep structure but ignore contents.
 data/*
 !data/.gitkeep
-
-# Specific result directories.
-results*/
-!results/.gitkeep
 
 # Jupyter Notebook files.
 .ipynb_checkpoints

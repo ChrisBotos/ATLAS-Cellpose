@@ -41,7 +41,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('gpu_environment_update.log')
+            logging.FileHandler('logs/gpu_environment_update.log')
         ]
     )
     return logging.getLogger(__name__)

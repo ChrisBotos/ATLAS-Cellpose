@@ -46,7 +46,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('test_merge_fixes.log')
+            logging.FileHandler('logs/test_merge_fixes.log')
         ]
     )
     return logging.getLogger(__name__)
