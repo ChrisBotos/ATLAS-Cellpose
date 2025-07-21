@@ -147,7 +147,7 @@ def full_image_overlay(
         if not out_path.is_file() or out_path.stat().st_size == 0:
             raise RuntimeError("Overlay file was not written or is empty.")
 
-        logger.info("Saved full-size overlay → %s.", out_path)
+        logger.info("Saved full-size overlay -> %s.", out_path)
         return out_path
 
     except Exception as e:

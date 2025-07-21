@@ -41,6 +41,24 @@ Ischemia-reperfusion injury is a critical pathophysiological process in kidney t
 
 ## 🛠️ Installation
 
+### Environment Setup (Conda/Mamba - Recommended)
+
+**Quick Start:**
+```bash
+# 1. Install miniconda/conda if not already installed
+# 2. Install mamba for faster dependency resolution (optional but recommended)
+conda install -n base mamba -c conda-forge
+
+# 3. Create the environment from the provided configuration
+mamba env create -f environment.yml
+
+# 4. Activate the environment
+conda activate iri310
+
+# 5. Test the environment
+python test_environment.py
+```
+
 ### Prerequisites
 
 - **Operating System**: Ubuntu 20.04+ or Windows with WSL2 (recommended)
@@ -148,7 +166,7 @@ source kidney_segmentation_env/bin/activate  # Linux/macOS
 
 # Install dependencies
 pip install -r requirements.txt
-pip install cellpose>=3.0.0
+pip install "cellpose>=4.0.0,<5.0.0"
 ```
 
 ### Scientific Rationale for Environment Configuration
@@ -161,7 +179,7 @@ The `iri310` conda environment has been specifically optimized for spatial multi
 
 3. **PyTorch 2.2.0 with CUDA 12.1**: Enables GPU-accelerated deep learning for Cellpose segmentation, critical for processing large tissue sections efficiently.
 
-4. **Cellpose 4.0.6**: State-of-the-art generalist cell segmentation model, specifically effective for nuclear segmentation in diverse tissue contexts.
+4. **Cellpose 4.0.4+**: State-of-the-art generalist cell segmentation model with CellposeModel API, specifically effective for nuclear segmentation in diverse tissue contexts.
 
 5. **Scanpy + AnnData**: Industry-standard tools for single-cell and spatial omics analysis, enabling integration with transcriptomics and metabolomics data.
 
@@ -1018,8 +1036,8 @@ import numpy as np
 # Load your image
 image = np.load('kidney_dapi.npy')
 
-# Initialize Cellpose model
-model = models.Cellpose(model_type='nuclei', gpu=True)
+# Initialize Cellpose model (using CellposeModel for Cellpose 4.0+)
+model = models.CellposeModel(model_type='nuclei', gpu=True)
 
 # Run segmentation
 masks, flows, n_cells = run_cellpose_on_tiles(

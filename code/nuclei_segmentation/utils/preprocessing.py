@@ -58,13 +58,13 @@ def convert_to_8bit(
         p_low, p_high = np.percentile(sample, (0.5, 99.5))
         if logger:
             logger.debug(
-                f"[16→8] sampled p0.5={p_low:.1f}, p99.5={p_high:.1f} "
+                f"[16->8] sampled p0.5={p_low:.1f}, p99.5={p_high:.1f} "
                 f"(n={sample.size:,})"
             )
     else:
         if logger:
             logger.debug(
-                f"[16→8] using global p0.5={p_low:.1f}, p99.5={p_high:.1f}"
+                f"[16->8] using global p0.5={p_low:.1f}, p99.5={p_high:.1f}"
             )
 
     if p_high <= p_low:
@@ -249,7 +249,7 @@ def preprocess_image(image_path, settings, logger):
         img = skio.imread(image_path)     # Non-TIFF formats.
         logger.warning("Non-TIFF input read fully into RAM.")
 
-    logger.info(f"Raw TIFF → ndim={img.ndim}, shape={img.shape}, dtype={img.dtype}")
+    logger.info(f"Raw TIFF -> ndim={img.ndim}, shape={img.shape}, dtype={img.dtype}")
     if img.ndim == 3:
         # Assume channels last; if channels first, swapaxes first.
         img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -276,18 +276,36 @@ def preprocess_image(image_path, settings, logger):
     stride = max(1, flat.size // 1_000_000)  # ~1 M evenly spaced samples
     sample = flat[::stride]
     p_low, p_high = np.percentile(sample, (0.5, 99.5))
-    logger.info(f"[global 16→8] p0.5={p_low:.1f}, p99.5={p_high:.1f}")
+    logger.info(f"[global 16->8] p0.5={p_low:.1f}, p99.5={p_high:.1f}")
 
     # Tile-wise 8 bit conversion, CLAHE & gamma (if requested).
     tile_px  = settings.get("tile_side_length", 8192)
     overlap  = int(tile_px * 0.05)
-    scratch  = tempfile.TemporaryDirectory(prefix="iri_pre_")
-    out_mm   = np.memmap(
-        Path(scratch.name) / "eight_bit.dat",
-        dtype=np.uint8,
-        mode="w+",
-        shape=(img.shape[0], img.shape[1]),
-    )
+
+    # Create temporary file with better Windows compatibility.
+    try:
+        # Use the output directory for temporary files instead of system temp.
+        temp_dir = Path(settings["output_dir"]) / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        temp_file_path = temp_dir / "eight_bit_processing.dat"
+
+        out_mm = np.memmap(
+            str(temp_file_path),  # Convert to string for Windows compatibility.
+            dtype=np.uint8,
+            mode="w+",
+            shape=(img.shape[0], img.shape[1]),
+        )
+        scratch = None  # We'll clean up manually.
+        temp_file_to_cleanup = temp_file_path
+
+    except Exception as e:
+        logger.error(f"Failed to create temporary memory-mapped file: {e}")
+        logger.info("Falling back to in-memory processing (may use more RAM)")
+        # Fallback to in-memory processing.
+        out_mm = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+        scratch = None
+        temp_file_to_cleanup = None
 
     for y0, y1, x0, x1 in _tile_iter(H, W, tile_px, overlap):
         tile = img[y0:y1, x0:x1]
@@ -326,14 +344,20 @@ def preprocess_image(image_path, settings, logger):
         new_w = int(round(img_u8.shape[1] * factor))
         img_up = cv2.resize(img_u8, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
 
-        logger.info(f"Upscaled pre-processed image → {img_up.shape} (factor={factor:g})")
+        logger.info(f"Upscaled pre-processed image -> {img_up.shape} (factor={factor:g})")
 
         # Save both the native-res and the up-scaled version for traceability.
         out_dir = Path(settings["output_dir"]) / "preprocessed"
         out_dir.mkdir(parents=True, exist_ok=True)
         skio.imsave(out_dir / "upscaled.tif", img_up)
 
-        scratch.cleanup()
+        # Clean up temporary file if it exists.
+        if 'temp_file_to_cleanup' in locals() and temp_file_to_cleanup and temp_file_to_cleanup.exists():
+            try:
+                temp_file_to_cleanup.unlink()
+                logger.debug(f"Cleaned up temporary file: {temp_file_to_cleanup}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary file: {e}")
         return img_up
 
 
@@ -343,5 +367,12 @@ def preprocess_image(image_path, settings, logger):
     skio.imsave(out_dir / "final.tif", img_u8)
     logger.info(f"Wrote pre-processed slide to {out_dir/'final.tif'}")
 
-    scratch.cleanup()
+    # Clean up temporary file if it exists.
+    if 'temp_file_to_cleanup' in locals() and temp_file_to_cleanup and temp_file_to_cleanup.exists():
+        try:
+            temp_file_to_cleanup.unlink()
+            logger.debug(f"Cleaned up temporary file: {temp_file_to_cleanup}")
+        except Exception as e:
+            logger.warning(f"Failed to clean up temporary file: {e}")
+
     return img_u8

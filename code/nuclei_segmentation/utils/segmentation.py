@@ -160,9 +160,10 @@ def run_cellpose_on_tiles(
 
     Parameters
     ----------
-    model : cellpose.models.Cellpose
+    model : cellpose.models.CellposeModel
         Pre-loaded Cellpose model instance configured for nuclear segmentation.
         Should be initialized with appropriate model type (typically 'nuclei').
+        Uses CellposeModel class (Cellpose 4.0+) instead of deprecated Cellpose.
     image : np.ndarray
         Two-dimensional greyscale DAPI-stained image array of shape (H, W).
         Represents nuclear staining in kidney tissue sections.
@@ -342,7 +343,7 @@ def run_cellpose_on_tiles(
                 np.savez_compressed(tile_path, mask=unique_mask)
 
                 if settings.get("debug_mode", False):
-                    logger.debug(f"  → Saved tile mask to: {tile_filename}")
+                    logger.debug(f"  -> Saved tile mask to: {tile_filename}")
 
             logger.info(f"Parallel segmentation completed: {total_cells} total nuclei detected")
 
@@ -396,7 +397,7 @@ def run_cellpose_on_tiles(
                 if raw_masks is None:
                     tile_segmentation_mask = np.zeros(current_tile.shape, dtype=np.uint32)
                     nuclei_in_tile = 0
-                    logger.info(f"  → NUCLEI COUNT: No nuclei detected in tile {tile_idx}")
+                    logger.info(f"  -> NUCLEI COUNT: No nuclei detected in tile {tile_idx}")
                 else:
                     tile_segmentation_mask = raw_masks.astype(np.uint32)
                     # Count unique non-zero labels (correct method for nuclei counting).
@@ -414,12 +415,12 @@ def run_cellpose_on_tiles(
                         # Update counters.
                         total_cells += nuclei_in_tile
 
-                        logger.info(f"  → NUCLEI COUNT: {nuclei_in_tile} nuclei detected and labeled in tile {tile_idx}")
+                        logger.info(f"  -> NUCLEI COUNT: {nuclei_in_tile} nuclei detected and labeled in tile {tile_idx}")
 
                         # Use the unique mask for saving.
                         tile_segmentation_mask = unique_mask
                     else:
-                        logger.info(f"  → No nuclei detected in tile {tile_idx}")
+                        logger.info(f"  -> No nuclei detected in tile {tile_idx}")
 
                 # Save individual tile mask for downstream analysis and quality control.
                 # The filename format (y_start_x_start.npz) is required by the merge system.
@@ -428,7 +429,7 @@ def run_cellpose_on_tiles(
                 np.savez_compressed(tile_save_path, mask=tile_segmentation_mask)
 
                 if settings.get("debug_mode", False):
-                    logger.debug(f"  → Saved tile mask to: {tile_filename}")
+                    logger.debug(f"  -> Saved tile mask to: {tile_filename}")
 
                 # Explicitly release memory to prevent accumulation during large image processing.
                 tile_segmentation_mask = None
@@ -459,7 +460,7 @@ def run_cellpose_on_tiles(
     logger.info(f"Total tiles processed: {n_tiles}")
     logger.info(f"Total nuclei detected: {total_cells}")
     logger.info(f"Average nuclei per tile: {total_cells/n_tiles:.1f}")
-    logger.info(f"Nuclear density: {total_cells/(H*W)*1e6:.1f} nuclei/mm² (assuming 1 pixel = 1 μm)")
+    logger.info(f"Nuclear density: {total_cells/(H*W)*1e6:.1f} nuclei/mm^2 (assuming 1 pixel = 1 um)")
     logger.info(f"Individual tile masks saved to: {tiles_dir}")
     logger.info(f"Combined segmentation mask ready for pipeline processing")
 

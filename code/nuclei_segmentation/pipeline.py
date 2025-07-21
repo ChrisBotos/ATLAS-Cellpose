@@ -64,10 +64,30 @@ def log_config(logger, settings, CELLPOSE_PARAMS):
 
 
 def setup_model(CELLPOSE_PARAMS, logger):
+    """
+    Initialize Cellpose model for nuclear segmentation.
+
+    Uses CellposeModel (Cellpose 4.0+) instead of deprecated Cellpose class.
+    Automatically detects GPU availability and configures device accordingly.
+
+    Parameters
+    ----------
+    CELLPOSE_PARAMS : dict
+        Configuration parameters for Cellpose model initialization.
+    logger : logging.Logger
+        Logger instance for status reporting.
+
+    Returns
+    -------
+    cellpose.models.CellposeModel
+        Initialized Cellpose model ready for segmentation.
+    """
     model_type = CELLPOSE_PARAMS["model_type"]
     use_gpu = CELLPOSE_PARAMS.get("gpu", False)
     device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
-    model = models.Cellpose(model_type=model_type, gpu=(device == 'cuda'))
+
+    # Use CellposeModel instead of deprecated Cellpose class (Cellpose 4.0+).
+    model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
 
     logger.info(f"Using Cellpose model: {model_type}")
     logger.info(f"Using device: {device}")
@@ -91,7 +111,8 @@ def save_outputs(masks, flows, output_dir, logger):
     dest_npy = masks_dir / "segmentation_masks.npy"
     if isinstance(masks, np.memmap):
         if Path(masks.filename).resolve() != dest_npy.resolve():
-            np.save(dest_npy, np.asarray(masks, copy=False))
+            # Use np.asarray without copy parameter for NumPy compatibility.
+            np.save(dest_npy, np.asarray(masks))
     else:
         np.save(dest_npy, masks)
 

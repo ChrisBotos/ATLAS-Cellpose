@@ -52,11 +52,21 @@ def test_imports():
 
     try:
         import cellpose
+        from cellpose import models
         try:
             version = cellpose.__version__
         except AttributeError:
             version = "imported successfully"
         print(f"✔ Cellpose {version}")
+
+        # Test CellposeModel availability (Cellpose 4.0+)
+        if hasattr(models, 'CellposeModel'):
+            print("  ✔ CellposeModel API available (Cellpose 4.0+)")
+        elif hasattr(models, 'Cellpose'):
+            print("  ⚠ Using legacy Cellpose API (pre-4.0)")
+        else:
+            print("  ✗ No compatible Cellpose model class found")
+            return False
     except ImportError as e:
         print(f"✗ Cellpose import failed: {e}")
         return False

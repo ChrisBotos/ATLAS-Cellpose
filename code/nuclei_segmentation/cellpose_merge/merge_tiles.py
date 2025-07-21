@@ -1147,7 +1147,8 @@ def _merge_cluster(
     # This ensures unique nucleus IDs across all clusters in the final merged mask.
     if gid_offset > 0:
         nucleus_mask = merged_patch != 0
-        merged_patch = merged_patch.astype(np.uint32, copy=False)
+        # Use astype without copy parameter for NumPy compatibility.
+        merged_patch = merged_patch.astype(np.uint32)
         merged_patch[nucleus_mask] += int(gid_offset)
 
     logging.debug(f"Cluster merge completed: output_size=({merged_patch.shape[0]},{merged_patch.shape[1]}), "
@@ -1374,9 +1375,9 @@ def merge_masks_streaming(
                 arr = np.asarray(im, dtype=np.uint32)
         else:  # .npz is much faster and smaller.
             nz = np.load(p)
-            # Micro‑optimisation: avoid data copy when possible.
+            # Load data with NumPy compatibility.
             if len(nz.files) == 1:
-                arr = nz[nz.files[0]].astype(np.uint32, copy=False)
+                arr = nz[nz.files[0]].astype(np.uint32)
             else:
                 arr = np.asarray(nz, dtype=np.uint32)
 

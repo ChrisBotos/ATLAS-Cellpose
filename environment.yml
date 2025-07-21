@@ -37,7 +37,7 @@ dependencies:
 
   # ───────── Specialized Bioinformatics Packages (via pip) ─────────
   - pip:
-    - "cellpose>=3.0.0"   # State-of-the-art cell segmentation for nuclei identification.
+    - "cellpose>=4.0.0,<5.0.0"   # State-of-the-art cell segmentation for nuclei identification. Pin to 4.x for API stability.
     - "anndata"           # Annotated data structures for single-cell and spatial omics.
     - "scanpy"            # Single-cell analysis toolkit for spatial transcriptomics integration.
     - "transformers"      # Transformer models for potential NLP applications in bioinformatics.
@@ -74,7 +74,7 @@ dependencies:
 ## - PyTorch 2.2.0 (CUDA: 12.1, GPU acceleration confirmed)
 ## - TorchVision 0.17.0 (computer vision for microscopy image processing)
 ## - scikit-image 0.25.0 (image processing for tissue analysis)
-## - Cellpose 4.0.6 (state-of-the-art cell segmentation)
+## - Cellpose 4.0.4+ (state-of-the-art cell segmentation with CellposeModel API)
 ## - Scanpy 1.11.3 (single-cell and spatial transcriptomics analysis)
 ## - AnnData 0.11.4 (annotated data structures for omics)
 ## - Transformers 4.53.2 (transformer models for advanced analysis)

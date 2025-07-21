@@ -307,7 +307,8 @@ class TestPipelineComponents:
         test_image = create_synthetic_tissue_image(height, width)
         
         # Mock Cellpose model to avoid dependency on actual model.
-        with patch('cellpose.models.Cellpose') as mock_cellpose:
+        # Use CellposeModel for Cellpose 4.0+ compatibility.
+        with patch('cellpose.models.CellposeModel') as mock_cellpose:
             # Create mock segmentation result.
             mock_masks = np.random.randint(0, 100, size=(height, width), dtype=np.uint32)
             mock_flows = [np.random.rand(height, width, 2)]
@@ -426,7 +427,8 @@ class TestPipelineIntegration:
             _timeout_checker()
             
             # Mock Cellpose to avoid dependency.
-            with patch('cellpose.models.Cellpose') as mock_cellpose:
+            # Use CellposeModel for Cellpose 4.0+ compatibility.
+            with patch('cellpose.models.CellposeModel') as mock_cellpose:
                 # Create realistic mock segmentation.
                 mock_masks = np.zeros((height, width), dtype=np.uint32)
                 
@@ -520,7 +522,8 @@ class TestPipelineIntegration:
             _timeout_checker()
             
             # Mock Cellpose with minimal output.
-            with patch('cellpose.models.Cellpose') as mock_cellpose:
+            # Use CellposeModel for Cellpose 4.0+ compatibility.
+            with patch('cellpose.models.CellposeModel') as mock_cellpose:
                 # Create minimal mock segmentation to save memory.
                 mock_masks = np.zeros((height, width), dtype=np.uint32)
                 mock_masks[1000:1100, 1000:1100] = 1  # Single nucleus.

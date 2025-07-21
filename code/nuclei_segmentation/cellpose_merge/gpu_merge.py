@@ -100,9 +100,9 @@ def merge_patch_gpu(
 
     # CUDA kernels don’t support uint32.  Promote to signed 64-bit once.
     try:
-        patch_t = torch.from_numpy(
-            patch.astype(np.int64, copy=False).reshape(T, -1)
-        ).to(device)
+        # Use astype without copy parameter for NumPy compatibility.
+        patch_int64 = patch.astype(np.int64).reshape(T, -1)
+        patch_t = torch.from_numpy(patch_int64).to(device)
     except RuntimeError as e:
         if "out of memory" in str(e).lower() or "illegal memory access" in str(e).lower():
             raise RuntimeError(f"GPU memory error when creating tensor of size ({T}, {H*W}): {e}. "
