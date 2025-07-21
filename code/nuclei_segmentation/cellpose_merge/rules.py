@@ -179,6 +179,11 @@ def merge_patch_cpu(
         ov_cnt = np.bincount(patch[t][overlap_mask].ravel(), minlength=tile_sizes[t].size)
         keep = ov_cnt >= tile_sizes[t] * threshold  # True ⇢ keep for merging
 
+        # CRITICAL FIX: Actually set the keep_mask for objects that should be kept for merging.
+        for label_idx in range(len(keep)):
+            if keep[label_idx]:
+                keep_mask[t][patch[t] == label_idx] = True
+
     # Objects not kept receive a unique global ID immediately.
     # Use int for keys but ensure we can handle uint64 composite values.
     comp_to_global: Dict[int, int] = {}

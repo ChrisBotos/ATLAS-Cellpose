@@ -65,12 +65,24 @@ def _lazy_import_merge_backends() -> None:
 
     try:
         from .rules import merge_patch_cpu as _m_cpu  # pylint: disable=import-error
-        from .gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+        try:
+            from .gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+        except ImportError as gpu_import_error:
+            logging.warning(f"GPU merge backend not available: {gpu_import_error}")
+            # Create a dummy GPU function that always raises an error.
+            def _m_gpu(*args, **kwargs):
+                raise RuntimeError("GPU merge backend not available. Install CuPy for GPU support.")
     except ImportError:
         # Fallback for when running as standalone script.
         try:
             from rules import merge_patch_cpu as _m_cpu  # pylint: disable=import-error
-            from gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+            try:
+                from gpu_merge import merge_patch_gpu as _m_gpu  # pylint: disable=import-error
+            except ImportError as gpu_import_error:
+                logging.warning(f"GPU merge backend not available: {gpu_import_error}")
+                # Create a dummy GPU function that always raises an error.
+                def _m_gpu(*args, **kwargs):
+                    raise RuntimeError("GPU merge backend not available. Install CuPy for GPU support.")
         except ImportError as e:
             raise ImportError(f"Could not import merge backends: {e}")
 
@@ -1138,6 +1150,9 @@ def _merge_cluster(
                          f"tile_size=({h},{w}), copied=({tile_h_to_copy},{tile_w_to_copy})")
         else:
             logging.warning(f"Tile ({r},{c}) could not be placed in cluster stack - bounds issue")
+
+    # Ensure merge backends are imported before use.
+    _lazy_import_merge_backends()
 
     # Actual merge done by the back‑end kernels.
     merge_fn = _merge_patch_gpu if use_gpu else _merge_patch_cpu

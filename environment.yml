@@ -1,10 +1,10 @@
 name: iri310
 channels:
   - pytorch        # Put FIRST so strict priority can select PyTorch builds here.
-  - nvidia
-  - conda-forge
-  - defaults
-channel_priority: flexible  # Changed from strict to flexible for better dependency resolution.
+  - nvidia         # NVIDIA channel for CUDA packages.
+  - conda-forge    # Community packages including CuPy.
+  - defaults       # Default conda packages.
+channel_priority: strict    # Use strict priority to ensure PyTorch comes from pytorch channel.
 
 dependencies:
   # ───────── Core Scientific Computing Stack ─────────
@@ -26,10 +26,12 @@ dependencies:
   - tqdm                # Progress bars for long-running bioinformatics analyses.
 
   # ───────── Deep Learning Framework ─────────
-  - pytorch=2.2.0       # Stable version with CUDA support for GPU-accelerated cell segmentation.
-  - torchvision=0.17.*  # Computer vision utilities for image preprocessing and augmentation.
-  - torchaudio=2.2.0    # Audio processing (included for completeness, may be useful for signal processing).
-  - pytorch-cuda=12.1   # Pulls the matching CUDA runtime for GPU acceleration.
+  - pytorch::pytorch=2.2.0     # Stable version with CUDA support for GPU-accelerated cell segmentation.
+  - pytorch::torchvision=0.17.* # Computer vision utilities for image preprocessing and augmentation.
+  - pytorch::torchaudio=2.2.0   # Audio processing (included for completeness, may be useful for signal processing).
+  - pytorch::pytorch-cuda=12.1  # Pulls the matching CUDA runtime for GPU acceleration.
+  - conda-forge::cupy>=12.0.0   # GPU-accelerated NumPy-compatible library for CUDA operations.
+  - nvidia::cudatoolkit         # CUDA toolkit for GPU acceleration support.
 
   # ───────── Development and Testing ─────────
   - pytest             # Unit testing framework for code validation.

@@ -107,11 +107,11 @@ def setup_model(CELLPOSE_PARAMS, logger):
     logger.info(f"Detection thresholds: cellprob={cellprob_threshold}, flow={flow_threshold}")
 
     if diameter == 0 and resample:
-        logger.info("✓ Adaptive diameter detection enabled - will optimize per tile")
+        logger.info("ADAPTIVE DIAMETER: Adaptive diameter detection enabled - will optimize per tile")
     elif diameter == 0 and not resample:
-        logger.warning("⚠ diameter=0 with resample=False may not work optimally")
+        logger.warning("WARNING: diameter=0 with resample=False may not work optimally")
     else:
-        logger.info(f"✓ Fixed diameter mode: {diameter}px")
+        logger.info(f"FIXED DIAMETER: Fixed diameter mode: {diameter}px")
 
     return model
 
