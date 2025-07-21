@@ -97,6 +97,22 @@ def setup_model(CELLPOSE_PARAMS, logger):
         except Exception:
             logger.warning("Failed to get CUDA device name.")
 
+    # Log key Cellpose parameters for adaptive diameter detection.
+    diameter = CELLPOSE_PARAMS.get("diameter", 0)
+    resample = CELLPOSE_PARAMS.get("resample", True)
+    cellprob_threshold = CELLPOSE_PARAMS.get("cellprob_threshold", -9.0)
+    flow_threshold = CELLPOSE_PARAMS.get("flow_threshold", 0.4)
+
+    logger.info(f"Cellpose parameters: diameter={diameter} (0=auto-detect), resample={resample}")
+    logger.info(f"Detection thresholds: cellprob={cellprob_threshold}, flow={flow_threshold}")
+
+    if diameter == 0 and resample:
+        logger.info("✓ Adaptive diameter detection enabled - will optimize per tile")
+    elif diameter == 0 and not resample:
+        logger.warning("⚠ diameter=0 with resample=False may not work optimally")
+    else:
+        logger.info(f"✓ Fixed diameter mode: {diameter}px")
+
     return model
 
 

@@ -133,14 +133,14 @@ def load_config(config_path=None):
         "skip_and_copy_visualization": config.getboolean("using_previous_results", "skip_and_copy_visualization", fallback=False),
     }
 
-    # Cellpose-specific settings.
+    # Cellpose-specific settings optimized for adaptive diameter detection.
     CELLPOSE_PARAMS = {
         "model_type": config.get("cellpose", "model_type", fallback="nuclei"),
         "gpu": config.getboolean("cellpose", "gpu", fallback=True) and torch.cuda.is_available(),
-        "diameter": config.getint("cellpose", "diameter", fallback=0),
+        "diameter": config.getint("cellpose", "diameter", fallback=0),  # 0 = auto-detection.
         "flow_threshold": config.getfloat("cellpose", "flow_threshold", fallback=0.4),
-        "cellprob_threshold": config.getfloat("cellpose", "cellprob_threshold", fallback=0.0),
-        "resample": config.getboolean("cellpose", "resample", fallback=True),
+        "cellprob_threshold": config.getfloat("cellpose", "cellprob_threshold", fallback=-9.0),
+        "resample": config.getboolean("cellpose", "resample", fallback=True),  # Required for diameter=0.
         "stitch_threshold": config.getfloat("cellpose", "stitch_threshold", fallback=0.4),
         "channels": get_tuple(config, "cellpose", "channels", default=(0, 0), cast=int),
         "batch_size": choose_batch_size(settings.get("tile_side_length")**2),

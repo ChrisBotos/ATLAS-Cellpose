@@ -110,17 +110,49 @@ def _run_single_pass_cellpose(model, image: np.ndarray, cellpose_params: dict, l
 
     logger.info("Running full‑image Cellpose segmentation (no tiling).")
     try:
-        masks, flows, *_ = model.eval(
-            image[..., None],
-            diameter=cellpose_params["diameter"],
-            channels=cellpose_params["channels"],
-            flow_threshold=cellpose_params["flow_threshold"],
-            cellprob_threshold=cellpose_params["cellprob_threshold"],
-            resample=cellpose_params["resample"],
-            augment=False,
-            batch_size=cellpose_params["batch_size"],
-            do_3D=False,
-        )
+        # Removed deprecated 'channels' parameter for Cellpose4 compatibility.
+        try:
+            cellpose_results = model.eval(
+                image[..., None],
+                diameter=cellpose_params["diameter"],
+                flow_threshold=cellpose_params["flow_threshold"],
+                cellprob_threshold=cellpose_params["cellprob_threshold"],
+                resample=cellpose_params["resample"],
+                augment=False,
+                batch_size=cellpose_params["batch_size"],
+                do_3D=False,
+            )
+        except Exception as e:
+            if "division by zero" in str(e).lower():
+                # Handle division by zero with fallback parameters.
+                logger.warning("Full image: Auto-detection failed, trying fallback parameters")
+                cellpose_results = model.eval(
+                    image[..., None],
+                    diameter=15,  # Fallback to reasonable fixed diameter.
+                    flow_threshold=0.6,  # More conservative.
+                    cellprob_threshold=-3,  # Less sensitive.
+                    resample=False,  # Disable resample for fixed diameter.
+                    augment=False,
+                    batch_size=cellpose_params["batch_size"],
+                    do_3D=False,
+                )
+                logger.info("Full image: Fallback parameters successful")
+            else:
+                raise e
+
+        masks, flows = cellpose_results[0], cellpose_results[1]
+
+        # Extract and log Cellpose4 diameter information.
+        if len(cellpose_results) >= 4 and cellpose_results[3] is not None:
+            detected_diameters = cellpose_results[3]
+            if isinstance(detected_diameters, (list, np.ndarray)) and len(detected_diameters) > 0:
+                avg_diameter = float(np.mean(detected_diameters))
+                logger.info(f"Full image: Auto-detected diameter = {avg_diameter:.1f}px (range: {np.min(detected_diameters):.1f}-{np.max(detected_diameters):.1f})")
+            elif isinstance(detected_diameters, (int, float)) and detected_diameters > 0:
+                logger.info(f"Full image: Auto-detected diameter = {detected_diameters:.1f}px")
+            else:
+                logger.warning("Full image: No valid diameter detected, using model default")
+
         num_cells = int(masks.max())
         logger.info("Detected %d nuclei in full image.", num_cells)
         return masks.astype(np.uint32), [flows[0], flows[1], None], num_cells
@@ -376,22 +408,76 @@ def run_cellpose_on_tiles(
             logger.info(f"  Dimensions: {current_tile.shape}")
 
             try:
+                # Validate tile content before Cellpose processing.
+                tile_stats = {
+                    'mean': float(np.mean(current_tile)),
+                    'std': float(np.std(current_tile)),
+                    'min': float(np.min(current_tile)),
+                    'max': float(np.max(current_tile))
+                }
+
+                logger.debug(f"Tile {tile_idx+1} stats: mean={tile_stats['mean']:.1f}, "
+                            f"std={tile_stats['std']:.1f}, min={tile_stats['min']}, max={tile_stats['max']}")
+
+                # Check for problematic tiles that might cause division by zero.
+                if tile_stats['std'] < 1.0 or tile_stats['max'] - tile_stats['min'] < 5:
+                    logger.warning(f"Tile {tile_idx+1} has very low contrast (std={tile_stats['std']:.2f}), "
+                                  f"may cause Cellpose issues")
+
                 # Run Cellpose segmentation on the current tile.
                 # The model expects a 3D array with channel dimension, so we add one.
-                cellpose_results = model.eval(
-                    current_tile[..., None],  # Add channel dimension for Cellpose.
-                    diameter=cellpose_params["diameter"],
-                    channels=cellpose_params["channels"],
-                    flow_threshold=cellpose_params["flow_threshold"],
-                    cellprob_threshold=cellpose_params["cellprob_threshold"],
-                    resample=cellpose_params["resample"],
-                    augment=False,  # Disable augmentation for consistent results.
-                    batch_size=cellpose_params["batch_size"],
-                    do_3D=False,  # Process as 2D nuclear segmentation.
-                )
+                # Removed deprecated 'channels' parameter for Cellpose4 compatibility.
+                try:
+                    cellpose_results = model.eval(
+                        current_tile[..., None],  # Add channel dimension for Cellpose.
+                        diameter=cellpose_params["diameter"],
+                        flow_threshold=cellpose_params["flow_threshold"],
+                        cellprob_threshold=cellpose_params["cellprob_threshold"],
+                        resample=cellpose_params["resample"],
+                        augment=False,  # Disable augmentation for consistent results.
+                        batch_size=cellpose_params["batch_size"],
+                        do_3D=False,  # Process as 2D nuclear segmentation.
+                    )
+                except Exception as e:
+                    if "division by zero" in str(e).lower():
+                        # Handle division by zero with fallback parameters.
+                        logger.warning(f"Tile {tile_idx+1}: Auto-detection failed, trying fallback parameters")
+                        try:
+                            cellpose_results = model.eval(
+                                current_tile[..., None],
+                                diameter=15,  # Fallback to reasonable fixed diameter.
+                                flow_threshold=0.6,  # More conservative.
+                                cellprob_threshold=-3,  # Less sensitive.
+                                resample=False,  # Disable resample for fixed diameter.
+                                augment=False,
+                                batch_size=cellpose_params["batch_size"],
+                                do_3D=False,
+                            )
+                            logger.info(f"Tile {tile_idx+1}: Fallback parameters successful")
+                        except Exception as e2:
+                            logger.error(f"Tile {tile_idx+1}: Both auto-detection and fallback failed: {e2}")
+                            raise e2
+                    else:
+                        raise e
 
                 # Extract masks from Cellpose results (first element).
                 raw_masks = cellpose_results[0]
+
+                # Extract and log Cellpose4 diameter information.
+                # Cellpose4 returns (masks, flows, styles, diams) where diams contains diameter info.
+                if len(cellpose_results) >= 4 and cellpose_results[3] is not None:
+                    detected_diameters = cellpose_results[3]
+                    if isinstance(detected_diameters, (list, np.ndarray)) and len(detected_diameters) > 0:
+                        # Multiple diameters detected.
+                        avg_diameter = float(np.mean(detected_diameters))
+                        logger.info(f"Tile {tile_idx+1}: Auto-detected diameter = {avg_diameter:.1f}px (range: {np.min(detected_diameters):.1f}-{np.max(detected_diameters):.1f})")
+                    elif isinstance(detected_diameters, (int, float)) and detected_diameters > 0:
+                        # Single diameter detected.
+                        logger.info(f"Tile {tile_idx+1}: Auto-detected diameter = {detected_diameters:.1f}px")
+                    else:
+                        logger.warning(f"Tile {tile_idx+1}: No valid diameter detected, using model default")
+                else:
+                    logger.debug(f"Tile {tile_idx+1}: No diameter information returned")
 
                 # Handle cases where Cellpose returns None (no nuclei detected).
                 if raw_masks is None:

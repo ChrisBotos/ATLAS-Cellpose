@@ -179,21 +179,76 @@ def process_cellpose_batch(
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
 
-                # Run Cellpose on this tile.
-                cellpose_results = model.eval(
-                    tile_image[..., None],  # Add channel dimension.
-                    diameter=cellpose_params["diameter"],
-                    channels=cellpose_params["channels"],
-                    flow_threshold=cellpose_params["flow_threshold"],
-                    cellprob_threshold=cellpose_params["cellprob_threshold"],
-                    resample=cellpose_params["resample"],
-                    augment=False,
-                    batch_size=cellpose_params["batch_size"],
-                    do_3D=False,
-                )
+                # Validate tile content before Cellpose processing.
+                tile_stats = {
+                    'mean': float(np.mean(tile_image)),
+                    'std': float(np.std(tile_image)),
+                    'min': float(np.min(tile_image)),
+                    'max': float(np.max(tile_image))
+                }
+
+                logging.debug(f"Tile {tile_idx+1} stats: mean={tile_stats['mean']:.1f}, "
+                             f"std={tile_stats['std']:.1f}, min={tile_stats['min']}, max={tile_stats['max']}")
+
+                # Check for problematic tiles that might cause division by zero.
+                if tile_stats['std'] < 1.0 or tile_stats['max'] - tile_stats['min'] < 5:
+                    logging.warning(f"Tile {tile_idx+1} has very low contrast (std={tile_stats['std']:.2f}), "
+                                   f"may cause Cellpose issues")
+
+                # Run Cellpose on this tile with Cellpose4 compatible parameters.
+                # Removed deprecated 'channels' parameter for Cellpose4 compatibility.
+                try:
+                    cellpose_results = model.eval(
+                        tile_image[..., None],  # Add channel dimension.
+                        diameter=cellpose_params["diameter"],
+                        flow_threshold=cellpose_params["flow_threshold"],
+                        cellprob_threshold=cellpose_params["cellprob_threshold"],
+                        resample=cellpose_params["resample"],
+                        augment=False,
+                        batch_size=cellpose_params["batch_size"],
+                        do_3D=False,
+                    )
+                except Exception as e:
+                    if "division by zero" in str(e).lower():
+                        # Handle division by zero with fallback parameters.
+                        logging.warning(f"Tile {tile_idx+1}: Auto-detection failed, trying fallback parameters")
+                        try:
+                            cellpose_results = model.eval(
+                                tile_image[..., None],
+                                diameter=15,  # Fallback to reasonable fixed diameter.
+                                flow_threshold=0.6,  # More conservative.
+                                cellprob_threshold=-3,  # Less sensitive.
+                                resample=False,  # Disable resample for fixed diameter.
+                                augment=False,
+                                batch_size=cellpose_params["batch_size"],
+                                do_3D=False,
+                            )
+                            logging.info(f"Tile {tile_idx+1}: Fallback parameters successful")
+                        except Exception as e2:
+                            logging.error(f"Tile {tile_idx+1}: Both auto-detection and fallback failed: {e2}")
+                            raise e2
+                    else:
+                        raise e
 
                 # Extract mask and count cells.
                 mask = cellpose_results[0]
+
+                # Extract and log Cellpose4 diameter information.
+                # Cellpose4 returns (masks, flows, styles, diams) where diams contains diameter info.
+                if len(cellpose_results) >= 4 and cellpose_results[3] is not None:
+                    detected_diameters = cellpose_results[3]
+                    if isinstance(detected_diameters, (list, np.ndarray)) and len(detected_diameters) > 0:
+                        # Multiple diameters detected.
+                        avg_diameter = float(np.mean(detected_diameters))
+                        logging.info(f"Tile {tile_idx+1}: Auto-detected diameter = {avg_diameter:.1f}px (range: {np.min(detected_diameters):.1f}-{np.max(detected_diameters):.1f})")
+                    elif isinstance(detected_diameters, (int, float)) and detected_diameters > 0:
+                        # Single diameter detected.
+                        logging.info(f"Tile {tile_idx+1}: Auto-detected diameter = {detected_diameters:.1f}px")
+                    else:
+                        logging.warning(f"Tile {tile_idx+1}: No valid diameter detected, using model default")
+                else:
+                    logging.debug(f"Tile {tile_idx+1}: No diameter information returned")
+
                 if mask is None:
                     mask = np.zeros(tile_image.shape[:2], dtype=np.uint32)
                     cell_count = 0
