@@ -137,10 +137,10 @@ def load_config(config_path=None):
     CELLPOSE_PARAMS = {
         "model_type": config.get("cellpose", "model_type", fallback="nuclei"),
         "gpu": config.getboolean("cellpose", "gpu", fallback=True) and torch.cuda.is_available(),
-        "diameter": config.getint("cellpose", "diameter", fallback=0),  # 0 = auto-detection.
+        "diameter": None if config.get("cellpose", "diameter", fallback="None") == "None" else config.getint("cellpose", "diameter", fallback=0),  # None = auto-detection.
         "flow_threshold": config.getfloat("cellpose", "flow_threshold", fallback=0.4),
         "cellprob_threshold": config.getfloat("cellpose", "cellprob_threshold", fallback=-9.0),
-        "resample": config.getboolean("cellpose", "resample", fallback=True),  # Required for diameter=0.
+        "resample": config.getboolean("cellpose", "resample", fallback=True),  # Deprecated in v4.0.1+ but kept for compatibility.
         "stitch_threshold": config.getfloat("cellpose", "stitch_threshold", fallback=0.4),
         "channels": get_tuple(config, "cellpose", "channels", default=(0, 0), cast=int),
         "batch_size": choose_batch_size(settings.get("tile_side_length")**2),

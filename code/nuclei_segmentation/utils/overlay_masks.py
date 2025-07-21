@@ -241,16 +241,33 @@ def cleanup_gpu_memory() -> None:
     to prevent memory fragmentation and reduce OOM risk during processing.
     """
     try:
-        import cupy as cp
-
-        # Force garbage collection.
+        # Force garbage collection first.
         gc.collect()
 
-        # Clear memory pool.
-        mempool = cp.get_default_memory_pool()
-        mempool.free_all_blocks()
+        # Try PyTorch GPU cleanup (more commonly available).
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                print("DEBUG: PyTorch GPU memory cleanup completed.")
+                return
+        except ImportError:
+            pass
 
-        print("DEBUG: GPU memory cleanup completed.")
+        # Try CuPy cleanup as fallback.
+        try:
+            import cupy as cp
+            # Clear memory pool.
+            mempool = cp.get_default_memory_pool()
+            mempool.free_all_blocks()
+            print("DEBUG: CuPy GPU memory cleanup completed.")
+            return
+        except ImportError:
+            pass
+
+        # If neither PyTorch nor CuPy are available, just do garbage collection.
+        print("DEBUG: GPU cleanup completed (garbage collection only - no GPU libraries available).")
 
     except Exception as e:
         print(f"DEBUG: GPU cleanup failed: {e}")
