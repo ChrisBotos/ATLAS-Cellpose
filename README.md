@@ -43,69 +43,188 @@ Ischemia-reperfusion injury is a critical pathophysiological process in kidney t
 
 ### Prerequisites
 
-- **Python**: ≥ 3.10 (recommended: 3.11)
+- **Operating System**: Ubuntu 20.04+ or Windows with WSL2 (recommended)
+- **Python**: 3.10 (specifically tested and validated)
 - **CUDA**: ≥ 12.1 (for GPU acceleration)
-- **Memory**: ≥ 16 GB RAM (≥ 32 GB for large images)
-- **GPU**: ≥ 8 GB VRAM (recommended for optimal performance)
+- **Memory**: ≥ 16 GB RAM (≥ 32 GB for large whole-slide images)
+- **GPU**: ≥ 8 GB VRAM (recommended for optimal deep learning performance)
+- **Storage**: ≥ 10 GB free space for conda environment and dependencies
 
-### Virtual Environment Setup
+### Conda Environment Setup (Recommended)
 
-We strongly recommend using a virtual environment to avoid dependency conflicts:
+We **strongly recommend** using the provided conda environment for optimal compatibility and reproducibility. This environment has been extensively tested and validated for I/R kidney injury spatial multiomics analysis.
+
+#### Step 1: Install Miniconda/Anaconda
+
+If you don't have conda installed:
+
+**Ubuntu/Linux:**
+```bash
+# Download and install Miniconda
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
+source ~/miniconda3/etc/profile.d/conda.sh
+conda init bash
+```
+
+**Windows (WSL2 recommended):**
+```bash
+# In WSL2 Ubuntu terminal
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
+source ~/miniconda3/etc/profile.d/conda.sh
+conda init bash
+```
+
+#### Step 2: Install Mamba (Faster Dependency Resolution)
+
+Mamba provides significantly faster dependency resolution for complex bioinformatics environments:
+
+```bash
+conda install -n base mamba -c conda-forge
+```
+
+#### Step 3: Create the IRI310 Environment
+
+Use the provided, validated environment configuration:
+
+```bash
+# Clone the repository if you haven't already
+git clone https://github.com/ChrisBotos/I-R-Injury-Spatial-Multiomics-Analysis.git
+cd I-R-Injury-Spatial-Multiomics-Analysis
+
+# Create the environment using the validated configuration
+mamba env create -f environment.yml
+```
+
+#### Step 4: Activate the Environment
+
+```bash
+# Activate the environment
+conda activate iri310
+
+# Or use the convenient activation script
+./activate_iri310.sh
+```
+
+#### Step 5: Verify Installation
+
+Test that all packages are correctly installed and functional:
+
+```bash
+# Run the comprehensive test suite
+python test_environment.py
+```
+
+Expected output should show all packages successfully imported:
+```
+✔ NumPy 1.26.4
+✔ SciPy 1.15.2
+✔ Pandas 2.3.1
+✔ PyTorch 2.2.0 (CUDA: 12.1)
+  CUDA available: True
+✔ TorchVision 0.17.0
+✔ scikit-image 0.25.0
+✔ Cellpose imported successfully
+✔ Scanpy 1.11.3
+✔ AnnData 0.11.4
+✔ Transformers 4.53.2
+✔ PyArrow 21.0.0
+✔ FastParquet 2024.11.0
+🎉 All packages imported successfully!
+```
+
+### Alternative: Virtual Environment Setup
+
+If you prefer using pip and virtual environments (not recommended for complex bioinformatics workflows):
 
 ```bash
 # Create virtual environment
-python -m venv kidney_segmentation_env
+python3.10 -m venv kidney_segmentation_env
 
 # Activate virtual environment
-# On Windows:
-kidney_segmentation_env\Scripts\activate
-# On Linux/macOS:
-source kidney_segmentation_env/bin/activate
+source kidney_segmentation_env/bin/activate  # Linux/macOS
+# kidney_segmentation_env\Scripts\activate  # Windows
 
-# Upgrade pip
-python -m pip install --upgrade pip
-```
-
-### Dependency Installation
-
-#### GPU-Accelerated Installation (Recommended)
-
-For systems with CUDA-compatible GPUs:
-
-```bash
-# Install PyTorch with CUDA support
-pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
-
-# Install Cellpose (not included in requirements.txt)
-pip install cellpose>=3.0.0
-
-# Optional: Install additional visualization dependencies
-pip install zarr>=2.16.0  # For NGFF tile format support
-```
-
-#### CPU-Only Installation
-
-For systems without GPU support:
-
-```bash
-# Edit requirements.txt to uncomment CPU-only PyTorch lines:
-# torch==2.7.1+cpu
-# torchvision==0.22.1+cpu
-
+# Install dependencies
 pip install -r requirements.txt
-
-# Install Cellpose
 pip install cellpose>=3.0.0
 ```
 
-### Verification
+### Scientific Rationale for Environment Configuration
 
-Test your installation:
+The `iri310` conda environment has been specifically optimized for spatial multiomics analysis of ischemia-reperfusion kidney injury:
+
+1. **Python 3.10**: Provides optimal compatibility with bioinformatics packages while maintaining stability.
+
+2. **NumPy 1.26.x**: Last stable 1.x series, ensuring ABI compatibility with PyTorch and avoiding the breaking changes in NumPy 2.0.
+
+3. **PyTorch 2.2.0 with CUDA 12.1**: Enables GPU-accelerated deep learning for Cellpose segmentation, critical for processing large tissue sections efficiently.
+
+4. **Cellpose 4.0.6**: State-of-the-art generalist cell segmentation model, specifically effective for nuclear segmentation in diverse tissue contexts.
+
+5. **Scanpy + AnnData**: Industry-standard tools for single-cell and spatial omics analysis, enabling integration with transcriptomics and metabolomics data.
+
+6. **Flexible Channel Priority**: Resolves complex dependency conflicts common in bioinformatics environments while maintaining package compatibility.
+
+### Troubleshooting Common Installation Issues
+
+#### Issue 1: CUDA Compatibility Problems
+```bash
+# Check CUDA version
+nvidia-smi
+
+# If CUDA version mismatch, update PyTorch:
+conda activate iri310
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+```
+
+#### Issue 2: NumPy Version Conflicts
+```bash
+# Force NumPy 1.x if you encounter compatibility issues
+conda activate iri310
+pip install "numpy<2.0" --force-reinstall
+```
+
+#### Issue 3: Memory Issues During Environment Creation
+```bash
+# Use conda instead of mamba if memory is limited
+conda env create -f environment.yml
+```
+
+#### Issue 4: Package Import Failures
+```bash
+# Clean and recreate environment
+conda env remove -n iri310
+mamba clean --all
+mamba env create -f environment.yml
+```
+
+### Performance Optimization Tips
+
+1. **GPU Memory**: Ensure at least 8GB VRAM for optimal Cellpose performance on large images.
+
+2. **System Memory**: 32GB+ RAM recommended for whole-slide image processing with tiled approaches.
+
+3. **Storage**: Use SSD storage for faster I/O during large dataset processing.
+
+4. **Batch Processing**: Utilize the provided batch processing scripts for multiple samples to maximize GPU utilization.
+
+### Environment Maintenance
+
+Keep your environment updated and functional:
 
 ```bash
-python -c "import torch; print(f'PyTorch: {torch.__version__}')"
-python -c "import cellpose; print(f'Cellpose: {cellpose.__version__}')"
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+# Update conda/mamba
+conda update conda
+conda update mamba
+
+# Update packages (be cautious with major version changes)
+conda activate iri310
+conda update --all
+
+# Export current environment for reproducibility
+conda env export > my_working_environment.yml
 ```
 
 ---

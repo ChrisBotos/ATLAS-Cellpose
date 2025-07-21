@@ -3,7 +3,7 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Project: Cellpose Tile‑Merge Pipeline (Python ≥ 3.10).
+Project: Cellpose Tile‑Merge Pipeline (Python ≥ 3.10).
 Description:
     Complete, runnable implementation of the RAM‑efficient, GPU‑accelerated mask‑merge
     workflow we planned earlier.  The package layout is **flat** for clarity inside
@@ -111,7 +111,7 @@ def merge_patch_cpu(
     Parameters
     ----------
     patch : np.ndarray
-        Integer mask stack with *T* ≤ 4 (overlapping tiles).  Zero denotes background.
+        Integer mask stack with *T* ≤ 4 (overlapping tiles).  Zero denotes background.
     threshold : float
         Fraction of shared pixels required by the merge rule.
 
@@ -151,7 +151,7 @@ def merge_patch_cpu(
 
     logging.debug(f"CPU merge processing patch: ({T}, {H}, {W}), "
                  f"memory estimate: {total_elements * 4 / (1024**3):.2f} GB")
-    global_next = count(1)  # IDs start at 1.
+    global_next = count(1)  # IDs start at 1.
     dsu = DSUCPU()
 
     # Pre‑compute per‑tile metadata.
@@ -210,7 +210,7 @@ def merge_patch_cpu(
             left = pairs >> np.uint64(64)
             right = pairs & np.uint64(0xFFFFFFFFFFFFFFFF)  # 64-bit mask
             for ca, cb, cnt in zip(left, right, counts):
-                # Rule 2 – shared threshold.
+                # Rule 2 – shared threshold.
                 # Extract the original label from the composite key.
                 label_a = int(ca) & 0xFFFFFFFF
                 label_b = int(cb) & 0xFFFFFFFF
@@ -218,7 +218,7 @@ def merge_patch_cpu(
                 size_b = tile_sizes[b][label_b]
                 if cnt < threshold * min(size_a, size_b):
                     continue
-                # Rule 3 – border stub.
+                # Rule 3 – border stub.
                 ta = tile_border[a][label_a]
                 tb = tile_border[b][label_b]
                 if ta and not tb:

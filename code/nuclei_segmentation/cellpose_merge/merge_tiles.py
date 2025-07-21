@@ -15,7 +15,7 @@ Description:
     ``_merge_patch_gpu`` back‑ends.
 
 Dependencies:
-    • Python ≥ 3.10.
+    • Python ≥ 3.10.
     • numpy, pillow, tqdm, pytest.  (Optional: torch for GPU.)
 
 Usage:
@@ -1057,7 +1057,7 @@ def _merge_cluster(
     use_gpu: bool,
     gid_offset: int,
 ) -> Tuple[NDArray[np.uint32], Tuple[int, int], Dict[int, int]]:
-    """Merge all tiles in *cluster* into a patch of size (Hc, Wc).
+    """Merge all tiles in *cluster* into a patch of size (Hc, Wc).
 
     The heavy lifting is delegated to ``merge_patch_cpu`` / ``merge_patch_gpu``.
     This wrapper merely constructs the per‑tile 3‑D tensor expected by those
@@ -1879,7 +1879,7 @@ import pytest
 
 @pytest.fixture(scope="module", params=[(529, 529), (4096, 3072)])
 def _toy_masks(request: pytest.FixtureRequest) -> Tuple[NDArray[np.uint32], int, int, int, int]:
-    """Return a synthetic grid mask covering *height* × *width* pixels."""
+    """Return a synthetic grid mask covering *height* × *width* pixels."""
 
     height, width = request.param
     tile_h, tile_w, overlap = 256, 256, 64

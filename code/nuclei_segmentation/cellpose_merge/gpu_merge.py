@@ -110,7 +110,7 @@ def merge_patch_gpu(
         else:
             raise
 
-    max_lbl = int(patch_t.max().item()) + 1  # Include 0.
+    max_lbl = int(patch_t.max().item()) + 1  # Include 0.
 
     dsu = GPUDSU(max_lbl * T, device=device)  # Composite space: tile<<32 | label.
 
@@ -123,7 +123,7 @@ def merge_patch_gpu(
         border_lbl = torch.unique(torch.cat([m[0], m[-1], m[:, 0], m[:, -1]]))
         border_per_tile[t][border_lbl] = True
 
-    # Helper to form composite label (tile << 32 | label).
+    # Helper to form composite label (tile << 32 | label).
     def comp(t_idx: int, lbl: Tensor | int) -> Tensor:
         # Dense mapping:  (tile * max_lbl) + local_label  ∈  [0, max_lbl*T).
         return torch.tensor(t_idx, dtype=torch.int64, device=device) * max_lbl + lbl
@@ -155,7 +155,7 @@ def merge_patch_gpu(
             comp_to_global[int(comp(t, int(lbl)))] = next_gid
             next_gid += 1
 
-    """Steps 2‑4 – merge remaining labels across tile pairs"""
+    """Steps 2‑4 – merge remaining labels across tile pairs"""
     for a in range(T):
         for b in range(a + 1, T):
             pa, pb = patch_t[a], patch_t[b]
@@ -170,11 +170,11 @@ def merge_patch_gpu(
             cnts = overlap[idx]
             lbl_a = idx // max_lbl
             lbl_b = idx % max_lbl
-            # Rule 2 threshold.
+            # Rule 2 threshold.
             min_size = torch.minimum(counts_per_tile[a][lbl_a], counts_per_tile[b][lbl_b])
             good = cnts >= min_size * threshold
             lbl_a, lbl_b = lbl_a[good], lbl_b[good]
-            # Rule 3 border stub.
+            # Rule 3 border stub.
             ba = border_per_tile[a][lbl_a]
             bb = border_per_tile[b][lbl_b]
             ok = ~((ba & ~bb) | (bb & ~ba))

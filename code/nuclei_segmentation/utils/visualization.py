@@ -261,7 +261,7 @@ def _assert_grayscale(img: np.ndarray, name: str) -> np.ndarray:
     if img.ndim == 2:                           # already (H, W).
         return img.astype(np.float32)
     if img.ndim == 3 and img.shape[2] == 3:     # RGB → gray.
-        # Y' = 0.2126 R + 0.7152 G + 0.0722 B (ITU‑R BT.709).
+        # Y' = 0.2126 R + 0.7152 G + 0.0722 B (ITU‑R BT.709).
         r, g, b = img.astype(np.float32).transpose(2, 0, 1)
         y = 0.2126 * r + 0.7152 * g + 0.0722 * b
         return y
@@ -309,24 +309,24 @@ def generate_tiled_overlay(
     Parameters
     ----------
     img   : raw slide or tile, 2‑D or RGB.
-    masks : integer label image (0 = background).
+    masks : integer label image (0 = background).
     alpha : 0‑1 weight of the mask layer.
     seed  : RNG seed so colours are reproducible between runs.
 
     Returns
     -------
-    overlay : float32 RGB ∈ [0, 1].
+    overlay : float32 RGB ∈ [0, 1].
     """
-    # 1. Prepare the base image as RGB float32 ∈ [0,1].
+    # 1. Prepare the base image as RGB float32 ∈ [0,1].
     gray = _assert_grayscale(img, "img")               # (H,W) float32
     base = np.stack([gray / 255.0] * 3, axis=-1)       # (H,W,3)
 
-    # 2. Map every label → deterministic colour.
+    # 2. Map every label → deterministic colour.
     lut        = _generate_label_colours(int(masks.max()), seed)  # (L+1,3) uint8
-    lut_float  = lut.astype(np.float32) / 255.0                   # ∈ [0,1]
+    lut_float  = lut.astype(np.float32) / 255.0                   # ∈ [0,1]
     mask_rgb   = lut_float[masks]                                 # (H,W,3) float32
 
-    # 3. Alpha‑blend ONLY where label > 0.
+    # 3. Alpha‑blend ONLY where label > 0.
     fg         = masks > 0
     overlay    = base.copy()
     overlay[fg] = (1.0 - alpha) * base[fg] + alpha * mask_rgb[fg]

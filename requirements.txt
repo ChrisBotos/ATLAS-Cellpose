@@ -1,10 +1,11 @@
 ###############################################################################
-# requirements.txt  –  works on Python 3.11 *and* a GLIBC 2.17 system
-# Tested 16 Jun 2025 with pip 24.0 on CentOS 7 (manylinux2014 target)
+# requirements.txt  –  works on Python 3.11 *and* GLIBC 2.17 (CentOS 7 / manylinux2014)
+# Tested 19 Jul 2025 with pip 25.1.1 on CentOS 7
 #
 # GPU build (CUDA 12.1):
-#     pip install -r requirements.txt \
-#        --extra-index-url https://download.pytorch.org/whl/cu121
+#     pip install \
+#         --extra-index-url https://download.pytorch.org/whl/cu121 \
+#         -r requirements.txt
 #
 # CPU-only build:
 #     pip install -r requirements.txt
@@ -16,29 +17,26 @@ scipy==1.15.1
 pandas==2.3.0
 
 ######## Arrow / Parquet ######################################################
-pyarrow==20.0.0            # Newer versions still lack cp311-manylinux2014 wheels
+pyarrow==20.0.0
 fastparquet==2024.2.0
 
 ######## Plotting & imaging ###################################################
 matplotlib==3.10.3
 contourpy==1.1.0
-pillow==10.3.0              # 11.x wheels need GLIBC 2.28 → stay on 10.3.0
-imageio==2.37.0             # 2.37.0 is latest with cp311 wheel
+pillow==10.2.0              # last cp311-manylinux2014 wheel
+imageio==2.37.0
 scikit-image==0.23.2
-pywavelets==1.8.0           # scikit-image dependency
+pywavelets==1.8.0
 
-######## Machine-learning core ################################################
+######## Machine-learning core ###############################################
 scikit-learn==1.7.0
 joblib==1.5.1
 tqdm==4.67.1
 
 ######## Deep-learning stack ##################################################
-# Comment these two lines and uncomment the CPU variants if you do not have CUDA.
-torch==2.7.1+cu121
-torchvision==0.22.1+cu121
-# torch==2.7.1+cpu
-# torchvision==0.22.1+cpu
-triton==3.3.1               # Pinned to avoid back-tracking
+#torch==2.5.1+cu121          # cp311-manylinux2014 CUDA 12.1 build
+#torchvision==0.20.1+cu121   # matches torch 2.5.x
+triton==3.1.0               # pinned per torch 2.5.x
 
 ######## Single-cell & AnnData ###############################################
 anndata==0.11.4

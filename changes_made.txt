@@ -46,3 +46,5 @@ Also, the big change is that the script utilize gpu acceleration and batching to
 14) Implemented parallel processing for cellpose segmentation and merging of masks by running many tiles in parallel.
 
 15) Memory safety and management.
+
+16) Created the environment.yml file and tested it crating a suitable conda environment for python3.10.
