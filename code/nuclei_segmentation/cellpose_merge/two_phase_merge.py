@@ -5,11 +5,17 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: two_phase_merge.py.
 Description:
-    Two-phase tile merging implementation that systematically applies the 4-step
+    Two-phase tile merging implementation that systematically applies the new 3-step
     merging rules to overlapping tile pairs. This approach replaces the complex
-    cluster-based batching strategy with a simpler, more reliable method that
+    4-step algorithm with a simpler, more efficient priority-based method that
     processes vertical overlaps first, then horizontal overlaps.
-    
+
+    The new 3-step merging rule:
+    1. Priority Selection: Tile with most nuclei gets priority
+    2. Border Deletion: Remove priority tile nuclei touching borders, preserve
+       non-priority nuclei touching priority borders
+    3. Cleanup: Remove remaining non-priority nuclei in overlap region
+
     The key insight is that nuclei can move outside their original tile boundaries
     during merging, so the second phase must use updated tile masks from the first
     phase to maintain merge consistency across the entire image.
@@ -17,12 +23,12 @@ Description:
 Dependencies:
     • Python ≥ 3.10.
     • numpy, torch, tqdm.
-    • cellpose_merge.rules, cellpose_merge.gpu_merge.
+    • cellpose_merge.rules_3step, cellpose_merge.gpu_merge.
 
 Key Features:
     • Systematic two-phase overlap processing for consistent merge results.
     • GPU-accelerated pairwise tile merging with automatic CPU fallback.
-    • Cross-boundary nucleus tracking to handle merge-induced tile boundary changes.
+    • Simplified 3-step algorithm for better performance and scientific accuracy.
     • Memory-efficient processing of tile pairs instead of large clusters.
     • Comprehensive progress tracking and debug logging for bioinformatics workflows.
 """
@@ -178,54 +184,64 @@ def merge_two_tiles(
     tile1_mask: NDArray[np.uint32],
     tile2_mask: NDArray[np.uint32],
     overlap_slices: Tuple[slice, slice, slice, slice],
-    threshold: float = 0.3,
     use_gpu: bool = True,
     gid_offset: int = 0
 ) -> Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]:
     """
-    Apply 4-step merging rules between exactly two overlapping tiles.
-    
-    This function creates a small patch containing only the overlap region,
-    applies the standard merge algorithm, and then updates both input tiles
-    with the merged results. This ensures that nuclei can move across tile
-    boundaries during merging while maintaining consistency.
-    
+    Apply the 3-step merging rules between exactly two overlapping tiles.
+
+    CORE PRINCIPLE: Complete nuclei are processed, not just overlap portions.
+    When a nucleus has ANY pixels in the overlap region, the ENTIRE nucleus
+    (including parts outside the overlap) is subject to the 3-step merging rules.
+
+    The 3-step algorithm:
+    1. Priority Selection: Tile with most nuclei gets priority
+    2. Border Deletion: Remove priority tile nuclei touching borders, preserve
+       non-priority nuclei touching priority borders (cross-boundary nuclei)
+    3. Cleanup: Remove remaining non-priority nuclei in overlap region
+
     Parameters
     ----------
     tile1_mask, tile2_mask : NDArray[np.uint32]
         Input tile masks to be merged.
     overlap_slices : Tuple[slice, slice, slice, slice]
         Slices defining the overlap region: (tile1_y, tile1_x, tile2_y, tile2_x).
-    threshold : float, default 0.3
-        Overlap threshold for merging decisions.
     use_gpu : bool, default True
         Whether to use GPU acceleration for merge operations.
     gid_offset : int, default 0
-        Global ID offset to ensure unique nucleus IDs.
-        
+        Global ID offset (unused in current implementation but kept for compatibility).
+
     Returns
     -------
     Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]
-        Updated tile1_mask, updated tile2_mask, and mapping dictionary.
+        Updated tile1_mask, updated tile2_mask, and mapping of preserved nucleus IDs.
+        The mapping shows which original IDs were preserved (original_id -> original_id).
     """
-    from .rules import merge_patch_cpu
-    
+    try:
+        from .rules_3step import merge_patch_cpu_3step
+    except ImportError:
+        # Fallback for when running as script
+        from rules_3step import merge_patch_cpu_3step
+
     if use_gpu and TORCH_AVAILABLE:
         try:
-            from .gpu_merge import merge_patch_gpu
-            merge_fn = merge_patch_gpu
+            try:
+                from .gpu_merge import merge_patch_gpu_3step
+            except ImportError:
+                from gpu_merge import merge_patch_gpu_3step
+            merge_fn = merge_patch_gpu_3step
         except ImportError:
             logging.warning("GPU merge not available, falling back to CPU")
-            merge_fn = merge_patch_cpu
+            merge_fn = merge_patch_cpu_3step
     else:
-        merge_fn = merge_patch_cpu
-    
+        merge_fn = merge_patch_cpu_3step
+
     tile1_slice_y, tile1_slice_x, tile2_slice_y, tile2_slice_x = overlap_slices
-    
+
     # Extract overlap regions from both tiles.
     overlap1 = tile1_mask[tile1_slice_y, tile1_slice_x]
     overlap2 = tile2_mask[tile2_slice_y, tile2_slice_x]
-    
+
     # Ensure both overlap regions have the same shape.
     if overlap1.shape != overlap2.shape:
         logging.warning(f"Overlap shape mismatch: {overlap1.shape} vs {overlap2.shape}")
@@ -233,31 +249,62 @@ def merge_two_tiles(
         min_w = min(overlap1.shape[1], overlap2.shape[1])
         overlap1 = overlap1[:min_h, :min_w]
         overlap2 = overlap2[:min_h, :min_w]
-    
-    # Create 3D patch for merge algorithm: (2, H, W).
+
+    # Check if there are any nuclei in the overlap regions.
+    nuclei_in_overlap1 = set(np.unique(overlap1[overlap1 > 0]))
+    nuclei_in_overlap2 = set(np.unique(overlap2[overlap2 > 0]))
+
+    if len(nuclei_in_overlap1) == 0 and len(nuclei_in_overlap2) == 0:
+        logging.debug("No nuclei in overlap region, returning original tiles")
+        return tile1_mask, tile2_mask, {}
+
+    # Create 3D patch for merge algorithm: (2, H, W) using overlap regions.
     patch = np.stack([overlap1, overlap2], axis=0)
-    
-    # Apply merge algorithm to the overlap region.
+
+    # Apply the 3-step merging algorithm to overlap regions.
     try:
-        merged_overlap, mapping = merge_fn(patch, threshold=threshold)
-        
-        # Apply global ID offset if specified.
-        if gid_offset > 0:
-            nucleus_mask = merged_overlap != 0
-            merged_overlap = merged_overlap.astype(np.uint32)
-            merged_overlap[nucleus_mask] += int(gid_offset)
-        
-        # Update both tiles with merged results in their overlap regions.
+        merged_overlap, mapping = merge_fn(patch)
+
+        if len(mapping) == 0:
+            logging.debug("No nuclei changes from merge algorithm, returning original tiles")
+            return tile1_mask, tile2_mask, {}
+
+        # CRITICAL FIX: Apply merge decisions to COMPLETE nuclei, not just overlap portions.
+        # This ensures no nucleus fragmentation occurs.
         updated_tile1 = tile1_mask.copy()
         updated_tile2 = tile2_mask.copy()
-        
+
+        # Find all nuclei that had any pixels in the overlap regions.
+        all_overlap_nuclei = nuclei_in_overlap1 | nuclei_in_overlap2
+
+        # Step 1: Delete all nuclei that had pixels in overlap but are not in mapping.
+        # These nuclei were deleted by the 3-step algorithm.
+        for nucleus_id in all_overlap_nuclei:
+            if nucleus_id not in mapping:
+                # This nucleus was deleted by the 3-step algorithm.
+                # Remove ALL pixels of this nucleus from both tiles.
+                updated_tile1[tile1_mask == nucleus_id] = 0
+                updated_tile2[tile2_mask == nucleus_id] = 0
+
+                logging.debug(f"Deleted complete nucleus {nucleus_id}")
+
+        # Step 2: Update preserved nuclei with their new IDs.
+        for original_id, new_id in mapping.items():
+            # Update ALL pixels of this nucleus in both tiles.
+            updated_tile1[tile1_mask == original_id] = new_id
+            updated_tile2[tile2_mask == original_id] = new_id
+
+            logging.debug(f"Preserved complete nucleus {original_id} -> {new_id}")
+
+        # Step 3: Ensure overlap regions are identical in both tiles.
+        # This is critical for maintaining consistency.
         updated_tile1[tile1_slice_y, tile1_slice_x] = merged_overlap
         updated_tile2[tile2_slice_y, tile2_slice_x] = merged_overlap
-        
-        logging.debug(f"Successfully merged tile pair with {len(np.unique(merged_overlap)) - 1} nuclei in overlap")
-        
+
+        logging.debug(f"Successfully merged tile pair: {len(mapping)} nuclei processed")
+
         return updated_tile1, updated_tile2, mapping
-        
+
     except Exception as e:
         logging.error(f"Error during tile pair merge: {e}")
         logging.error(traceback.format_exc())
@@ -273,22 +320,29 @@ def merge_tiles_two_phase(
     tile_h: int,
     tile_w: int,
     overlap: int,
-    threshold: float = 0.3,
     use_gpu: bool = True,
     merge_batch_size: int = 4,
-    gid_offset: int = 0,
     debug_mode: bool = False,
     output_dir: Optional[Path] = None,
 ) -> NDArray[np.uint32]:
     """
     Two-phase tile merging with systematic overlap processing and persistent storage.
 
-    This function implements a two-phase approach to tile merging:
+    CORE PRINCIPLE: No new global IDs are created during merging. Only preserve or delete existing IDs.
+    Cross-boundary nuclei maintain their original IDs throughout both tiles after merging.
+
+    This function implements a two-phase approach to tile merging using the 3-step algorithm:
     1. Phase 1: Process all vertical overlaps (horizontally adjacent tiles)
        - Save intermediate results to merged_tile_masks_npz/
     2. Phase 2: Process all horizontal overlaps (vertically adjacent tiles)
        - Load from merged_tile_masks_npz/, process, and save back
     3. Final Assembly: Combine all tiles into final merged mask
+
+    The 3-step merging rule:
+    1. Priority Selection: Tile with most nuclei gets priority
+    2. Border Deletion: Remove priority tile nuclei touching borders, preserve
+       non-priority nuclei touching priority borders (cross-boundary nuclei)
+    3. Cleanup: Remove remaining non-priority nuclei in overlap region
 
     This systematic approach ensures consistent merge rule application and
     better handling of cross-boundary nuclei. The persistent storage allows
@@ -306,14 +360,10 @@ def merge_tiles_two_phase(
         Individual tile dimensions in pixels.
     overlap : int
         Overlap between adjacent tiles in pixels.
-    threshold : float, default 0.3
-        Overlap threshold for merging decisions.
     use_gpu : bool, default True
         Whether to use GPU acceleration.
     merge_batch_size : int, default 4
         Number of tile pairs to process in parallel during each phase.
-    gid_offset : int, default 0
-        Starting global ID offset.
     debug_mode : bool, default False
         Whether to enable debug logging.
     output_dir : Optional[Path], default None
@@ -322,7 +372,7 @@ def merge_tiles_two_phase(
     Returns
     -------
     NDArray[np.uint32]
-        Final merged mask with unique nucleus IDs.
+        Final merged mask with original nucleus IDs preserved.
     """
     logging.info(f"Starting two-phase merge for {len(coords)} tiles")
 
@@ -382,12 +432,11 @@ def merge_tiles_two_phase(
                 logging.debug(f"Phase 1: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
                 logging.debug(f"Overlap region: {overlap_slices}")
 
-            # Perform merge.
+            # Perform merge using 3-step algorithm.
             updated_tile1, updated_tile2, _ = merge_two_tiles(
                 tile1,
                 tile2,
                 overlap_slices,
-                threshold=threshold,
                 use_gpu=use_gpu,
                 gid_offset=gid_offset
             )
@@ -425,12 +474,11 @@ def merge_tiles_two_phase(
                 logging.debug(f"Phase 2: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
                 logging.debug(f"Overlap region: {overlap_slices}")
 
-            # Perform merge.
+            # Perform merge using 3-step algorithm.
             updated_tile1, updated_tile2, _ = merge_two_tiles(
                 tile1,
                 tile2,
                 overlap_slices,
-                threshold=threshold,
                 use_gpu=use_gpu,
                 gid_offset=gid_offset
             )

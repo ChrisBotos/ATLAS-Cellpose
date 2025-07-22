@@ -85,7 +85,7 @@ def load_config(config_path=None):
         "local_maxima_footprint": get_tuple(config, "watershed", "local_maxima_footprint", default=(3, 3), cast=int),
 
         "use_tiling": config.getboolean("tiling", "use_tiling", fallback=True),
-        "merge_overlap_threshold": config.getfloat("tiling", "merge_overlap_threshold", fallback=0.3),
+        # Note: merge_overlap_threshold removed in new 3-step algorithm
         "tile_side_length": config.getint("tiling", "tile_side_length", fallback=1024),
         "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.1),
         "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),

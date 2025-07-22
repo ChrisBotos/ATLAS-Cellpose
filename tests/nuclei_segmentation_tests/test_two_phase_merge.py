@@ -5,9 +5,15 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: test_two_phase_merge.py.
 Description:
-    Comprehensive test suite for the two-phase tile merging implementation.
-    Tests overlap dictionary creation, pairwise tile merging, and the complete
-    two-phase merge pipeline with various tile configurations.
+    Comprehensive test suite for the two-phase tile merging implementation using
+    the new 3-step algorithm. Tests overlap dictionary creation, pairwise tile
+    merging, and the complete two-phase merge pipeline with various tile configurations.
+
+    The new 3-step merging rule:
+    1. Priority Selection: Tile with most nuclei gets priority
+    2. Border Deletion: Remove priority tile nuclei touching borders, preserve
+       non-priority nuclei touching priority borders
+    3. Cleanup: Remove remaining non-priority nuclei in overlap region
 
 Dependencies:
     • Python ≥ 3.10.
@@ -16,10 +22,10 @@ Dependencies:
 
 Key Features:
     • Overlap dictionary generation tests for various tile arrangements.
-    • Pairwise merge tests with synthetic overlapping nuclei.
+    • Pairwise merge tests with synthetic overlapping nuclei using 3-step algorithm.
     • Integration tests comparing two-phase vs single-tile results.
     • Edge case handling for irregular tile patterns and boundary conditions.
-    • Performance validation for large tile grids.
+    • Performance validation for simplified algorithm.
 """
 
 from __future__ import annotations
@@ -141,29 +147,59 @@ class TestOverlapDictionaries:
         assert tile2_slice_x.start == 0
 
 
-class TestPairwiseMerging:
-    """Test pairwise tile merging functionality."""
-    
-    def create_synthetic_tiles(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Create synthetic tiles with overlapping nuclei for testing."""
+class TestNucleusContinuity:
+    """Test nucleus continuity and ID consistency across tile boundaries."""
+
+    def create_cross_boundary_tiles(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Create tiles with nuclei that span across tile boundaries.
+
+        This tests the critical case where a single biological nucleus
+        extends from one tile into another tile's overlap region.
+        """
         tile1 = np.zeros((256, 256), dtype=np.uint32)
         tile2 = np.zeros((256, 256), dtype=np.uint32)
-        
-        # Add nucleus in tile1 that extends into overlap region.
-        tile1[100:150, 200:256] = 1
-        
-        # Add overlapping nucleus in tile2.
-        tile2[100:150, 0:30] = 2
-        
-        # Add non-overlapping nucleus in tile2.
-        tile2[50:80, 50:80] = 3
-        
+
+        # Cross-boundary nucleus: extends from tile1 main body into tile2 overlap.
+        # This nucleus should remain as ONE contiguous mask with ONE ID after merging.
+        tile1[100:150, 180:256] = 1  # Main body in tile1 (extends to right edge).
+        tile2[100:150, 0:40] = 1     # Extension in tile2 overlap (same ID initially).
+
+        # Priority tile nucleus touching border (should be deleted).
+        tile2[50:80, 0:20] = 2       # Touches left border of tile2.
+
+        # Internal nucleus in priority tile (should be kept).
+        tile2[200:230, 100:130] = 3  # Internal to tile2.
+
+        # Non-cross-boundary nucleus in tile1 (should be deleted).
+        tile1[50:80, 100:130] = 4    # Internal to tile1, doesn't cross boundary.
+
+        return tile1, tile2
+
+    def create_large_cross_boundary_nucleus(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Create tiles with a large nucleus that extends significantly beyond overlap.
+
+        This tests the case where most of the nucleus is outside the overlap region,
+        but a small part extends into the overlap.
+        """
+        tile1 = np.zeros((256, 256), dtype=np.uint32)
+        tile2 = np.zeros((256, 256), dtype=np.uint32)
+
+        # Large cross-boundary nucleus: most of it is in tile1, small part in tile2.
+        tile1[50:200, 150:256] = 1   # Large main body in tile1.
+        tile2[50:200, 0:20] = 1      # Small extension in tile2 overlap.
+
+        # Priority tile nuclei.
+        tile2[10:40, 100:130] = 2    # Internal (should be kept).
+        tile2[220:250, 0:15] = 3     # Border-touching (should be deleted).
+
         return tile1, tile2
     
-    def test_merge_two_tiles_basic(self):
-        """Test basic pairwise tile merging."""
-        tile1, tile2 = self.create_synthetic_tiles()
-        
+    def test_cross_boundary_nucleus_continuity(self):
+        """Test that cross-boundary nuclei remain contiguous with consistent IDs."""
+        tile1, tile2 = self.create_cross_boundary_tiles()
+
         # Define overlap region (rightmost 64 pixels of tile1, leftmost 64 pixels of tile2).
         overlap_slices = (
             slice(0, 256),    # tile1_y: full height
@@ -171,19 +207,135 @@ class TestPairwiseMerging:
             slice(0, 256),    # tile2_y: full height
             slice(0, 64),     # tile2_x: leftmost 64 pixels
         )
-        
+
+        # Verify initial cross-boundary nucleus exists in both tiles.
+        assert np.any(tile1 == 1), "Cross-boundary nucleus should exist in tile1"
+        assert np.any(tile2 == 1), "Cross-boundary nucleus should exist in tile2"
+
         updated_tile1, updated_tile2, mapping = merge_two_tiles(
-            tile1, tile2, overlap_slices, threshold=0.3, use_gpu=False
+            tile1, tile2, overlap_slices, use_gpu=False
         )
-        
-        # Verify that tiles were updated.
-        assert not np.array_equal(updated_tile1, tile1)
-        assert not np.array_equal(updated_tile2, tile2)
-        
-        # Verify that overlap regions are identical after merging.
-        overlap1_after = updated_tile1[overlap_slices[0], overlap_slices[1]]
-        overlap2_after = updated_tile2[overlap_slices[2], overlap_slices[3]]
-        assert np.array_equal(overlap1_after, overlap2_after)
+
+        # Critical test: Cross-boundary nucleus should be preserved with original ID.
+        assert 1 in mapping, "Cross-boundary nucleus should be preserved in mapping"
+        assert mapping[1] == 1, "Cross-boundary nucleus should keep its original ID"
+
+        # Critical test: The ENTIRE cross-boundary nucleus should have the same original ID.
+        # This tests the fix for the nucleus splitting bug.
+
+        # Check that the nucleus exists with the original ID in both tiles.
+        assert np.any(updated_tile1 == 1), "Cross-boundary nucleus with original ID should exist in tile1"
+        assert np.any(updated_tile2 == 1), "Cross-boundary nucleus with original ID should exist in tile2"
+
+        # Critical test: No new IDs should be created.
+        original_ids = {1, 2, 3, 4}  # All original IDs from both tiles
+        updated_ids_tile1 = set(np.unique(updated_tile1[updated_tile1 > 0]))
+        updated_ids_tile2 = set(np.unique(updated_tile2[updated_tile2 > 0]))
+        all_updated_ids = updated_ids_tile1 | updated_ids_tile2
+
+        assert all_updated_ids.issubset(original_ids), f"No new IDs should be created. Original: {original_ids}, Updated: {all_updated_ids}"
+
+        # Test nucleus continuity: The nucleus should be contiguous across tiles.
+        # Extract the nucleus from both tiles and verify it forms one connected component.
+        nucleus_tile1 = updated_tile1 == 1
+        nucleus_tile2 = updated_tile2 == 1
+
+        # The nucleus should exist in the expected regions.
+        assert np.any(nucleus_tile1[100:150, 180:256]), "Nucleus should exist in tile1 main body"
+        assert np.any(nucleus_tile2[100:150, 0:40]), "Nucleus should exist in tile2 overlap region"
+
+    def test_large_cross_boundary_nucleus_id_consistency(self):
+        """Test ID consistency for nuclei that extend far beyond overlap regions."""
+        tile1, tile2 = self.create_large_cross_boundary_nucleus()
+
+        overlap_slices = (
+            slice(0, 256),    # tile1_y: full height
+            slice(192, 256),  # tile1_x: rightmost 64 pixels
+            slice(0, 256),    # tile2_y: full height
+            slice(0, 64),     # tile2_x: leftmost 64 pixels
+        )
+
+        # Verify the large nucleus exists in both tiles initially.
+        nucleus1_area = np.sum(tile1 == 1)
+        nucleus2_area = np.sum(tile2 == 1)
+        total_initial_area = nucleus1_area + nucleus2_area
+
+        assert nucleus1_area > 0, "Large nucleus should exist in tile1"
+        assert nucleus2_area > 0, "Large nucleus should exist in tile2"
+        assert nucleus1_area > nucleus2_area, "Most of the nucleus should be in tile1"
+
+        updated_tile1, updated_tile2, mapping = merge_two_tiles(
+            tile1, tile2, overlap_slices, use_gpu=False
+        )
+
+        # The large cross-boundary nucleus should be preserved with original ID.
+        assert 1 in mapping, "Large cross-boundary nucleus should be preserved"
+        assert mapping[1] == 1, "Cross-boundary nucleus should keep its original ID"
+
+        # Critical test: The entire large nucleus should have consistent original ID.
+        updated_nucleus1_area = np.sum(updated_tile1 == 1)
+        updated_nucleus2_area = np.sum(updated_tile2 == 1)
+        total_updated_area = updated_nucleus1_area + updated_nucleus2_area
+
+        # The total area may increase when merging cross-boundary nuclei because
+        # the merged nucleus creates a consistent shape across both tiles.
+        # The key requirement is that the nucleus remains as one contiguous entity.
+        assert total_updated_area >= total_initial_area, f"Nucleus area should not decrease: {total_initial_area} -> {total_updated_area}"
+
+        # The nucleus should exist with its original ID in both tiles.
+        assert np.any(updated_tile1 == 1), "Cross-boundary nucleus should exist in tile1"
+        assert np.any(updated_tile2 == 1), "Cross-boundary nucleus should exist in tile2"
+
+        # The nucleus should still be mostly in tile1.
+        assert updated_nucleus1_area > updated_nucleus2_area, "Most of the nucleus should still be in tile1"
+
+    def test_nucleus_splitting_bug_detection(self):
+        """Explicitly test for the nucleus splitting bug."""
+        tile1, tile2 = self.create_cross_boundary_tiles()
+
+        overlap_slices = (
+            slice(0, 256),    # tile1_y: full height
+            slice(192, 256),  # tile1_x: rightmost 64 pixels
+            slice(0, 256),    # tile2_y: full height
+            slice(0, 64),     # tile2_x: leftmost 64 pixels
+        )
+
+        updated_tile1, updated_tile2, mapping = merge_two_tiles(
+            tile1, tile2, overlap_slices, use_gpu=False
+        )
+
+        # Get all unique IDs in both updated tiles.
+        all_ids_tile1 = set(np.unique(updated_tile1[updated_tile1 > 0]))
+        all_ids_tile2 = set(np.unique(updated_tile2[updated_tile2 > 0]))
+
+        # Check for nucleus splitting: if the same biological nucleus has different IDs
+        # in different parts of the tiles, this indicates the splitting bug.
+
+        # The cross-boundary nucleus should have exactly one original ID across both tiles.
+        if 1 in mapping:
+            assert mapping[1] == 1, "Cross-boundary nucleus should keep its original ID"
+
+            # If the nucleus exists in both tiles, it should have the same original ID.
+            if np.any(updated_tile1 == 1) and np.any(updated_tile2 == 1):
+                # Check that the nucleus has consistent ID throughout.
+                nucleus_mask_tile1 = updated_tile1 == 1
+                nucleus_mask_tile2 = updated_tile2 == 1
+
+                # In the regions where the nucleus exists, there should be only one ID.
+                nucleus_region_tile1 = updated_tile1[100:150, 180:256]
+                nucleus_region_tile2 = updated_tile2[100:150, 0:40]
+
+                nucleus_ids_tile1 = set(np.unique(nucleus_region_tile1[nucleus_region_tile1 > 0]))
+                nucleus_ids_tile2 = set(np.unique(nucleus_region_tile2[nucleus_region_tile2 > 0]))
+
+                # Each region should have at most one nucleus ID.
+                assert len(nucleus_ids_tile1) <= 1, f"Nucleus region in tile1 should have at most 1 ID, got {nucleus_ids_tile1}"
+                assert len(nucleus_ids_tile2) <= 1, f"Nucleus region in tile2 should have at most 1 ID, got {nucleus_ids_tile2}"
+
+                # If both regions have nuclei, they should have the same original ID.
+                if nucleus_ids_tile1 and nucleus_ids_tile2:
+                    assert nucleus_ids_tile1 == nucleus_ids_tile2, f"Nucleus should have same ID in both tiles: {nucleus_ids_tile1} vs {nucleus_ids_tile2}"
+                    assert 1 in nucleus_ids_tile1, "Cross-boundary nucleus should have original ID 1"
     
     def test_merge_two_tiles_no_overlap(self):
         """Test merging tiles with no overlapping nuclei."""
@@ -200,7 +352,7 @@ class TestPairwiseMerging:
         )
         
         updated_tile1, updated_tile2, mapping = merge_two_tiles(
-            tile1, tile2, overlap_slices, threshold=0.3, use_gpu=False
+            tile1, tile2, overlap_slices, use_gpu=False
         )
         
         # Tiles should be mostly unchanged since no nuclei overlap.
@@ -217,7 +369,7 @@ class TestPairwiseMerging:
         except ImportError:
             pytest.skip("PyTorch not available for GPU testing")
         
-        tile1, tile2 = self.create_synthetic_tiles()
+        tile1, tile2 = self.create_cross_boundary_tiles()
         overlap_slices = (
             slice(0, 256), slice(192, 256),
             slice(0, 256), slice(0, 64)
@@ -225,12 +377,12 @@ class TestPairwiseMerging:
         
         # Test GPU merge.
         updated_tile1_gpu, updated_tile2_gpu, mapping_gpu = merge_two_tiles(
-            tile1, tile2, overlap_slices, threshold=0.3, use_gpu=True
+            tile1, tile2, overlap_slices, use_gpu=True
         )
-        
+
         # Test CPU merge for comparison.
         updated_tile1_cpu, updated_tile2_cpu, mapping_cpu = merge_two_tiles(
-            tile1, tile2, overlap_slices, threshold=0.3, use_gpu=False
+            tile1, tile2, overlap_slices, use_gpu=False
         )
         
         # Results should be similar (allowing for minor differences in implementation).
@@ -279,7 +431,7 @@ class TestTwoPhaseIntegration:
         coords = [(0, 0), (0, 1), (1, 0), (1, 1)]
         loader = self.create_tile_loader(tile_data)
         
-        # Run two-phase merge.
+        # Run two-phase merge with new 3-step algorithm.
         merged = merge_tiles_two_phase(
             coords=coords,
             loader=loader,
@@ -288,7 +440,6 @@ class TestTwoPhaseIntegration:
             tile_h=256,
             tile_w=256,
             overlap=64,
-            threshold=0.3,
             use_gpu=False,
             merge_batch_size=2
         )
@@ -324,7 +475,6 @@ class TestTwoPhaseIntegration:
             tile_h=256,
             tile_w=256,
             overlap=64,
-            threshold=0.3,
             use_gpu=False
         )
         
@@ -352,7 +502,6 @@ class TestTwoPhaseIntegration:
             tile_h=256,
             tile_w=256,
             overlap=64,
-            threshold=0.3,
             use_gpu=False
         )
         

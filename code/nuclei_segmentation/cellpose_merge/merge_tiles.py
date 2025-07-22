@@ -286,12 +286,10 @@ def merge_masks_streaming(
             tile_h=tile_h,
             tile_w=tile_w,
             overlap=overlap,
-            threshold=threshold,
             use_gpu=use_gpu,
             merge_batch_size=merge_batch_size,
-            gid_offset=1,  # Start global IDs from 1
             debug_mode=debug_mode,
-            output_dir=output_dir,  # Pass output directory for persistent storage
+            output_dir=output_dir,  # Pass output directory for persistent storage.
         )
 
         # Save the final merged mask.
