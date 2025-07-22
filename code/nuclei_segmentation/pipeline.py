@@ -50,7 +50,7 @@ from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_m
 from utils.visualization import small_segmentation_overlay
 from utils.overlay_full_image import full_image_overlay
 
-from cellpose_merge.merge_tiles_clean import merge_masks_streaming_clean as merge_masks_streaming
+from cellpose_merge.merge_tiles import merge_masks_streaming
 
 
 def log_config(logger, settings, CELLPOSE_PARAMS):

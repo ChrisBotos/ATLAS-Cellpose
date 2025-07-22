@@ -48,6 +48,27 @@ except ImportError:
 # Type aliases for clarity.
 TileCoord = Tuple[int, int]
 TilePair = Tuple[TileCoord, TileCoord]
+
+
+def _load_tile_from_storage(coord: TileCoord, storage_dir: Path) -> NDArray[np.uint32]:
+    """Load a tile mask from persistent storage."""
+    r, c = coord
+    tile_filename = f"{r}_{c}.npz"
+    tile_path = storage_dir / tile_filename
+
+    if not tile_path.exists():
+        raise FileNotFoundError(f"Tile mask not found: {tile_path}")
+
+    tile_data = np.load(tile_path)
+    return tile_data["mask"]
+
+
+def _save_tile_to_storage(coord: TileCoord, tile_mask: NDArray[np.uint32], storage_dir: Path) -> None:
+    """Save a tile mask to persistent storage."""
+    r, c = coord
+    tile_filename = f"{r}_{c}.npz"
+    tile_path = storage_dir / tile_filename
+    np.savez_compressed(tile_path, mask=tile_mask)
 OverlapDict = Dict[TilePair, Tuple[slice, slice, slice, slice]]
 
 
@@ -257,15 +278,22 @@ def merge_tiles_two_phase(
     merge_batch_size: int = 4,
     gid_offset: int = 0,
     debug_mode: bool = False,
+    output_dir: Optional[Path] = None,
 ) -> NDArray[np.uint32]:
     """
-    Merge tiles using systematic two-phase overlap processing.
-    
-    This function implements the new two-phase merging strategy that processes
-    all vertical overlaps first, then all horizontal overlaps. This ensures
-    consistent merge results and proper handling of nuclei that move across
-    tile boundaries during merging.
-    
+    Two-phase tile merging with systematic overlap processing and persistent storage.
+
+    This function implements a two-phase approach to tile merging:
+    1. Phase 1: Process all vertical overlaps (horizontally adjacent tiles)
+       - Save intermediate results to merged_tile_masks_npz/
+    2. Phase 2: Process all horizontal overlaps (vertically adjacent tiles)
+       - Load from merged_tile_masks_npz/, process, and save back
+    3. Final Assembly: Combine all tiles into final merged mask
+
+    This systematic approach ensures consistent merge rule application and
+    better handling of cross-boundary nuclei. The persistent storage allows
+    for debugging and validation of intermediate results.
+
     Parameters
     ----------
     coords : List[Tuple[int, int]]
@@ -286,29 +314,51 @@ def merge_tiles_two_phase(
         Number of tile pairs to process in parallel during each phase.
     gid_offset : int, default 0
         Starting global ID offset.
-        
+    debug_mode : bool, default False
+        Whether to enable debug logging.
+    output_dir : Optional[Path], default None
+        Output directory for persistent storage. If None, uses current directory.
+
     Returns
     -------
     NDArray[np.uint32]
         Final merged mask with unique nucleus IDs.
     """
     logging.info(f"Starting two-phase merge for {len(coords)} tiles")
-    
+
+    # Set up persistent storage directories.
+    if output_dir is None:
+        output_dir = Path(".")
+
+    merged_masks_dir = output_dir / "masks" / "merged_tile_masks_npz"
+    merged_masks_dir.mkdir(parents=True, exist_ok=True)
+
+    logging.info(f"Using persistent storage: {merged_masks_dir}")
+
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap
-    
-    # Load all tiles into memory for processing.
-    tile_masks: Dict[TileCoord, NDArray[np.uint32]] = {}
-    
-    logging.info("Loading all tile masks into memory")
-    for r, c in tqdm(coords, desc="Loading tiles"):
+
+    # Phase 0: Load and save original tile masks to persistent storage.
+    logging.info("Phase 0: Initializing persistent tile storage")
+
+    for r, c in tqdm(coords, desc="Initializing tiles"):
         y_start = r * stride_h
         y_end = min(height, y_start + tile_h)
         x_start = c * stride_w
         x_end = min(width, x_start + tile_w)
-        
-        tile_masks[(r, c)] = loader(slice(y_start, y_end), slice(x_start, x_end))
-    
+
+        # Load original tile data.
+        tile_data = loader(slice(y_start, y_end), slice(x_start, x_end))
+
+        # Save to persistent storage with same naming convention as original tiles.
+        tile_filename = f"{r}_{c}.npz"
+        tile_path = merged_masks_dir / tile_filename
+        np.savez_compressed(tile_path, mask=tile_data)
+
+        if debug_mode:
+            nuclei_count = len(np.unique(tile_data[tile_data > 0]))
+            logging.debug(f"Initialized tile ({r},{c}): {nuclei_count} nuclei -> {tile_path}")
+
     # Create overlap dictionaries.
     vertical_overlaps, horizontal_overlaps = create_overlap_dictionaries(
         coords, tile_h, tile_w, overlap
@@ -316,81 +366,137 @@ def merge_tiles_two_phase(
     
     # Phase 1: Process all vertical overlaps (horizontally adjacent tiles).
     logging.info(f"Phase 1: Processing {len(vertical_overlaps)} vertical overlaps")
-    
+
     for tile_pair, overlap_slices in tqdm(vertical_overlaps.items(), desc="Vertical overlaps"):
         coord1, coord2 = tile_pair
-        
-        if coord1 in tile_masks and coord2 in tile_masks:
-            updated_tile1, updated_tile2, _ = merge_two_tiles(
-                tile_masks[coord1],
-                tile_masks[coord2],
-                overlap_slices,
-                threshold=threshold,
-                use_gpu=use_gpu,
-                gid_offset=gid_offset
-            )
-            
-            # Update tiles with merged results.
-            tile_masks[coord1] = updated_tile1
-            tile_masks[coord2] = updated_tile2
-    
-    # Phase 2: Process all horizontal overlaps (vertically adjacent tiles).
-    # CRITICAL: Use updated masks from Phase 1.
-    logging.info(f"Phase 2: Processing {len(horizontal_overlaps)} horizontal overlaps")
-    
-    for tile_pair, overlap_slices in tqdm(horizontal_overlaps.items(), desc="Horizontal overlaps"):
-        coord1, coord2 = tile_pair
-        
-        if coord1 in tile_masks and coord2 in tile_masks:
+
+        try:
+            # Load tiles from persistent storage.
+            tile1 = _load_tile_from_storage(coord1, merged_masks_dir)
+            tile2 = _load_tile_from_storage(coord2, merged_masks_dir)
+
             # Debug logging for merge operations.
             if debug_mode:
-                nuclei_before_1 = len(np.unique(tile_masks[coord1][tile_masks[coord1] > 0]))
-                nuclei_before_2 = len(np.unique(tile_masks[coord2][tile_masks[coord2] > 0]))
-                logging.debug(f"Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
+                nuclei_before_1 = len(np.unique(tile1[tile1 > 0]))
+                nuclei_before_2 = len(np.unique(tile2[tile2 > 0]))
+                logging.debug(f"Phase 1: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
                 logging.debug(f"Overlap region: {overlap_slices}")
 
+            # Perform merge.
             updated_tile1, updated_tile2, _ = merge_two_tiles(
-                tile_masks[coord1],
-                tile_masks[coord2],
+                tile1,
+                tile2,
                 overlap_slices,
                 threshold=threshold,
                 use_gpu=use_gpu,
                 gid_offset=gid_offset
             )
+
+            # Save updated tiles back to persistent storage.
+            _save_tile_to_storage(coord1, updated_tile1, merged_masks_dir)
+            _save_tile_to_storage(coord2, updated_tile2, merged_masks_dir)
 
             # Debug logging for merge results.
             if debug_mode:
                 nuclei_after_1 = len(np.unique(updated_tile1[updated_tile1 > 0]))
                 nuclei_after_2 = len(np.unique(updated_tile2[updated_tile2 > 0]))
-                logging.debug(f"After merge: tile {coord1} has {nuclei_after_1} nuclei, tile {coord2} has {nuclei_after_2} nuclei")
-            
-            # Update tiles with merged results.
-            tile_masks[coord1] = updated_tile1
-            tile_masks[coord2] = updated_tile2
+                logging.debug(f"Phase 1: After merge: tile {coord1} has {nuclei_after_1} nuclei, tile {coord2} has {nuclei_after_2} nuclei")
+
+        except Exception as e:
+            logging.error(f"Phase 1: Failed to process tile pair {coord1}-{coord2}: {e}")
+            continue
     
-    # Assemble final merged image.
-    logging.info("Assembling final merged image")
+    # Phase 2: Process all horizontal overlaps (vertically adjacent tiles).
+    # CRITICAL: Use updated masks from Phase 1 (loaded from persistent storage).
+    logging.info(f"Phase 2: Processing {len(horizontal_overlaps)} horizontal overlaps")
+
+    for tile_pair, overlap_slices in tqdm(horizontal_overlaps.items(), desc="Horizontal overlaps"):
+        coord1, coord2 = tile_pair
+
+        try:
+            # Load tiles from persistent storage (includes Phase 1 updates).
+            tile1 = _load_tile_from_storage(coord1, merged_masks_dir)
+            tile2 = _load_tile_from_storage(coord2, merged_masks_dir)
+
+            # Debug logging for merge operations.
+            if debug_mode:
+                nuclei_before_1 = len(np.unique(tile1[tile1 > 0]))
+                nuclei_before_2 = len(np.unique(tile2[tile2 > 0]))
+                logging.debug(f"Phase 2: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
+                logging.debug(f"Overlap region: {overlap_slices}")
+
+            # Perform merge.
+            updated_tile1, updated_tile2, _ = merge_two_tiles(
+                tile1,
+                tile2,
+                overlap_slices,
+                threshold=threshold,
+                use_gpu=use_gpu,
+                gid_offset=gid_offset
+            )
+
+            # Save updated tiles back to persistent storage.
+            _save_tile_to_storage(coord1, updated_tile1, merged_masks_dir)
+            _save_tile_to_storage(coord2, updated_tile2, merged_masks_dir)
+
+            # Debug logging for merge results.
+            if debug_mode:
+                nuclei_after_1 = len(np.unique(updated_tile1[updated_tile1 > 0]))
+                nuclei_after_2 = len(np.unique(updated_tile2[updated_tile2 > 0]))
+                logging.debug(f"Phase 2: After merge: tile {coord1} has {nuclei_after_1} nuclei, tile {coord2} has {nuclei_after_2} nuclei")
+
+        except Exception as e:
+            logging.error(f"Phase 2: Failed to process tile pair {coord1}-{coord2}: {e}")
+            continue
+    
+    # Phase 3: Assemble final merged image from persistent storage.
+    logging.info("Phase 3: Assembling final merged image from persistent storage")
     merged = np.zeros((height, width), dtype=np.uint32)
-    
-    for (r, c), tile_mask in tile_masks.items():
-        y_start = r * stride_h
-        y_end = min(height, y_start + tile_h)
-        x_start = c * stride_w
-        x_end = min(width, x_start + tile_w)
-        
-        # Handle edge tiles that may be smaller than tile_h x tile_w.
-        actual_h = y_end - y_start
-        actual_w = x_end - x_start
-        
-        merged[y_start:y_end, x_start:x_end] = tile_mask[:actual_h, :actual_w]
-    
+
+    for r, c in coords:
+        try:
+            # Load final merged tile from persistent storage.
+            tile_mask = _load_tile_from_storage((r, c), merged_masks_dir)
+
+            y_start = r * stride_h
+            y_end = min(height, y_start + tile_h)
+            x_start = c * stride_w
+            x_end = min(width, x_start + tile_w)
+
+            # Handle edge tiles that may be smaller than tile_h x tile_w.
+            actual_h = y_end - y_start
+            actual_w = x_end - x_start
+
+            merged[y_start:y_end, x_start:x_end] = tile_mask[:actual_h, :actual_w]
+
+            if debug_mode:
+                nuclei_count = len(np.unique(tile_mask[tile_mask > 0]))
+                logging.debug(f"Assembled tile ({r},{c}): {nuclei_count} nuclei")
+
+        except Exception as e:
+            logging.error(f"Failed to load final tile ({r},{c}): {e}")
+            continue
+
     final_nuclei_count = len(np.unique(merged[merged > 0]))
     logging.info(f"Two-phase merge completed. Final image contains {final_nuclei_count} nuclei")
 
     # Log merge efficiency for quality assessment.
     if debug_mode:
-        total_input_nuclei = sum(len(np.unique(tile_masks[coord][tile_masks[coord] > 0])) for coord in coords)
+        # Calculate total input nuclei by loading original tiles.
+        total_input_nuclei = 0
+        for r, c in coords:
+            y_start = r * stride_h
+            y_end = min(height, y_start + tile_h)
+            x_start = c * stride_w
+            x_end = min(width, x_start + tile_w)
+
+            original_tile = loader(slice(y_start, y_end), slice(x_start, x_end))
+            total_input_nuclei += len(np.unique(original_tile[original_tile > 0]))
+
         merge_efficiency = (final_nuclei_count / total_input_nuclei) * 100 if total_input_nuclei > 0 else 0
         logging.debug(f"Merge efficiency: {final_nuclei_count}/{total_input_nuclei} = {merge_efficiency:.1f}%")
-    
+
+    logging.info(f"Persistent storage directory: {merged_masks_dir}")
+    logging.info(f"Intermediate tile masks saved for debugging and validation")
+
     return merged

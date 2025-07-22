@@ -127,6 +127,9 @@ def write_overlays(
     qc_dir: str | Path,
     image_loader: Callable[[slice, slice], NDArray[np.uint8]] = None,
     use_full_image: bool = False,
+    coords: List[Tuple[int, int]] = None,
+    original_tiles_path: Path = None,
+    merged_tiles_dir: Path = None,
 ) -> None:
     """
     Generate comprehensive QC overlays for nucleus segmentation merge validation.
@@ -199,9 +202,16 @@ def write_overlays(
 
         # Generate the before merging visualization showing individual tile contributions.
         logging.info("Generating before merging visualization...")
-        before_overlay = _create_before_merging_overlay(
-            loader, crop_info, tile_h, tile_w, overlap, tissue_background
-        )
+        if original_tiles_path and coords:
+            # Use original tile masks for "before" visualization.
+            before_overlay = _create_before_merging_overlay_from_files(
+                original_tiles_path, coords, crop_info, tile_h, tile_w, overlap, tissue_background
+            )
+        else:
+            # Fallback to loader function.
+            before_overlay = _create_before_merging_overlay(
+                loader, crop_info, tile_h, tile_w, overlap, tissue_background
+            )
 
         before_path = qc_dir / "before_merging.tif"
         Image.fromarray(before_overlay).save(before_path, compression="tiff_deflate")
@@ -209,7 +219,14 @@ def write_overlays(
 
         # Generate the after merging visualization showing final segmentation results.
         logging.info("Generating after merging visualization...")
-        after_overlay = _create_after_merging_overlay(merged, crop_info, tissue_background)
+        if merged_tiles_dir and coords:
+            # Use merged tile masks for "after" visualization.
+            after_overlay = _create_after_merging_overlay_from_files(
+                merged_tiles_dir, coords, crop_info, tile_h, tile_w, overlap, tissue_background
+            )
+        else:
+            # Fallback to merged mask.
+            after_overlay = _create_after_merging_overlay(merged, crop_info, tissue_background)
 
         after_path = qc_dir / "after_merging.tif"
         Image.fromarray(after_overlay).save(after_path, compression="tiff_deflate")
@@ -673,6 +690,260 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, t
 
     # Convert back to uint8 for final output.
     return overlay.clip(0, 255).astype(np.uint8)
+
+
+"""IMPROVED QC OVERLAY FUNCTIONS WITH PERSISTENT STORAGE"""
+
+def _create_before_merging_overlay_from_files(
+    original_tiles_path: Path,
+    coords: List[Tuple[int, int]],
+    crop_info: Dict,
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    tissue_background: RGBArray
+) -> RGBArray:
+    """
+    Create before merging overlay using original tile mask files.
+
+    This function loads individual tile masks from the original tile_masks_npz
+    directory and creates a visualization showing overlapping masks with
+    tile-specific colors. This provides a clear view of how tiles overlap
+    before merging occurs.
+
+    Parameters
+    ----------
+    original_tiles_path : Path
+        Path to directory containing original tile mask files.
+    coords : List[Tuple[int, int]]
+        List of (row, col) tile coordinates.
+    crop_info : Dict
+        Dictionary containing crop region information.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    tissue_background : RGBArray
+        Background tissue image for overlay.
+
+    Returns
+    -------
+    RGBArray
+        RGB overlay image showing original tile masks with unique colors.
+    """
+    logging.info("Creating before merging overlay from original tile files")
+
+    # Initialize overlay with tissue background.
+    overlay = tissue_background.astype(np.uint16)
+
+    # Calculate stride and crop parameters.
+    stride_h, stride_w = tile_h - overlap, tile_w - overlap
+    crop_y, crop_x = crop_info["y_start"], crop_info["x_start"]
+    crop_h, crop_w = crop_info["height"], crop_info["width"]
+
+    # Generate unique colors for each tile.
+    tile_colors = {}
+    for i, coord in enumerate(coords):
+        # Generate deterministic color based on tile coordinate.
+        r, c = coord
+        color_seed = (r * 1000 + c) % 1000
+        tile_colors[coord] = _generate_tile_color(color_seed)
+
+    # Process each tile and add to overlay.
+    for r, c in coords:
+        try:
+            # Convert tile indices to pixel coordinates for original tile lookup.
+            pixel_r = r * stride_h
+            pixel_c = c * stride_w
+            tile_filename = f"{pixel_r}_{pixel_c}.npz"
+            tile_path = original_tiles_path / tile_filename
+
+            if not tile_path.exists():
+                logging.warning(f"Original tile mask not found: {tile_path}")
+                continue
+
+            tile_data = np.load(tile_path)["mask"]
+
+            # Calculate tile position in global coordinates.
+            tile_y0, tile_x0 = r * stride_h, c * stride_w
+            tile_y1 = tile_y0 + tile_data.shape[0]
+            tile_x1 = tile_x0 + tile_data.shape[1]
+
+            # Check if tile intersects with crop region.
+            intersect_y0 = max(tile_y0, crop_y)
+            intersect_y1 = min(tile_y1, crop_y + crop_h)
+            intersect_x0 = max(tile_x0, crop_x)
+            intersect_x1 = min(tile_x1, crop_x + crop_w)
+
+            if intersect_y1 <= intersect_y0 or intersect_x1 <= intersect_x0:
+                continue
+
+            # Extract relevant portion of tile.
+            tile_crop_y0 = intersect_y0 - tile_y0
+            tile_crop_y1 = intersect_y1 - tile_y0
+            tile_crop_x0 = intersect_x0 - tile_x0
+            tile_crop_x1 = intersect_x1 - tile_x0
+
+            tile_crop = tile_data[tile_crop_y0:tile_crop_y1, tile_crop_x0:tile_crop_x1]
+
+            # Map to overlay coordinates.
+            overlay_y0 = intersect_y0 - crop_y
+            overlay_y1 = intersect_y1 - crop_y
+            overlay_x0 = intersect_x0 - crop_x
+            overlay_x1 = intersect_x1 - crop_x
+
+            # Apply tile-specific color to nuclei.
+            tile_color = tile_colors[(r, c)]
+            nucleus_mask = tile_crop > 0
+
+            if np.any(nucleus_mask):
+                alpha = 0.6  # Semi-transparent for overlapping visualization
+                for channel in range(3):
+                    overlay[overlay_y0:overlay_y1, overlay_x0:overlay_x1, channel][nucleus_mask] = (
+                        (1 - alpha) * overlay[overlay_y0:overlay_y1, overlay_x0:overlay_x1, channel][nucleus_mask] +
+                        alpha * tile_color[channel]
+                    ).astype(np.uint16)
+
+        except Exception as e:
+            logging.error(f"Failed to process original tile ({r},{c}): {e}")
+            continue
+
+    logging.info(f"Before merging overlay created with {len(coords)} tiles")
+    return overlay.clip(0, 255).astype(np.uint8)
+
+
+def _create_after_merging_overlay_from_files(
+    merged_tiles_dir: Path,
+    coords: List[Tuple[int, int]],
+    crop_info: Dict,
+    tile_h: int,
+    tile_w: int,
+    overlap: int,
+    tissue_background: RGBArray
+) -> RGBArray:
+    """
+    Create after merging overlay using merged tile mask files.
+
+    This function loads merged tile masks from the merged_tile_masks_npz
+    directory and creates a visualization showing the final merged results.
+    This provides a clear view of how nuclei were merged across tile boundaries.
+
+    Parameters
+    ----------
+    merged_tiles_dir : Path
+        Path to directory containing merged tile mask files.
+    coords : List[Tuple[int, int]]
+        List of (row, col) tile coordinates.
+    crop_info : Dict
+        Dictionary containing crop region information.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+    tissue_background : RGBArray
+        Background tissue image for overlay.
+
+    Returns
+    -------
+    RGBArray
+        RGB overlay image showing merged tile masks with random colors.
+    """
+    logging.info("Creating after merging overlay from merged tile files")
+
+    # Initialize overlay with tissue background.
+    overlay = tissue_background.astype(np.uint16)
+
+    # Calculate stride and crop parameters.
+    stride_h, stride_w = tile_h - overlap, tile_w - overlap
+    crop_y, crop_x = crop_info["y_start"], crop_info["x_start"]
+    crop_h, crop_w = crop_info["height"], crop_info["width"]
+
+    # Assemble merged mask from individual tiles.
+    merged_crop = np.zeros((crop_h, crop_w), dtype=np.uint32)
+
+    for r, c in coords:
+        try:
+            # Load merged tile mask.
+            tile_filename = f"{r}_{c}.npz"
+            tile_path = merged_tiles_dir / tile_filename
+
+            if not tile_path.exists():
+                logging.warning(f"Merged tile mask not found: {tile_path}")
+                continue
+
+            tile_data = np.load(tile_path)["mask"]
+
+            # Calculate tile position in global coordinates.
+            tile_y0, tile_x0 = r * stride_h, c * stride_w
+            tile_y1 = tile_y0 + tile_data.shape[0]
+            tile_x1 = tile_x0 + tile_data.shape[1]
+
+            # Check if tile intersects with crop region.
+            intersect_y0 = max(tile_y0, crop_y)
+            intersect_y1 = min(tile_y1, crop_y + crop_h)
+            intersect_x0 = max(tile_x0, crop_x)
+            intersect_x1 = min(tile_x1, crop_x + crop_w)
+
+            if intersect_y1 <= intersect_y0 or intersect_x1 <= intersect_x0:
+                continue
+
+            # Extract relevant portion of tile.
+            tile_crop_y0 = intersect_y0 - tile_y0
+            tile_crop_y1 = intersect_y1 - tile_y0
+            tile_crop_x0 = intersect_x0 - tile_x0
+            tile_crop_x1 = intersect_x1 - tile_x0
+
+            tile_crop = tile_data[tile_crop_y0:tile_crop_y1, tile_crop_x0:tile_crop_x1]
+
+            # Map to crop coordinates.
+            crop_y0 = intersect_y0 - crop_y
+            crop_y1 = intersect_y1 - crop_y
+            crop_x0 = intersect_x0 - crop_x
+            crop_x1 = intersect_x1 - crop_x
+
+            # Place tile data in merged crop (merged tiles should not overlap).
+            merged_crop[crop_y0:crop_y1, crop_x0:crop_x1] = tile_crop
+
+        except Exception as e:
+            logging.error(f"Failed to process merged tile ({r},{c}): {e}")
+            continue
+
+    # Apply random colors to merged nuclei.
+    unique_labels = np.unique(merged_crop[merged_crop > 0])
+    if len(unique_labels) > 0:
+        colors = _generate_random_colors(len(unique_labels))
+
+        for i, label in enumerate(unique_labels):
+            nucleus_mask = merged_crop == label
+            if np.any(nucleus_mask):
+                alpha = 0.7  # More opaque for final results
+                for channel in range(3):
+                    overlay[nucleus_mask, channel] = (
+                        (1 - alpha) * overlay[nucleus_mask, channel] +
+                        alpha * colors[i, channel]
+                    ).astype(np.uint16)
+
+    logging.info(f"After merging overlay created with {len(unique_labels)} nuclei")
+    return overlay.clip(0, 255).astype(np.uint8)
+
+
+def _generate_random_colors(num_colors: int, seed: int = 42) -> NDArray[np.uint16]:
+    """Generate random colors for nucleus visualization."""
+    np.random.seed(seed)
+    colors = np.zeros((num_colors, 3), dtype=np.uint16)
+
+    for i in range(num_colors):
+        # Generate bright, distinguishable colors.
+        hue = np.random.random()
+        saturation = 0.6 + 0.4 * np.random.random()  # High saturation
+        value = 0.7 + 0.3 * np.random.random()  # High brightness
+
+        # Convert HSV to RGB.
+        import colorsys
+        r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+        colors[i] = [r * 255, g * 255, b * 255]
+
+    return colors
 
 
 """STATISTICS GENERATION"""
