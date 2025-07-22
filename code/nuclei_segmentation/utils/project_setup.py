@@ -221,8 +221,8 @@ def get_default_settings():
         # ... existing settings ...
         
         # Two-phase merging configuration.
-        "merge_batch_size": 4,
-        "use_two_phase_merge": True,
+        "merge_batch_size": config.getint("tiling", "merge_batch_size", fallback=4),
+        "use_two_phase_merge": config.getboolean("tiling", "use_two_phase_merge", fallback=True),
         "gpu_max_retries": 3,
         "gpu_timeout_seconds": 300,
     }

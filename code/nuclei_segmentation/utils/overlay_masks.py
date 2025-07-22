@@ -209,7 +209,10 @@ def get_gpu_memory_info() -> Dict[str, float]:
     and enable intelligent memory management decisions during processing.
     """
     try:
-        import cupy as cp
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import cupy as cp
 
         # Get memory pool statistics.
         mempool = cp.get_default_memory_pool()
@@ -257,7 +260,10 @@ def cleanup_gpu_memory() -> None:
 
         # Try CuPy cleanup as fallback.
         try:
-            import cupy as cp
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                import cupy as cp
             # Clear memory pool.
             mempool = cp.get_default_memory_pool()
             mempool.free_all_blocks()
@@ -427,7 +433,10 @@ def blend_tile_with_mask(
 
     if enable_gpu:
         try:
-            import cupy as cp
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                import cupy as cp
 
             # Verify CUDA runtime availability.
             device_count = cp.cuda.runtime.getDeviceCount()

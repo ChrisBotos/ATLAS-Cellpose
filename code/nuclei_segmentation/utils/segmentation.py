@@ -499,9 +499,9 @@ def run_cellpose_on_tiles(
                     # Check if model has diameter information stored internally.
                     model_diameter = getattr(model, 'diam_mean', None)
                     if model_diameter and model_diameter > 0:
-                        logger.debug(f"Tile {tile_idx}: Using model diameter = {model_diameter:.1f}px (auto-detection active)")
+                        logger.info(f"Tile {tile_idx}: Using model diameter = {model_diameter:.1f}px (auto-detection active)")
                     else:
-                        logger.debug(f"Tile {tile_idx}: Auto-detection active (diameter=None), using internal Cellpose4 sizing")
+                        logger.info(f"Tile {tile_idx}: Auto-detection active (diameter=None), using internal Cellpose4 sizing")
 
                 # Handle cases where Cellpose returns None (no nuclei detected).
                 if raw_masks is None:

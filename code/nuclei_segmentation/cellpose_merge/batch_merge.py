@@ -5,26 +5,33 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: batch_merge.py.
 Description:
+    DEPRECATED: This module implements complex cluster-based batching strategies
+    that have been superseded by the new two-phase merging approach in
+    two_phase_merge.py. The two-phase approach is more reliable, memory-efficient,
+    and easier to understand.
+
+    This module is maintained for backward compatibility but users should migrate
+    to the two-phase merging strategy by setting use_two_phase_merge=True in
+    their configuration.
+
+    Legacy Description:
     Implements batched processing for GPU-based tile merging to handle large images
     with thousands of tiles. This module addresses memory allocation errors by
     processing tiles in spatial groups based on their overlap relationships.
-    
-    The implementation divides large clusters into smaller batches of 2x2 tile groups,
-    processes them sequentially or in parallel (depending on available GPU memory),
-    and carefully handles the boundaries between batches to maintain merge rule
-    consistency.
 
 Dependencies:
     • Python ≥ 3.10.
     • numpy, torch, tqdm.
     • cellpose_merge.gpu_merge, cellpose_merge.rules.
 
-Key Features:
+Key Features (DEPRECATED):
     • Memory-efficient batched processing for large tile clusters.
     • Spatial proximity grouping to maintain merge rule consistency.
     • Configurable batch sizes with automatic memory management.
     • Comprehensive progress tracking and memory usage monitoring.
     • Graceful fallback to smaller batch sizes when memory is constrained.
+
+    RECOMMENDED ALTERNATIVE: Use two_phase_merge.py with use_two_phase_merge=True.
 """
 
 from __future__ import annotations
@@ -1238,6 +1245,12 @@ def merge_cluster_batched(
     timeout_seconds: int = 300,
 ) -> MergeResult:
     """
+    DEPRECATED: Use two-phase merging instead (use_two_phase_merge=True).
+
+    This function implements complex cluster-based batching that has been superseded
+    by the more reliable two-phase merging approach. Users should migrate to the
+    new approach for better memory efficiency and merge quality.
+
     Merge all tiles in a cluster using batched processing to manage memory usage.
 
     This function now includes proper timeout and retry mechanisms to prevent infinite loops
@@ -1282,6 +1295,16 @@ def merge_cluster_batched(
     # Import merge functions here to avoid circular imports
     from .rules import merge_patch_cpu
     from .gpu_merge import merge_patch_gpu
+
+    # DEPRECATION WARNING: Recommend migration to two-phase merging.
+    import warnings
+    warnings.warn(
+        "merge_cluster_batched is deprecated. Use two-phase merging instead by setting "
+        "use_two_phase_merge=True in your configuration. The two-phase approach is more "
+        "reliable and memory-efficient.",
+        DeprecationWarning,
+        stacklevel=2
+    )
 
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap

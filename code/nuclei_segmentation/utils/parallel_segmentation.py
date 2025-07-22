@@ -5,7 +5,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: parallel_segmentation.py.
 Description:
-    Parallel processing utilities for Cellpose3 segmentation to improve performance
+    Parallel processing utilities for Cellpose4 segmentation to improve performance
     on large kidney tissue images by processing multiple tiles simultaneously.
 
 Dependencies:

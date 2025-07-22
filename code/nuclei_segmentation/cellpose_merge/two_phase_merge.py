@@ -82,11 +82,14 @@ def create_overlap_dictionaries(
         - horizontal_overlapping_regions: vertically adjacent tiles (same column)
         Each value is (slice1_y, slice1_x, slice2_y, slice2_x) for the overlap region.
     """
-    logging.info(f"Creating overlap dictionaries for {len(coords)} tiles with {overlap}px overlap")
-    
+    logging.debug(f"Creating overlap dictionaries for {len(coords)} tiles with {overlap}px overlap")
+    logging.debug(f"Tile coordinates: {sorted(coords)}")
+
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap
     coord_set = set(coords)
+
+    logging.debug(f"Stride: {stride_h}x{stride_w}, Tile size: {tile_h}x{tile_w}")
     
     vertical_overlapping_regions: OverlapDict = {}
     horizontal_overlapping_regions: OverlapDict = {}
@@ -144,8 +147,8 @@ def create_overlap_dictionaries(
                     top_slice_y, top_slice_x, bottom_slice_y, bottom_slice_x
                 )
     
-    logging.info(f"Found {len(vertical_overlapping_regions)} vertical overlaps and "
-                f"{len(horizontal_overlapping_regions)} horizontal overlaps")
+    logging.debug(f"Found {len(vertical_overlapping_regions)} vertical overlaps and "
+                 f"{len(horizontal_overlapping_regions)} horizontal overlaps")
     
     return vertical_overlapping_regions, horizontal_overlapping_regions
 
@@ -252,7 +255,8 @@ def merge_tiles_two_phase(
     threshold: float = 0.3,
     use_gpu: bool = True,
     merge_batch_size: int = 4,
-    gid_offset: int = 0
+    gid_offset: int = 0,
+    debug_mode: bool = False,
 ) -> NDArray[np.uint32]:
     """
     Merge tiles using systematic two-phase overlap processing.
@@ -338,6 +342,13 @@ def merge_tiles_two_phase(
         coord1, coord2 = tile_pair
         
         if coord1 in tile_masks and coord2 in tile_masks:
+            # Debug logging for merge operations.
+            if debug_mode:
+                nuclei_before_1 = len(np.unique(tile_masks[coord1][tile_masks[coord1] > 0]))
+                nuclei_before_2 = len(np.unique(tile_masks[coord2][tile_masks[coord2] > 0]))
+                logging.debug(f"Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
+                logging.debug(f"Overlap region: {overlap_slices}")
+
             updated_tile1, updated_tile2, _ = merge_two_tiles(
                 tile_masks[coord1],
                 tile_masks[coord2],
@@ -346,6 +357,12 @@ def merge_tiles_two_phase(
                 use_gpu=use_gpu,
                 gid_offset=gid_offset
             )
+
+            # Debug logging for merge results.
+            if debug_mode:
+                nuclei_after_1 = len(np.unique(updated_tile1[updated_tile1 > 0]))
+                nuclei_after_2 = len(np.unique(updated_tile2[updated_tile2 > 0]))
+                logging.debug(f"After merge: tile {coord1} has {nuclei_after_1} nuclei, tile {coord2} has {nuclei_after_2} nuclei")
             
             # Update tiles with merged results.
             tile_masks[coord1] = updated_tile1
@@ -367,6 +384,13 @@ def merge_tiles_two_phase(
         
         merged[y_start:y_end, x_start:x_end] = tile_mask[:actual_h, :actual_w]
     
-    logging.info(f"Two-phase merge completed. Final image contains {len(np.unique(merged)) - 1} nuclei")
+    final_nuclei_count = len(np.unique(merged[merged > 0]))
+    logging.info(f"Two-phase merge completed. Final image contains {final_nuclei_count} nuclei")
+
+    # Log merge efficiency for quality assessment.
+    if debug_mode:
+        total_input_nuclei = sum(len(np.unique(tile_masks[coord][tile_masks[coord] > 0])) for coord in coords)
+        merge_efficiency = (final_nuclei_count / total_input_nuclei) * 100 if total_input_nuclei > 0 else 0
+        logging.debug(f"Merge efficiency: {final_nuclei_count}/{total_input_nuclei} = {merge_efficiency:.1f}%")
     
     return merged

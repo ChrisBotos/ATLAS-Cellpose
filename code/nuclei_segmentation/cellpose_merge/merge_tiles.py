@@ -1193,12 +1193,13 @@ def merge_masks_streaming(
     qc: bool = False,
     qc_dir: str | Path | None = None,
     qc_merge_use_full_image = False,
-    merge_batch_size: int = 4,  # NEW: Two-phase merge batch size
+    merge_batch_size: int = 4,
     max_cluster_memory_gb: float = 2.0,
     max_cluster_dimension: int = 4096,
     enable_progress_tracking: bool = True,
     output_dir: str | Path | None = None,
-    use_two_phase_merge: bool = True,  # NEW: Enable two-phase merging
+    use_two_phase_merge: bool = True,
+    debug_mode: bool = False,
 ) -> NDArray[np.uint32]:
     """
     Merge per‑tile nucleus‑instance masks into a full‑slide label map.
@@ -1266,7 +1267,7 @@ def merge_masks_streaming(
             max_r = max(r for r, _ in raw_coords)
             min_c = min(c for _, c in raw_coords)
             max_c = max(c for _, c in raw_coords)
-            logging.info(f"Tile coordinate range: rows {min_r} to {max_r}, cols {min_c} to {max_c}")
+            logging.debug(f"Tile coordinate range: rows {min_r} to {max_r}, cols {min_c} to {max_c}")
 
         # Detect whether the two integers are pixel coordinates or tile indices.
         # This is important for proper spatial alignment of kidney tissue tiles.
@@ -1289,13 +1290,13 @@ def merge_masks_streaming(
             idx_to_path: Dict[Tuple[int, int], Path] = {
                 (r // stride_h, c // stride_w): p for (r, c), p in file_map.items()
             }
-            logging.info(f"Interpreting filenames as pixel coordinates (stride {stride_h}×{stride_w})")
-            logging.info(f"Converted {len(raw_coords)} pixel coordinates to tile indices")
+            logging.debug(f"Interpreting filenames as pixel coordinates (stride {stride_h}×{stride_w})")
+            logging.debug(f"Converted {len(raw_coords)} pixel coordinates to tile indices")
         else:
             # Assume they're already tile indices
             coords = raw_coords
             idx_to_path = file_map
-            logging.info("Interpreting filenames as tile indices")
+            logging.debug("Interpreting filenames as tile indices")
 
         # Enhanced debugging: Log the final coordinate mapping.
         if coords:
@@ -1303,12 +1304,12 @@ def merge_masks_streaming(
             final_max_r = max(r for r, _ in coords)
             final_min_c = min(c for _, c in coords)
             final_max_c = max(c for _, c in coords)
-            logging.info(f"Final tile index range: rows {final_min_r} to {final_max_r}, cols {final_min_c} to {final_max_c}")
+            logging.debug(f"Final tile index range: rows {final_min_r} to {final_max_r}, cols {final_min_c} to {final_max_c}")
 
             # Calculate expected image coverage.
             expected_height = (final_max_r + 1) * stride_h + overlap
             expected_width = (final_max_c + 1) * stride_w + overlap
-            logging.info(f"Expected coverage from tiles: {expected_height}x{expected_width} vs actual image: {height}x{width}")
+            logging.debug(f"Expected coverage from tiles: {expected_height}x{expected_width} vs actual image: {height}x{width}")
 
             if expected_height < height or expected_width < width:
                 logging.warning(f"Tiles may not cover the entire image! Missing coverage: "
@@ -1323,7 +1324,7 @@ def merge_masks_streaming(
             use_gpu = False
 
         processing_mode = "GPU" if use_gpu else "CPU"
-        logging.info(f"Using {processing_mode} processing for mask merging")
+        logging.debug(f"Using {processing_mode} processing for mask merging")
 
     except Exception as setup_error:
         logging.error(f"Failed to initialize mask merging: {setup_error}")
@@ -1402,55 +1403,82 @@ def merge_masks_streaming(
         return result
 
     # ------------------------------------------------------------------
-    # Cluster discovery and parallel merge.
+    # Two-phase merge or cluster-based merge selection.
     # ------------------------------------------------------------------
 
-    # Use adaptive memory-aware clustering to prevent massive GPU memory allocations.
-    clusters = _build_memory_aware_clusters(
-        coords, tile_h, tile_w, overlap,
-        max_cluster_memory_gb=max_cluster_memory_gb,
-        max_cluster_dimension=max_cluster_dimension,
-        max_cluster_gpu_memory_gb=gpu_memory_limit_gb,
-        cluster_subdivision_strategy=gpu_spatial_strategy,  # Reuse spatial strategy parameter
-        max_subdivision_depth=6,  # Default value, could be made configurable
-        min_cluster_size_after_subdivision=2  # Default value, could be made configurable
-    )
-    logging.info("TILE PROCESSING: Created %d memory-efficient tile clusters for merging.", len(clusters))
+    # NEW: Use two-phase merging strategy if enabled.
+    if use_two_phase_merge:
+        logging.info("Using two-phase merging strategy for systematic overlap processing")
 
-    # Enhanced debugging: Log cluster details.
-    for i, cluster in enumerate(clusters):
-        cluster_min_r = min(r for r, _ in cluster)
-        cluster_max_r = max(r for r, _ in cluster)
-        cluster_min_c = min(c for _, c in cluster)
-        cluster_max_c = max(c for _, c in cluster)
-        cluster_y0 = cluster_min_r * stride_h
-        cluster_x0 = cluster_min_c * stride_w
-        cluster_h = min((cluster_max_r - cluster_min_r) * stride_h + tile_h, height - cluster_y0)
-        cluster_w = min((cluster_max_c - cluster_min_c) * stride_w + tile_w, width - cluster_x0)
+        try:
+            merged = merge_tiles_two_phase(
+                coords=coords,
+                loader=_loader,
+                height=height,
+                width=width,
+                tile_h=tile_h,
+                tile_w=tile_w,
+                overlap=overlap,
+                threshold=threshold,
+                use_gpu=use_gpu,
+                merge_batch_size=merge_batch_size,
+                gid_offset=1  # Start global IDs from 1
+            )
 
-        logging.info(f"TILE CLUSTER {i+1}: {len(cluster)} image tiles, "
-                    f"tile_range=({cluster_min_r},{cluster_min_c}) to ({cluster_max_r},{cluster_max_c}), "
-                    f"global_bbox=({cluster_y0},{cluster_x0}) to ({cluster_y0+cluster_h},{cluster_x0+cluster_w})")
+            # Save the final merged mask.
+            np.save(temp_merged_path, merged)
 
-    # Initialize temporary merged mask file for streaming processing.
-    merged = np.zeros((height, width), dtype=np.uint32)
-    np.save(temp_merged_path, merged)
-    logging.info(f"Created temporary merged mask file: {temp_merged_path}")
+            # Rename temp file to final file name.
+            if final_merged_path.exists():
+                final_merged_path.unlink()
+            temp_merged_path.rename(final_merged_path)
 
-    gid_counter = 1  # Monotonic global‑ID allocator.
+            # Also save as TIFF for compatibility.
+            try:
+                from skimage import io as skio
+                tif_path = final_merged_path.parent / "segmentation_masks.tif"
+                skio.imsave(tif_path, merged.astype(np.uint32), plugin="tifffile")
+                logging.info(f"Successfully created TIFF mask: {tif_path}")
+            except Exception as e:
+                logging.warning(f"Could not write TIFF mask: {e}")
 
-    # Enhanced uint32 ID management with configurable parameters.
-    # Use conservative limit from configuration to prevent overflow errors.
-    max_safe_gid = min(2**31 - 1, 2000000000)  # Default conservative limit.
-    id_segment_size = 100000000  # Default segment size.
+            logging.info(f"Two-phase merge completed successfully: {final_merged_path}")
 
-    # Enhanced ID management to prevent conflicts during counter resets.
-    id_reset_count = 0  # Track how many times we've reset the counter.
+            # Generate QC overlays if requested.
+            if qc and qc_dir is not None:
+                from .qc_overlays import generate_qc_overlays
+                generate_qc_overlays(
+                    merged_mask=merged,
+                    tiles_path=path,
+                    coords=coords,
+                    height=height,
+                    width=width,
+                    tile_h=tile_h,
+                    tile_w=tile_w,
+                    overlap=overlap,
+                    qc_dir=qc_dir,
+                    use_full_image=qc_merge_use_full_image,
+                )
 
-    logging.info(f"Enhanced uint32 ID management initialized: "
-                f"max_safe_gid={max_safe_gid:,}, segment_size={id_segment_size:,}")
+            return merged
 
-    if use_gpu:
+        except Exception as e:
+            logging.error(f"Two-phase merge failed: {e}")
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            # CRITICAL: Do not fall back to cluster-based approach - raise the error instead
+            raise RuntimeError(f"Two-phase merge failed and no fallback is available: {e}") from e
+
+    # ------------------------------------------------------------------
+    # Force two-phase merging only.
+    # ------------------------------------------------------------------
+
+    if not use_two_phase_merge:
+        raise ValueError(
+            "Two-phase merging is required. The legacy cluster-based approach has been "
+            "removed due to reliability issues. Please set use_two_phase_merge=True."
+        )
+
+
         # GPU processing with batched approach for memory-efficient merging of large datasets.
         from .batch_merge import merge_cluster_batched
 
@@ -1845,11 +1873,19 @@ def merge_masks_streaming(
     except Exception as e:
         logging.warning(f"Could not write TIFF mask: {e}")
 
-    logging.info(f"Successfully created final merged mask: {final_merged_path}")
-    logging.info(f"Final mask statistics: shape={merged.shape}, max_label={merged.max()}, "
-                f"non_zero_pixels={np.count_nonzero(merged)}")
+        logging.info(f"Successfully created final merged mask: {final_merged_path}")
+        logging.info(f"Final mask statistics: shape={merged.shape}, max_label={merged.max()}, "
+                    f"non_zero_pixels={np.count_nonzero(merged)}")
 
-    return merged
+        return merged
+
+    else:
+        # This should never be reached since use_two_phase_merge=True by default
+        # and the two-phase merge should have returned or raised an error above
+        raise RuntimeError(
+            "Neither two-phase merge nor cluster-based merge was executed. "
+            "This indicates a logic error in the merge_masks_streaming function."
+        )
 
 
 """

@@ -275,7 +275,10 @@ def _blend_tile(tile_img: np.ndarray, tile_mask: np.ndarray, lut: np.ndarray, al
     xp = np
     if gpu:
         try:
-            import cupy as cp
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                import cupy as cp
             _ = cp.cuda.runtime.getDeviceCount()
             xp = cp
         except Exception:

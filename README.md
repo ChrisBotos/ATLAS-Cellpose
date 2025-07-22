@@ -568,7 +568,50 @@ Our Batched Approach (SUCCEEDS):
 └─────────┘ └─────────┘ └─────────┘
 ```
 
-### Enhanced Spatial Batching Strategy
+### Two-Phase Merging Strategy
+
+#### Systematic Overlap Processing for Reliable Results
+
+The pipeline now features a new **two-phase merging strategy** that replaces complex cluster-based batching with a systematic approach to tile overlap processing. This method ensures consistent merge results and better handling of nuclei that span tile boundaries.
+
+#### How Two-Phase Merging Works
+
+**Phase 1: Vertical Overlaps (Horizontally Adjacent Tiles)**
+```
+Process all horizontal tile boundaries first:
+T1|T2  T2|T3  T3|T4
+T5|T6  T6|T7  T7|T8
+T9|T10 T10|T11 T11|T12
+```
+
+**Phase 2: Horizontal Overlaps (Vertically Adjacent Tiles)**
+```
+Process all vertical tile boundaries using updated masks from Phase 1:
+T1─T2─T3─T4
+T5─T6─T7─T8
+T9─T10─T11─T12
+```
+
+#### Key Benefits of Two-Phase Merging
+
+- **Memory Efficiency**: Processes only 2 tiles at a time instead of large clusters
+- **Predictable Performance**: Linear scaling with number of tile pairs
+- **Consistent Results**: Systematic processing order prevents merge conflicts
+- **Cross-Boundary Tracking**: Nuclei can move outside original tile boundaries during merging
+- **GPU Acceleration**: Each pairwise merge can use GPU acceleration when available
+
+#### Configuration Parameters
+
+```ini
+[tiling]
+# Enable two-phase merging strategy
+use_two_phase_merge = True
+
+# Number of tile pairs to process in parallel during each phase
+merge_batch_size = 4
+```
+
+### Enhanced Spatial Batching Strategy (Legacy)
 
 #### Comprehensive 2×2 Tile Group Processing
 

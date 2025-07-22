@@ -5,7 +5,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: pipeline.py.
 Description:
-    Modular segmentation flow using Cellpose3 with DAPI-stained nuclear features.
+    Modular segmentation flow using Cellpose4 with DAPI-stained nuclear features.
 
 Dependencies:
     • Python >= 3.7.
@@ -50,7 +50,7 @@ from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_m
 from utils.visualization import small_segmentation_overlay
 from utils.overlay_full_image import full_image_overlay
 
-from cellpose_merge.merge_tiles import merge_masks_streaming
+from cellpose_merge.merge_tiles_clean import merge_masks_streaming_clean as merge_masks_streaming
 
 
 def log_config(logger, settings, CELLPOSE_PARAMS):
@@ -357,11 +357,13 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     overlap=overlap_pixels,
                     tiles_path=tiles_source_path,
                     threshold=settings.get("merge_overlap_threshold", 0.3),
+                    use_gpu=settings.get("use_gpu", True),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
                     qc_merge_use_full_image=settings.get("qc_merge_use_full_image", False),
                     merge_batch_size=settings.get("merge_batch_size", 4),
-                    use_two_phase_merge=settings.get("use_two_phase_merge", True),
+                    debug_mode=settings.get("debug_mode", False),
+                    output_dir=output_dir,
                 )
                 # Note: The merge_masks_streaming function now saves directly to masks/ directory.
                 # No need for additional save_outputs call to avoid duplicate files.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes the comprehensive improvements made to the nuclei segmentation pipeline, focusing on parallel Cellpose3 segmentation functionality, infinite loop prevention, and memory safety enhancements.
+This document summarizes the comprehensive improvements made to the nuclei segmentation pipeline, focusing on parallel Cellpose4 segmentation functionality, infinite loop prevention, and memory safety enhancements.
 
 ## 1. Infinite Loop Fix
 
@@ -30,11 +30,11 @@ gpu_max_retries = 3
 gpu_timeout_seconds = 300
 ```
 
-## 2. Parallel Cellpose3 Segmentation
+## 2. Parallel Cellpose4 Segmentation
 
 ### Problem Addressed
 - Sequential tile processing was slow for large images
-- No parallelization of Cellpose3 segmentation step
+- No parallelization of Cellpose4 segmentation step
 - Memory inefficient processing of multiple tiles
 
 ### Solution Implemented

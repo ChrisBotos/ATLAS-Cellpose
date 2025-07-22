@@ -714,7 +714,9 @@ def _generate_merge_statistics(
 
     try:
         # Calculate basic segmentation statistics.
-        total_nuclei = int(merged.max())
+        # Count actual unique nuclei, not max label (which can be higher due to merging).
+        unique_labels = np.unique(merged[merged > 0])
+        total_nuclei = len(unique_labels)
         total_pixels = height * width
         nucleus_pixels = np.count_nonzero(merged)
 
