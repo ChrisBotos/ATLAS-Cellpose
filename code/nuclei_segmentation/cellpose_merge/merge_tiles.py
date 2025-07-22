@@ -1193,70 +1193,36 @@ def merge_masks_streaming(
     qc: bool = False,
     qc_dir: str | Path | None = None,
     qc_merge_use_full_image = False,
-    gpu_batch_size: int = 1,
-    gpu_memory_limit_gb: float = 8.0,
-    gpu_memory_safety_factor: float = 1.5,
-    gpu_spatial_strategy: str = "adaptive",
-    gpu_adaptive_batching: bool = True,
-    gpu_aggressive_cleanup: bool = True,
-    gpu_max_retries: int = 3,
-    gpu_timeout_seconds: int = 300,
+    merge_batch_size: int = 4,  # NEW: Two-phase merge batch size
     max_cluster_memory_gb: float = 2.0,
     max_cluster_dimension: int = 4096,
     enable_progress_tracking: bool = True,
     output_dir: str | Path | None = None,
+    use_two_phase_merge: bool = True,  # NEW: Enable two-phase merging
 ) -> NDArray[np.uint32]:
-    """Merge per‑tile instance masks into a 2‑D slide‑level label map.
+    """
+    Merge per‑tile nucleus‑instance masks into a full‑slide label map.
+
+    This function now supports both the original cluster-based approach and
+    the new two-phase merging strategy. The two-phase approach processes
+    vertical overlaps first, then horizontal overlaps, ensuring systematic
+    merge rule application and better handling of cross-boundary nuclei.
 
     Parameters
     ----------
-    height, width : int
-        Size of the target canvas in **pixels**.
-    tile_h, tile_w : int
-        Size of each inference tile in **pixels**.
-    overlap : int
-        Spatial overlap between adjacent tiles, in **pixels**.
-    tiles_path : str | Path
-        Directory containing per‑tile *tif* or *npz* masks.
-    threshold : float, default 0.3
-        Overlap fraction below which a label becomes a new object.
-    max_workers : int | None, default None
-        Maximum CPU workers for cluster processing.  If *None*, use
-        ``⌈√N⌉`` where *N* is the number of clusters.
-    use_gpu : bool | None, default None
-        • *True*  → force GPU (requires PyTorch + CUDA).
-        • *False* → force CPU.
-        • *None*  → auto‑detect.
-    qc : bool, default False
-        If *True*, save QC overlays next to *qc_dir* (if given) or under
-        ``tiles_path/../qc``.
-    qc_dir : str | Path | None
-        Output folder for QC overlays if *qc* is *True*.
-    gpu_batch_size : int, default 1
-        Number of tiles to process simultaneously during GPU-based merging.
-        Smaller values use less GPU memory but may be slower for dense clusters.
-        The system will auto-optimize this value based on memory constraints.
-    gpu_memory_limit_gb : float, default 8.0
-        Maximum GPU memory to use in gigabytes for tile merging operations.
-        The system will automatically adjust batch sizes to stay within this limit.
-        Set to 0 for automatic detection based on available GPU memory.
-    gpu_memory_safety_factor : float, default 1.5
-        Safety multiplier for GPU memory estimates to prevent out-of-memory errors.
-        Higher values are more conservative but may reduce GPU utilization.
-    gpu_spatial_strategy : str, default "adaptive"
-        Spatial batching strategy for tile grouping: "adaptive", "2x2", "spatial", "hybrid".
-        Adaptive mode automatically selects the best strategy based on tile characteristics.
-    gpu_adaptive_batching : bool, default True
-        Enable adaptive batch sizing based on tile spatial distribution and GPU memory.
-        Improves performance for mixed dense/sparse tile patterns.
-    gpu_aggressive_cleanup : bool, default True
-        Enable aggressive GPU memory cleanup between batches to prevent fragmentation.
-        May slightly reduce performance but improves memory stability.
-    output_dir : str | Path | None, default None
-        Output directory where temp_merged_segmentations_masks.npy will be created
-        and then renamed to segmentations_masks.npy. If None, uses tiles_path parent.
+    merge_batch_size : int, default 4
+        Number of tile pairs to process in parallel during two-phase merging.
+        Only used when use_two_phase_merge=True.
+    use_two_phase_merge : bool, default True
+        Whether to use the new two-phase merging strategy instead of
+        cluster-based batching. Two-phase merging is more reliable for
+        maintaining merge quality across large images.
     """
-
+    
+    # Import the new two-phase merge function.
+    if use_two_phase_merge:
+        from .two_phase_merge import merge_tiles_two_phase
+    
     try:
         _lazy_import_merge_backends()
 
@@ -1903,7 +1869,6 @@ def _toy_masks(request: pytest.FixtureRequest) -> Tuple[NDArray[np.uint32], int,
     rows = math.ceil(height / stride_h)
     cols = math.ceil(width / stride_w)
 
-    full = np.zeros((height, width), dtype=np.uint32)
     lbl = 1
     for r in range(rows):
         for c in range(cols):

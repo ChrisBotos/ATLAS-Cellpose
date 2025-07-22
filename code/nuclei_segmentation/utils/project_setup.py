@@ -211,3 +211,18 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem=150_000_000):
     usable = props.total_memory // 2
     per_tile = tile_pixels * bytes_per_pixel
     return max(1, usable // per_tile)
+
+
+def get_default_settings():
+    """
+    Get default settings for nuclei segmentation pipeline.
+    """
+    return {
+        # ... existing settings ...
+        
+        # Two-phase merging configuration.
+        "merge_batch_size": 4,
+        "use_two_phase_merge": True,
+        "gpu_max_retries": 3,
+        "gpu_timeout_seconds": 300,
+    }

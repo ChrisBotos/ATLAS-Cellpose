@@ -354,21 +354,14 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     width=image.shape[1],
                     tile_h=settings["tile_side_length"],
                     tile_w=settings["tile_side_length"],
-                    overlap=overlap_pixels,  # Now correctly converted to integer pixels.
+                    overlap=overlap_pixels,
                     tiles_path=tiles_source_path,
                     threshold=settings.get("merge_overlap_threshold", 0.3),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
                     qc_merge_use_full_image=settings.get("qc_merge_use_full_image", False),
-                    gpu_batch_size=settings.get("gpu_batch_size", 1),
-                    gpu_memory_limit_gb=settings.get("gpu_memory_limit_gb", 8.0),
-                    gpu_memory_safety_factor=settings.get("gpu_memory_safety_factor", 1.5),
-                    gpu_spatial_strategy=settings.get("gpu_spatial_strategy", "adaptive"),
-                    gpu_adaptive_batching=settings.get("gpu_adaptive_batching", True),
-                    gpu_aggressive_cleanup=settings.get("gpu_aggressive_cleanup", True),
-                    gpu_max_retries=settings.get("gpu_max_retries", 3),
-                    gpu_timeout_seconds=settings.get("gpu_timeout_seconds", 300),
-                    output_dir=output_dir,
+                    merge_batch_size=settings.get("merge_batch_size", 4),
+                    use_two_phase_merge=settings.get("use_two_phase_merge", True),
                 )
                 # Note: The merge_masks_streaming function now saves directly to masks/ directory.
                 # No need for additional save_outputs call to avoid duplicate files.
