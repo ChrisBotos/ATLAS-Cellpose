@@ -200,7 +200,7 @@ def calculate_optimal_batch_size(tile_size: int, available_memory_mb: int = 8192
 
 def get_gpu_memory_info() -> Dict[str, float]:
     """
-    Get current GPU memory usage information.
+    Get current GPU memory usage information with enhanced error handling.
 
     Returns:
         Dictionary containing GPU memory statistics in MB, or empty dict if GPU unavailable.
@@ -213,6 +213,11 @@ def get_gpu_memory_info() -> Dict[str, float]:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             import cupy as cp
+
+        # Verify GPU availability first.
+        device_count = cp.cuda.runtime.getDeviceCount()
+        if device_count == 0:
+            return {}
 
         # Get memory pool statistics.
         mempool = cp.get_default_memory_pool()
@@ -229,10 +234,16 @@ def get_gpu_memory_info() -> Dict[str, float]:
             'pool_total_mb': total_bytes / (1024**2),
             'device_free_mb': device_free / (1024**2),
             'device_total_mb': device_total / (1024**2),
-            'device_used_mb': (device_total - device_free) / (1024**2)
+            'device_used_mb': (device_total - device_free) / (1024**2),
+            'utilization_percent': ((device_total - device_free) / device_total) * 100
         }
 
-    except Exception:
+    except ImportError:
+        # CuPy not available.
+        return {}
+    except Exception as e:
+        # Log specific error for debugging.
+        print(f"DEBUG: GPU memory info failed: {e}")
         return {}
 
 
@@ -304,12 +315,18 @@ def monitor_memory_usage(config: OverlayConfig, tile_count: int) -> bool:
 
         if gpu_info:
             used_mb = gpu_info.get('device_used_mb', 0)
+            utilization = gpu_info.get('utilization_percent', 0)
 
             if used_mb > config.memory_limit_mb:
                 print(f"WARNING: GPU memory usage ({used_mb:.1f}MB) exceeds limit ({config.memory_limit_mb}MB)")
+                print(f"DEBUG: GPU utilization: {utilization:.1f}%")
                 return False
 
-            print(f"DEBUG: GPU memory usage: {used_mb:.1f}MB / {config.memory_limit_mb}MB")
+            # More detailed memory reporting.
+            if tile_count % (config.cleanup_frequency * 2) == 0:  # Less frequent detailed reporting.
+                print(f"DEBUG: GPU memory - Used: {used_mb:.1f}MB / Limit: {config.memory_limit_mb}MB ({utilization:.1f}%)")
+            else:
+                print(f"DEBUG: GPU memory usage: {used_mb:.1f}MB / {config.memory_limit_mb}MB")
 
     return True
 
@@ -400,6 +417,123 @@ def get_mask_max_label_efficiently(mask_path: Union[str, Path]) -> int:
 
 """TILE PROCESSING FUNCTIONS"""
 
+def initialize_gpu_backend(enable_gpu: bool, memory_limit_mb: int, tile_size_mb: float) -> tuple:
+    """
+    Initialize GPU backend with comprehensive error handling and diagnostics.
+
+    Args:
+        enable_gpu: Whether to attempt GPU initialization.
+        memory_limit_mb: GPU memory limit for processing decisions.
+        tile_size_mb: Estimated memory requirement for single tile processing.
+
+    Returns:
+        Tuple of (xp_module, gpu_available, initialization_info).
+
+    This function provides robust GPU initialization with detailed error reporting,
+    intelligent memory threshold calculation, and retry mechanisms for transient failures.
+    """
+    xp = np  # Default to CPU processing.
+    gpu_available = False
+    init_info = {"backend": "CPU", "reason": "GPU disabled"}
+
+    if not enable_gpu:
+        return xp, gpu_available, init_info
+
+    # Attempt GPU initialization with detailed error handling.
+    try:
+        import warnings
+        import sys
+        import os
+
+        # Try to ensure conda environment is available in worker processes.
+        conda_prefix = os.environ.get('CONDA_PREFIX')
+        if conda_prefix:
+            conda_lib_path = os.path.join(conda_prefix, 'Lib', 'site-packages')
+            if conda_lib_path not in sys.path:
+                sys.path.insert(0, conda_lib_path)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            import cupy as cp
+
+        init_info["cupy_version"] = cp.__version__
+
+        # Check CUDA runtime availability.
+        try:
+            device_count = cp.cuda.runtime.getDeviceCount()
+            init_info["device_count"] = device_count
+
+            if device_count == 0:
+                init_info["reason"] = "No CUDA devices found"
+                print(f"DEBUG: GPU initialization failed - no CUDA devices available")
+                return xp, gpu_available, init_info
+
+        except Exception as cuda_error:
+            init_info["reason"] = f"CUDA runtime error: {cuda_error}"
+            print(f"DEBUG: GPU initialization failed - CUDA runtime error: {cuda_error}")
+            return xp, gpu_available, init_info
+
+        # Check GPU memory availability with intelligent thresholding.
+        try:
+            device = cp.cuda.Device()
+            free_memory_mb = device.mem_info[0] / (1024**2)
+            total_memory_mb = device.mem_info[1] / (1024**2)
+
+            init_info["free_memory_mb"] = free_memory_mb
+            init_info["total_memory_mb"] = total_memory_mb
+
+            # Calculate dynamic memory threshold based on tile size.
+            # Use minimum of: 30% of memory limit OR 3x tile size OR 1GB, whichever is larger.
+            min_required_mb = max(
+                memory_limit_mb * 0.3,  # 30% of limit
+                tile_size_mb * 3,       # 3x tile size for processing overhead.
+                1024                    # Minimum 1GB for stable operation.
+            )
+
+            init_info["min_required_mb"] = min_required_mb
+
+            if free_memory_mb >= min_required_mb:
+                # Perform basic GPU operation test.
+                try:
+                    test_array = cp.array([1, 2, 3])
+                    _ = cp.sum(test_array)
+                    del test_array
+
+                    xp = cp
+                    gpu_available = True
+                    init_info["backend"] = "GPU"
+                    init_info["reason"] = "Successfully initialized"
+
+                    print(f"DEBUG: GPU backend initialized successfully")
+                    print(f"DEBUG: GPU memory: {free_memory_mb:.1f}MB free / {total_memory_mb:.1f}MB total")
+                    print(f"DEBUG: Memory threshold: {min_required_mb:.1f}MB (dynamic calculation)")
+
+                except Exception as test_error:
+                    init_info["reason"] = f"GPU operation test failed: {test_error}"
+                    print(f"DEBUG: GPU initialization failed - operation test error: {test_error}")
+
+            else:
+                init_info["reason"] = f"Insufficient GPU memory ({free_memory_mb:.1f}MB < {min_required_mb:.1f}MB required)"
+                print(f"DEBUG: GPU memory insufficient: {free_memory_mb:.1f}MB available, {min_required_mb:.1f}MB required")
+
+        except Exception as memory_error:
+            init_info["reason"] = f"GPU memory check failed: {memory_error}"
+            print(f"DEBUG: GPU initialization failed - memory check error: {memory_error}")
+
+    except ImportError as import_error:
+        init_info["reason"] = f"CuPy import failed: {import_error}"
+        print(f"DEBUG: GPU initialization failed - CuPy not available: {import_error}")
+
+    except Exception as general_error:
+        init_info["reason"] = f"Unexpected error: {general_error}"
+        print(f"DEBUG: GPU initialization failed - unexpected error: {general_error}")
+
+    if not gpu_available:
+        print(f"DEBUG: Falling back to CPU processing")
+
+    return xp, gpu_available, init_info
+
+
 def blend_tile_with_mask(
     tile_img: np.ndarray,
     tile_mask: np.ndarray,
@@ -427,34 +561,12 @@ def blend_tile_with_mask(
     to prevent OOM errors and ensures consistent output quality regardless
     of the processing backend used.
     """
-    # Determine optimal processing backend.
-    xp = np  # Default to CPU processing.
-    gpu_available = False
+    # Calculate estimated memory requirement for this tile.
+    tile_pixels = tile_img.shape[0] * tile_img.shape[1]
+    tile_size_mb = (tile_pixels * 4 * 3) / (1024**2)  # Rough estimate for RGB processing.
 
-    if enable_gpu:
-        try:
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                import cupy as cp
-
-            # Verify CUDA runtime availability.
-            device_count = cp.cuda.runtime.getDeviceCount()
-
-            if device_count > 0:
-                # Check available GPU memory.
-                device = cp.cuda.Device()
-                free_memory_mb = device.mem_info[0] / (1024**2)
-
-                if free_memory_mb > memory_limit_mb * 0.5:  # Use 50% safety margin.
-                    xp = cp
-                    gpu_available = True
-                    print(f"DEBUG: Using GPU backend with {free_memory_mb:.1f}MB available")
-                else:
-                    print(f"DEBUG: GPU memory insufficient ({free_memory_mb:.1f}MB), using CPU")
-
-        except Exception as e:
-            print(f"DEBUG: GPU initialization failed ({e}), falling back to CPU")
+    # Initialize processing backend with enhanced error handling.
+    xp, gpu_available, init_info = initialize_gpu_backend(enable_gpu, memory_limit_mb, tile_size_mb)
 
     try:
         # Normalize image intensity to 0-255 range.
@@ -492,11 +604,13 @@ def blend_tile_with_mask(
         return result
 
     except Exception as e:
-        print(f"WARNING: Tile blending failed with {xp.__name__} backend: {e}")
+        backend_name = "GPU" if gpu_available else "CPU"
+        print(f"WARNING: Tile blending failed with {backend_name} backend: {e}")
+        print(f"DEBUG: Backend initialization info: {init_info}")
 
-        # Fallback to CPU processing.
+        # Fallback to CPU processing if GPU failed.
         if gpu_available:
-            print("DEBUG: Attempting CPU fallback")
+            print("DEBUG: Attempting CPU fallback after GPU processing failure")
             return blend_tile_with_mask(tile_img, tile_mask, color_lut, alpha,
                                       enable_gpu=False, memory_limit_mb=memory_limit_mb)
         else:
@@ -549,6 +663,16 @@ def process_tile_worker_optimized(args: Tuple) -> Tuple[int, int, int, int, np.n
     color lookup tables and implementing aggressive memory cleanup strategies.
     """
     try:
+        # Fix Python path for worker processes to find CuPy.
+        import sys
+        import os
+
+        # Add user site-packages to path if not already there.
+        import site
+        user_site = site.getusersitepackages()
+        if user_site and user_site not in sys.path:
+            sys.path.insert(0, user_site)
+
         y0, y1, x0, x1, img_path, mask_path, config_dict, color_lut = args
 
         # Reconstruct config object from dictionary.
@@ -632,6 +756,16 @@ def process_batch_worker_optimized(batch_args: Tuple) -> List[Tuple[int, int, in
     management, pre-computed color lookup tables, and reduced memory copying.
     """
     try:
+        # Fix Python path for worker processes to find CuPy.
+        import sys
+        import os
+
+        # Add user site-packages to path if not already there.
+        import site
+        user_site = site.getusersitepackages()
+        if user_site and user_site not in sys.path:
+            sys.path.insert(0, user_site)
+
         tile_batch, img_path, mask_path, config_dict, color_lut = batch_args
         config = OverlayConfig(**config_dict)
 
