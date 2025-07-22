@@ -67,8 +67,7 @@ def setup_model(CELLPOSE_PARAMS, logger):
     """
     Initialize Cellpose model for nuclear segmentation.
 
-    Uses CellposeModel (Cellpose 4.0+) instead of deprecated Cellpose class.
-    Automatically detects GPU availability and configures device accordingly.
+    Uses CellposeModel (Cellpose 4.0+).
 
     Parameters
     ----------
@@ -86,7 +85,7 @@ def setup_model(CELLPOSE_PARAMS, logger):
     use_gpu = CELLPOSE_PARAMS.get("gpu", False)
     device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
 
-    # Use CellposeModel instead of deprecated Cellpose class (Cellpose 4.0+).
+    # Use CellposeModel with model_type parameter.
     model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
 
     logger.info(f"Using Cellpose model: {model_type}")

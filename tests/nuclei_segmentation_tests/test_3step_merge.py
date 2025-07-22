@@ -12,7 +12,7 @@ Description:
 Dependencies:
     • Python ≥ 3.10.
     • pytest, numpy, torch (optional).
-    • cellpose_merge.rules_3step module.
+    • cellpose_merge.rules module.
 
 Key Features:
     • Priority selection tests for various tile configurations.
@@ -38,7 +38,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from code.nuclei_segmentation.cellpose_merge.rules_3step import (
+from code.nuclei_segmentation.cellpose_merge.rules import (
     merge_patch_cpu_3step,
     _count_nuclei_in_tile,
     _find_border_touching_nuclei

@@ -235,9 +235,34 @@ def merge_patch_gpu_3step(
     """
     import logging
 
-    # For now, fall back to CPU implementation for the 3-step algorithm.
-    # This ensures correctness while we can optimize the GPU version later.
-    logging.debug("GPU 3-step merge falling back to CPU implementation")
+    # Check if GPU is available and has sufficient memory.
+    if not torch.cuda.is_available():
+        logging.debug("CUDA not available, falling back to CPU implementation")
+        from .rules import merge_patch_cpu_3step
+        return merge_patch_cpu_3step(patch)
 
-    from .rules_3step import merge_patch_cpu_3step
-    return merge_patch_cpu_3step(patch)
+    try:
+        # Check GPU memory availability.
+        gpu_memory_mb = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+        if gpu_memory_mb < 1000:  # Less than 1GB
+            logging.debug("Insufficient GPU memory, falling back to CPU implementation")
+            from .rules import merge_patch_cpu_3step
+            return merge_patch_cpu_3step(patch)
+
+        # For small patches, CPU is often faster due to GPU overhead.
+        patch_size_mb = patch.nbytes / (1024**2)
+        if patch_size_mb < 10:  # Less than 10MB
+            logging.debug("Small patch size, using CPU implementation for efficiency")
+            from .rules import merge_patch_cpu_3step
+            return merge_patch_cpu_3step(patch)
+
+        # For now, fall back to CPU implementation for the 3-step algorithm.
+        # This ensures correctness while we can optimize the GPU version later.
+        logging.debug("GPU 3-step merge using CPU implementation (GPU optimization pending)")
+        from .rules import merge_patch_cpu_3step
+        return merge_patch_cpu_3step(patch)
+
+    except Exception as e:
+        logging.warning(f"GPU merge initialization failed: {e}, falling back to CPU")
+        from .rules import merge_patch_cpu_3step
+        return merge_patch_cpu_3step(patch)

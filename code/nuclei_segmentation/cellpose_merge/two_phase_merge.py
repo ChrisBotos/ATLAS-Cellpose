@@ -23,7 +23,7 @@ Description:
 Dependencies:
     • Python ≥ 3.10.
     • numpy, torch, tqdm.
-    • cellpose_merge.rules_3step, cellpose_merge.gpu_merge.
+    • cellpose_merge.rules, cellpose_merge.gpu_merge.
 
 Key Features:
     • Systematic two-phase overlap processing for consistent merge results.
@@ -218,10 +218,10 @@ def merge_two_tiles(
         The mapping shows which original IDs were preserved (original_id -> original_id).
     """
     try:
-        from .rules_3step import merge_patch_cpu_3step
+        from .rules import merge_patch_cpu_3step
     except ImportError:
         # Fallback for when running as script
-        from rules_3step import merge_patch_cpu_3step
+        from rules import merge_patch_cpu_3step
 
     if use_gpu and TORCH_AVAILABLE:
         try:
@@ -258,10 +258,17 @@ def merge_two_tiles(
         logging.debug("No nuclei in overlap region, returning original tiles")
         return tile1_mask, tile2_mask, {}
 
+    # CRITICAL FIX: Identify cross-boundary nuclei for special handling.
+    # Cross-boundary nuclei (same ID in both tiles) should be preserved as single entities.
+    cross_boundary_nuclei = nuclei_in_overlap1 & nuclei_in_overlap2
+
+    if cross_boundary_nuclei:
+        logging.debug(f"Detected cross-boundary nuclei: {cross_boundary_nuclei}")
+
     # Create 3D patch for merge algorithm: (2, H, W) using overlap regions.
     patch = np.stack([overlap1, overlap2], axis=0)
 
-    # Apply the 3-step merging algorithm to overlap regions.
+    # Apply the 3-step merging algorithm to (processed) overlap regions.
     try:
         merged_overlap, mapping = merge_fn(patch)
 
@@ -269,37 +276,113 @@ def merge_two_tiles(
             logging.debug("No nuclei changes from merge algorithm, returning original tiles")
             return tile1_mask, tile2_mask, {}
 
-        # CRITICAL FIX: Apply merge decisions to COMPLETE nuclei, not just overlap portions.
-        # This ensures no nucleus fragmentation occurs.
+        # CRITICAL FIX: Apply merge decisions to COMPLETE nuclei with proper cross-boundary handling.
+        # This ensures no nucleus fragmentation occurs and cross-boundary nuclei are handled correctly.
         updated_tile1 = tile1_mask.copy()
         updated_tile2 = tile2_mask.copy()
 
         # Find all nuclei that had any pixels in the overlap regions.
         all_overlap_nuclei = nuclei_in_overlap1 | nuclei_in_overlap2
 
-        # Step 1: Delete all nuclei that had pixels in overlap but are not in mapping.
-        # These nuclei were deleted by the 3-step algorithm.
-        for nucleus_id in all_overlap_nuclei:
-            if nucleus_id not in mapping:
-                # This nucleus was deleted by the 3-step algorithm.
-                # Remove ALL pixels of this nucleus from both tiles.
-                updated_tile1[tile1_mask == nucleus_id] = 0
-                updated_tile2[tile2_mask == nucleus_id] = 0
+        # STEP 1: Handle cross-boundary nuclei (same ID in both tiles).
+        # Cross-boundary nuclei require special handling to prevent fragmentation.
 
-                logging.debug(f"Deleted complete nucleus {nucleus_id}")
+        for nucleus_id in cross_boundary_nuclei:
+            # Cross-boundary nuclei should be preserved unless explicitly deleted by 3-step rules.
+            # Check if this nucleus was processed by the 3-step algorithm.
 
-        # Step 2: Update preserved nuclei with their new IDs.
-        for original_id, new_id in mapping.items():
-            # Update ALL pixels of this nucleus in both tiles.
-            updated_tile1[tile1_mask == original_id] = new_id
-            updated_tile2[tile2_mask == original_id] = new_id
+            if nucleus_id in mapping:
+                # This cross-boundary nucleus was preserved with a new ID.
+                new_id = mapping[nucleus_id]
 
-            logging.debug(f"Preserved complete nucleus {original_id} -> {new_id}")
+                # Update ALL pixels of this nucleus in BOTH tiles to the new ID.
+                updated_tile1[tile1_mask == nucleus_id] = new_id
+                updated_tile2[tile2_mask == nucleus_id] = new_id
 
-        # Step 3: Ensure overlap regions are identical in both tiles.
-        # This is critical for maintaining consistency.
-        updated_tile1[tile1_slice_y, tile1_slice_x] = merged_overlap
-        updated_tile2[tile2_slice_y, tile2_slice_x] = merged_overlap
+                logging.debug(f"Preserved cross-boundary nucleus {nucleus_id} -> {new_id} in both tiles")
+            else:
+                # Check if this nucleus was deleted by the 3-step algorithm.
+                # If the nucleus appears in the original overlap but not in the merged result,
+                # it was deleted.
+                nucleus_in_merged = np.any(merged_overlap == nucleus_id)
+
+                if not nucleus_in_merged:
+                    # This cross-boundary nucleus was deleted by the 3-step algorithm.
+                    # Remove ALL pixels from BOTH tiles.
+                    updated_tile1[tile1_mask == nucleus_id] = 0
+                    updated_tile2[tile2_mask == nucleus_id] = 0
+
+                    logging.debug(f"Deleted cross-boundary nucleus {nucleus_id} from both tiles")
+                else:
+                    # This nucleus still exists in the merged result but wasn't remapped.
+                    # This can happen if the nucleus kept its original ID.
+                    logging.debug(f"Cross-boundary nucleus {nucleus_id} preserved with original ID")
+
+        # STEP 2: Handle single-tile nuclei (only in one tile's overlap region).
+        single_tile_nuclei = all_overlap_nuclei - cross_boundary_nuclei
+
+        for nucleus_id in single_tile_nuclei:
+            if nucleus_id in mapping:
+                # This nucleus was preserved with a new ID.
+                new_id = mapping[nucleus_id]
+
+                # Update ALL pixels of this nucleus in the appropriate tile.
+                if nucleus_id in nuclei_in_overlap1:
+                    updated_tile1[tile1_mask == nucleus_id] = new_id
+                    logging.debug(f"Preserved single-tile nucleus {nucleus_id} -> {new_id} in tile1")
+
+                if nucleus_id in nuclei_in_overlap2:
+                    updated_tile2[tile2_mask == nucleus_id] = new_id
+                    logging.debug(f"Preserved single-tile nucleus {nucleus_id} -> {new_id} in tile2")
+            else:
+                # This nucleus was deleted.
+                # Remove ALL pixels from the appropriate tile.
+                if nucleus_id in nuclei_in_overlap1:
+                    updated_tile1[tile1_mask == nucleus_id] = 0
+                    logging.debug(f"Deleted single-tile nucleus {nucleus_id} from tile1")
+
+                if nucleus_id in nuclei_in_overlap2:
+                    updated_tile2[tile2_mask == nucleus_id] = 0
+                    logging.debug(f"Deleted single-tile nucleus {nucleus_id} from tile2")
+
+        # STEP 3: Ensure overlap regions are identical in both tiles.
+        # CRITICAL: Only update pixels that don't conflict with complete nucleus decisions.
+        # If a nucleus was completely deleted from a tile, don't restore it in the overlap.
+
+        # Create masks for pixels that should be updated in each tile.
+        update_mask1 = np.ones_like(merged_overlap, dtype=bool)
+        update_mask2 = np.ones_like(merged_overlap, dtype=bool)
+
+        # For each nucleus in the merged overlap, check if it conflicts with tile decisions.
+        merged_nuclei = set(np.unique(merged_overlap[merged_overlap > 0]))
+
+        for nucleus_id in merged_nuclei:
+            nucleus_pixels_in_merged = merged_overlap == nucleus_id
+
+            # Check if this nucleus was completely deleted from tile1.
+            nucleus_exists_in_tile1 = np.any(updated_tile1 == nucleus_id)
+            if not nucleus_exists_in_tile1:
+                # Don't restore this nucleus in tile1's overlap region.
+                update_mask1[nucleus_pixels_in_merged] = False
+                logging.debug(f"Preventing restoration of deleted nucleus {nucleus_id} in tile1 overlap")
+
+            # Check if this nucleus was completely deleted from tile2.
+            nucleus_exists_in_tile2 = np.any(updated_tile2 == nucleus_id)
+            if not nucleus_exists_in_tile2:
+                # Don't restore this nucleus in tile2's overlap region.
+                update_mask2[nucleus_pixels_in_merged] = False
+                logging.debug(f"Preventing restoration of deleted nucleus {nucleus_id} in tile2 overlap")
+
+        # Apply the merged overlap only where it doesn't conflict with tile decisions.
+        updated_tile1[tile1_slice_y, tile1_slice_x][update_mask1] = merged_overlap[update_mask1]
+        updated_tile2[tile2_slice_y, tile2_slice_x][update_mask2] = merged_overlap[update_mask2]
+
+        # Ensure both overlap regions are identical by taking the union of valid updates.
+        final_overlap = np.zeros_like(merged_overlap)
+        final_overlap[update_mask1 & update_mask2] = merged_overlap[update_mask1 & update_mask2]
+
+        updated_tile1[tile1_slice_y, tile1_slice_x] = final_overlap
+        updated_tile2[tile2_slice_y, tile2_slice_x] = final_overlap
 
         logging.debug(f"Successfully merged tile pair: {len(mapping)} nuclei processed")
 
@@ -413,7 +496,10 @@ def merge_tiles_two_phase(
     vertical_overlaps, horizontal_overlaps = create_overlap_dictionaries(
         coords, tile_h, tile_w, overlap
     )
-    
+
+    # Initialize global ID offset (not used in current 3-step implementation but required for compatibility).
+    gid_offset = 0
+
     # Phase 1: Process all vertical overlaps (horizontally adjacent tiles).
     logging.info(f"Phase 1: Processing {len(vertical_overlaps)} vertical overlaps")
 
