@@ -46,7 +46,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('logs/test_merge_fixes.log')
+            logging.FileHandler('../logs/test_merge_fixes.log')
         ]
     )
     return logging.getLogger(__name__)
@@ -172,7 +172,7 @@ def test_merge_integration():
     
     try:
         # Create test output directory.
-        test_dir = Path("test_results")
+        test_dir = Path("../test_results")
         test_dir.mkdir(exist_ok=True)
         
         # Create synthetic tiles.

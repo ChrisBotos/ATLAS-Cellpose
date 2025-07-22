@@ -2,7 +2,7 @@
 Visualization Utilities for Kidney I/R Injury Nuclei Segmentation Analysis.
 
 This module provides specialized visualization functions for assessing segmentation
-quality and creating publication-ready figures for kidney tissue analysis. Proper
+quality and creating figures for kidney tissue analysis. Proper
 visualization is critical for validating segmentation results and communicating
 findings about nuclear morphology changes during ischemia-reperfusion injury.
 

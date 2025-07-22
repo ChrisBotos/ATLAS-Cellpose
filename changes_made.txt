@@ -48,3 +48,6 @@ Also, the big change is that the script utilize gpu acceleration and batching to
 15) Memory safety and management.
 
 16) Created the environment.yml file and tested it crating a suitable conda environment for python3.10.
+
+17) Implemented the two phase merging strategy (vertical overlaps first then horizontal ones).
+

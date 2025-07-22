@@ -110,6 +110,7 @@ def merge_masks_streaming(
 
     # Set up output file paths.
     final_merged_path = masks_dir / "segmentation_masks.npy"
+    non_merged_path = masks_dir / "non_merged_segmentation_masks.npy"
     temp_merged_path = masks_dir / "segmentation_masks_temp.npy"
 
     # ------------------------------------------------------------------
@@ -298,7 +299,7 @@ def merge_masks_streaming(
 
         # Rename temp file to final file name.
         if final_merged_path.exists():
-            final_merged_path.unlink()
+            final_merged_path.rename(non_merged_path)
         temp_merged_path.rename(final_merged_path)
 
         # Also save as TIFF for compatibility.

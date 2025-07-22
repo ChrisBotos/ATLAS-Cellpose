@@ -46,7 +46,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('logs/test_gpu_merge_functionality.log')
+            logging.FileHandler('../logs/test_gpu_merge_functionality.log')
         ]
     )
     return logging.getLogger(__name__)
