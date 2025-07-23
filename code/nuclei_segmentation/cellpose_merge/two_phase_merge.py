@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import traceback
+import shutil
 from typing import Dict, List, Tuple, Callable, Optional, Set
 from pathlib import Path
 
@@ -56,25 +57,273 @@ TileCoord = Tuple[int, int]
 TilePair = Tuple[TileCoord, TileCoord]
 
 
-def _load_tile_from_storage(coord: TileCoord, storage_dir: Path) -> NDArray[np.uint32]:
-    """Load a tile mask from persistent storage."""
-    r, c = coord
-    tile_filename = f"{r}_{c}.npz"
+def _tile_coord_to_pixel_coord(coord: TileCoord, tile_h: int, tile_w: int, overlap: int) -> TileCoord:
+    """
+    Convert tile index coordinates to pixel coordinates used in file naming.
+
+    The segmentation process saves tiles using pixel coordinates (y_start, x_start)
+    while the merge process works with tile indices (row, col). This function
+    converts between the two coordinate systems.
+
+    Parameters
+    ----------
+    coord : TileCoord
+        Tile index coordinates (row, col).
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+
+    Returns
+    -------
+    TileCoord
+        Pixel coordinates (y_start, x_start) used in file naming.
+    """
+    row, col = coord
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    y_start = row * stride_h
+    x_start = col * stride_w
+
+    return (y_start, x_start)
+
+
+def _pixel_coord_to_tile_coord(pixel_coord: TileCoord, tile_h: int, tile_w: int, overlap: int) -> TileCoord:
+    """
+    Convert pixel coordinates to tile index coordinates.
+
+    Parameters
+    ----------
+    pixel_coord : TileCoord
+        Pixel coordinates (y_start, x_start) from file naming.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+
+    Returns
+    -------
+    TileCoord
+        Tile index coordinates (row, col).
+    """
+    y_start, x_start = pixel_coord
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    row = y_start // stride_h
+    col = x_start // stride_w
+
+    return (row, col)
+
+
+def _load_tile_from_storage(coord: TileCoord, storage_dir: Path, tile_h: int, tile_w: int, overlap: int) -> NDArray[np.uint32]:
+    """Load a tile mask from persistent storage using pixel coordinate file naming."""
+    pixel_coord = _tile_coord_to_pixel_coord(coord, tile_h, tile_w, overlap)
+    y_start, x_start = pixel_coord
+    tile_filename = f"{y_start}_{x_start}.npz"
     tile_path = storage_dir / tile_filename
 
     if not tile_path.exists():
-        raise FileNotFoundError(f"Tile mask not found: {tile_path}")
+        raise FileNotFoundError(f"Tile mask not found: {tile_path} (tile coord {coord} -> pixel coord {pixel_coord})")
 
     tile_data = np.load(tile_path)
     return tile_data["mask"]
 
 
-def _save_tile_to_storage(coord: TileCoord, tile_mask: NDArray[np.uint32], storage_dir: Path) -> None:
-    """Save a tile mask to persistent storage."""
-    r, c = coord
-    tile_filename = f"{r}_{c}.npz"
+def _save_tile_to_storage(coord: TileCoord, tile_mask: NDArray[np.uint32], storage_dir: Path, tile_h: int, tile_w: int, overlap: int) -> None:
+    """Save a tile mask to persistent storage using pixel coordinate file naming."""
+    pixel_coord = _tile_coord_to_pixel_coord(coord, tile_h, tile_w, overlap)
+    y_start, x_start = pixel_coord
+    tile_filename = f"{y_start}_{x_start}.npz"
     tile_path = storage_dir / tile_filename
     np.savez_compressed(tile_path, mask=tile_mask)
+
+
+def reassign_nucleus_ids(
+    tile1_mask: NDArray[np.uint32],
+    tile2_mask: NDArray[np.uint32],
+    starting_id: int
+) -> int:
+    """
+    Reassign nucleus IDs in both tiles to prevent conflicts between independently processed tiles.
+
+    This function ensures that all nucleus IDs across the entire dataset are unique by
+    reassigning IDs in both tiles to new sequential integers starting from the given number.
+    This prevents ID conflicts that can occur when tiles are processed independently.
+
+    Parameters
+    ----------
+    tile1_mask : NDArray[np.uint32]
+        First tile mask to reassign IDs (modified in-place).
+    tile2_mask : NDArray[np.uint32]
+        Second tile mask to reassign IDs (modified in-place).
+    starting_id : int
+        Starting integer ID for reassignment.
+
+    Returns
+    -------
+    int
+        Next available integer ID for subsequent tile pairs.
+
+    Notes
+    -----
+    This function modifies both tile masks in-place to apply the new ID assignments.
+    The reassignment maintains the spatial structure of nuclei while ensuring unique IDs.
+    Background pixels (ID=0) are preserved unchanged.
+    """
+    current_id = starting_id
+
+    # Process tile1.
+    unique_ids_tile1 = np.unique(tile1_mask[tile1_mask > 0])  # Exclude background.
+    for old_id in unique_ids_tile1:
+        tile1_mask[tile1_mask == old_id] = current_id
+        current_id += 1
+
+    # Process tile2.
+    unique_ids_tile2 = np.unique(tile2_mask[tile2_mask > 0])  # Exclude background.
+    for old_id in unique_ids_tile2:
+        tile2_mask[tile2_mask == old_id] = current_id
+        current_id += 1
+
+    logging.debug(f"Reassigned {len(unique_ids_tile1)} nuclei in tile1 and {len(unique_ids_tile2)} nuclei in tile2")
+    logging.debug(f"ID range: {starting_id} to {current_id - 1}")
+
+    return current_id
+
+
+def copy_tile_masks_to_merged_directory(
+    source_dir: Path,
+    target_dir: Path,
+    coords: List[TileCoord],
+    tile_h: int,
+    tile_w: int,
+    overlap: int
+) -> None:
+    """
+    Copy all tile mask files from source directory to target directory.
+
+    This function copies tile masks from the original tile_masks_npz/ directory
+    to the merged_tile_masks_npz/ directory before any merging operations.
+    This ensures that all subsequent merging operations work on copied files
+    and preserve the original tile masks.
+
+    The function handles the coordinate conversion between tile indices (used by
+    the merge process) and pixel coordinates (used in file naming by segmentation).
+
+    Parameters
+    ----------
+    source_dir : Path
+        Source directory containing original tile masks (tile_masks_npz/).
+    target_dir : Path
+        Target directory for copied tile masks (merged_tile_masks_npz/).
+    coords : List[TileCoord]
+        List of (row, col) tile index coordinates for all tiles to copy.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+
+    Raises
+    ------
+    FileNotFoundError
+        If source tile mask file is not found.
+    """
+    # Ensure target directory exists.
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    logging.info(f"Copying {len(coords)} tile masks from {source_dir} to {target_dir}")
+
+    for tile_coord in tqdm(coords, desc="Copying tile masks"):
+        # Convert tile index to pixel coordinates for file naming.
+        pixel_coord = _tile_coord_to_pixel_coord(tile_coord, tile_h, tile_w, overlap)
+        y_start, x_start = pixel_coord
+        tile_filename = f"{y_start}_{x_start}.npz"
+
+        source_path = source_dir / tile_filename
+        target_path = target_dir / tile_filename
+
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source tile mask not found: {source_path} (tile coord {tile_coord} -> pixel coord {pixel_coord})")
+
+        try:
+            shutil.copy2(source_path, target_path)
+            logging.debug(f"Copied {tile_filename} (tile {tile_coord} -> pixel {pixel_coord})")
+        except Exception as e:
+            logging.error(f"Failed to copy {source_path} to {target_path}: {e}")
+            raise
+
+
+def discover_tile_coordinates_from_files(
+    tile_masks_dir: Path,
+    tile_h: int,
+    tile_w: int,
+    overlap: int
+) -> List[TileCoord]:
+    """
+    Discover tile coordinates by examining existing segmentation output files.
+
+    This function scans the tile_masks_npz directory to find all existing tile files
+    and converts their pixel-based filenames back to tile index coordinates.
+    This is useful for integration with existing segmentation outputs.
+
+    Parameters
+    ----------
+    tile_masks_dir : Path
+        Directory containing tile mask files with pixel coordinate naming.
+    tile_h, tile_w : int
+        Tile dimensions in pixels.
+    overlap : int
+        Overlap between adjacent tiles in pixels.
+
+    Returns
+    -------
+    List[TileCoord]
+        List of (row, col) tile index coordinates discovered from files.
+
+    Notes
+    -----
+    This function assumes files are named with the pattern "{y_start}_{x_start}.npz"
+    where y_start and x_start are pixel coordinates from the segmentation process.
+    """
+    if not tile_masks_dir.exists():
+        logging.warning(f"Tile masks directory does not exist: {tile_masks_dir}")
+        return []
+
+    coords = []
+    stride_h = tile_h - overlap
+    stride_w = tile_w - overlap
+
+    # Find all .npz files in the directory.
+    for file_path in tile_masks_dir.glob("*.npz"):
+        try:
+            # Parse filename to extract pixel coordinates.
+            filename = file_path.stem  # Remove .npz extension.
+            parts = filename.split("_")
+
+            if len(parts) == 2:
+                y_start = int(parts[0])
+                x_start = int(parts[1])
+
+                # Convert pixel coordinates to tile indices.
+                row = y_start // stride_h
+                col = x_start // stride_w
+
+                coords.append((row, col))
+                logging.debug(f"Discovered tile: {filename} -> tile coord ({row}, {col})")
+            else:
+                logging.warning(f"Unexpected filename format: {filename}")
+
+        except (ValueError, IndexError) as e:
+            logging.warning(f"Could not parse filename {file_path.name}: {e}")
+
+    # Sort coordinates for consistent processing order.
+    coords.sort()
+
+    logging.info(f"Discovered {len(coords)} tile coordinates from {tile_masks_dir}")
+    return coords
+
+
 OverlapDict = Dict[TilePair, Tuple[slice, slice, slice, slice]]
 
 
@@ -180,216 +429,112 @@ def create_overlap_dictionaries(
     return vertical_overlapping_regions, horizontal_overlapping_regions
 
 
-def merge_two_tiles(
-    tile1_mask: NDArray[np.uint32],
-    tile2_mask: NDArray[np.uint32],
+def _merge_two_tiles(
+    coord1: TileCoord,
+    coord2: TileCoord,
     overlap_slices: Tuple[slice, slice, slice, slice],
+    storage_dir: Path,
+    overlap_length: int,
+    tile_h: int,
+    tile_w: int,
     use_gpu: bool = True,
-    gid_offset: int = 0
 ) -> Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]:
     """
-    Apply the 3-step merging rules between exactly two overlapping tiles.
+    Apply the enhanced 3-step merging rules between exactly two overlapping tiles.
 
-    CORE PRINCIPLE: Complete nuclei are processed, not just overlap portions.
-    When a nucleus has ANY pixels in the overlap region, the ENTIRE nucleus
-    (including parts outside the overlap) is subject to the 3-step merging rules.
+    This function uses the enhanced merge_tiles_cpu_3step function that properly
+    implements Step 3 (Cleanup) of the 3-step merging algorithm. It works with
+    complete tile files and handles nucleus ID management correctly.
 
-    The 3-step algorithm:
+    The enhanced 3-step algorithm:
     1. Priority Selection: Tile with most nuclei gets priority
-    2. Border Deletion: Remove priority tile nuclei touching borders, preserve
-       non-priority nuclei touching priority borders (cross-boundary nuclei)
-    3. Cleanup: Remove remaining non-priority nuclei in overlap region
+    2. Border Deletion: Remove priority tile nuclei touching tile borders
+    3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
+    4. Cleanup: Delete non-priority nuclei completely in overlap region
 
     Parameters
     ----------
-    tile1_mask, tile2_mask : NDArray[np.uint32]
-        Input tile masks to be merged.
+    coord1, coord2 : TileCoord
+        Coordinates of the two tiles to merge.
     overlap_slices : Tuple[slice, slice, slice, slice]
         Slices defining the overlap region: (tile1_y, tile1_x, tile2_y, tile2_x).
+    storage_dir : Path
+        Directory containing the tile mask files.
+    overlap_length : int
+        Length of overlap region in pixels.
     use_gpu : bool, default True
-        Whether to use GPU acceleration for merge operations.
-    gid_offset : int, default 0
-        Global ID offset (unused in current implementation but kept for compatibility).
+        Whether to use GPU acceleration (currently forced to CPU).
 
     Returns
     -------
     Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]
         Updated tile1_mask, updated tile2_mask, and mapping of preserved nucleus IDs.
-        The mapping shows which original IDs were preserved (original_id -> original_id).
     """
     try:
-        from .rules import merge_patch_cpu_3step
+        from .rules import merge_tiles_cpu_3step
     except ImportError:
-        # Fallback for when running as script
-        from rules import merge_patch_cpu_3step
+        # Fallback for when running as script.
+        from rules import merge_tiles_cpu_3step
 
-    if use_gpu and TORCH_AVAILABLE:
-        try:
-            try:
-                from .gpu_merge import merge_patch_gpu_3step
-            except ImportError:
-                from gpu_merge import merge_patch_gpu_3step
-            merge_fn = merge_patch_gpu_3step
-        except ImportError:
-            logging.warning("GPU merge not available, falling back to CPU")
-            merge_fn = merge_patch_cpu_3step
+    # Get tile file paths using pixel coordinate naming.
+    pixel_coord1 = _tile_coord_to_pixel_coord(coord1, tile_h, tile_w, overlap_length)
+    pixel_coord2 = _tile_coord_to_pixel_coord(coord2, tile_h, tile_w, overlap_length)
+
+    y1, x1 = pixel_coord1
+    y2, x2 = pixel_coord2
+    tile1_path = storage_dir / f"{y1}_{x1}.npz"
+    tile2_path = storage_dir / f"{y2}_{x2}.npz"
+
+    # Determine tile relationship based on tile index coordinates.
+    r1, c1 = coord1
+    r2, c2 = coord2
+
+    if r1 == r2:  # Same row - horizontal relationship.
+        if c1 < c2:
+            tile_relationship = "tile1_left_of_tile2"
+        else:
+            tile_relationship = "tile1_right_of_tile2"
+    elif c1 == c2:  # Same column - vertical relationship.
+        if r1 < r2:
+            tile_relationship = "tile1_above_tile2"
+        else:
+            tile_relationship = "tile1_below_tile2"
     else:
-        merge_fn = merge_patch_cpu_3step
+        raise ValueError(f"Tiles {coord1} and {coord2} are not adjacent")
+
+    # Load original tiles to check for nuclei in overlap.
+    tile1_mask = _load_tile_from_storage(coord1, storage_dir, tile_h, tile_w, overlap_length)
+    tile2_mask = _load_tile_from_storage(coord2, storage_dir, tile_h, tile_w, overlap_length)
 
     tile1_slice_y, tile1_slice_x, tile2_slice_y, tile2_slice_x = overlap_slices
 
-    # Extract overlap regions from both tiles.
+    # Extract overlap regions to check if merging is needed.
     overlap1 = tile1_mask[tile1_slice_y, tile1_slice_x]
     overlap2 = tile2_mask[tile2_slice_y, tile2_slice_x]
-
-    # Ensure both overlap regions have the same shape.
-    if overlap1.shape != overlap2.shape:
-        logging.warning(f"Overlap shape mismatch: {overlap1.shape} vs {overlap2.shape}")
-        min_h = min(overlap1.shape[0], overlap2.shape[0])
-        min_w = min(overlap1.shape[1], overlap2.shape[1])
-        overlap1 = overlap1[:min_h, :min_w]
-        overlap2 = overlap2[:min_h, :min_w]
 
     # Check if there are any nuclei in the overlap regions.
     nuclei_in_overlap1 = set(np.unique(overlap1[overlap1 > 0]))
     nuclei_in_overlap2 = set(np.unique(overlap2[overlap2 > 0]))
 
     if len(nuclei_in_overlap1) == 0 and len(nuclei_in_overlap2) == 0:
-        logging.debug("No nuclei in overlap region, returning original tiles")
+        logging.debug(f"No nuclei in overlap region between {coord1} and {coord2}, skipping merge")
         return tile1_mask, tile2_mask, {}
 
-    # CRITICAL FIX: Identify cross-boundary nuclei for special handling.
-    # Cross-boundary nuclei (same ID in both tiles) should be preserved as single entities.
-    cross_boundary_nuclei = nuclei_in_overlap1 & nuclei_in_overlap2
-
-    if cross_boundary_nuclei:
-        logging.debug(f"Detected cross-boundary nuclei: {cross_boundary_nuclei}")
-
-    # Create 3D patch for merge algorithm: (2, H, W) using overlap regions.
-    patch = np.stack([overlap1, overlap2], axis=0)
-
-    # Apply the 3-step merging algorithm to (processed) overlap regions.
+    # Apply the enhanced 3-step merging algorithm.
     try:
-        merged_overlap, mapping = merge_fn(patch)
+        logging.debug(f"Applying enhanced 3-step merge: {coord1} and {coord2}")
+        logging.debug(f"Tile relationship: {tile_relationship}")
+        logging.debug(f"Overlap length: {overlap_length}")
 
-        if len(mapping) == 0:
-            logging.debug("No nuclei changes from merge algorithm, returning original tiles")
-            return tile1_mask, tile2_mask, {}
+        updated_tile1, updated_tile2, mapping = merge_tiles_cpu_3step(
+            tile1_path, tile2_path, overlap_length, tile_relationship
+        )
 
-        # CRITICAL FIX: Apply merge decisions to COMPLETE nuclei with proper cross-boundary handling.
-        # This ensures no nucleus fragmentation occurs and cross-boundary nuclei are handled correctly.
-        updated_tile1 = tile1_mask.copy()
-        updated_tile2 = tile2_mask.copy()
-
-        # Find all nuclei that had any pixels in the overlap regions.
-        all_overlap_nuclei = nuclei_in_overlap1 | nuclei_in_overlap2
-
-        # STEP 1: Handle cross-boundary nuclei (same ID in both tiles).
-        # Cross-boundary nuclei require special handling to prevent fragmentation.
-
-        for nucleus_id in cross_boundary_nuclei:
-            # Cross-boundary nuclei should be preserved unless explicitly deleted by 3-step rules.
-            # Check if this nucleus was processed by the 3-step algorithm.
-
-            if nucleus_id in mapping:
-                # This cross-boundary nucleus was preserved with a new ID.
-                new_id = mapping[nucleus_id]
-
-                # Update ALL pixels of this nucleus in BOTH tiles to the new ID.
-                updated_tile1[tile1_mask == nucleus_id] = new_id
-                updated_tile2[tile2_mask == nucleus_id] = new_id
-
-                logging.debug(f"Preserved cross-boundary nucleus {nucleus_id} -> {new_id} in both tiles")
-            else:
-                # Check if this nucleus was deleted by the 3-step algorithm.
-                # If the nucleus appears in the original overlap but not in the merged result,
-                # it was deleted.
-                nucleus_in_merged = np.any(merged_overlap == nucleus_id)
-
-                if not nucleus_in_merged:
-                    # This cross-boundary nucleus was deleted by the 3-step algorithm.
-                    # Remove ALL pixels from BOTH tiles.
-                    updated_tile1[tile1_mask == nucleus_id] = 0
-                    updated_tile2[tile2_mask == nucleus_id] = 0
-
-                    logging.debug(f"Deleted cross-boundary nucleus {nucleus_id} from both tiles")
-                else:
-                    # This nucleus still exists in the merged result but wasn't remapped.
-                    # This can happen if the nucleus kept its original ID.
-                    logging.debug(f"Cross-boundary nucleus {nucleus_id} preserved with original ID")
-
-        # STEP 2: Handle single-tile nuclei (only in one tile's overlap region).
-        single_tile_nuclei = all_overlap_nuclei - cross_boundary_nuclei
-
-        for nucleus_id in single_tile_nuclei:
-            if nucleus_id in mapping:
-                # This nucleus was preserved with a new ID.
-                new_id = mapping[nucleus_id]
-
-                # Update ALL pixels of this nucleus in the appropriate tile.
-                if nucleus_id in nuclei_in_overlap1:
-                    updated_tile1[tile1_mask == nucleus_id] = new_id
-                    logging.debug(f"Preserved single-tile nucleus {nucleus_id} -> {new_id} in tile1")
-
-                if nucleus_id in nuclei_in_overlap2:
-                    updated_tile2[tile2_mask == nucleus_id] = new_id
-                    logging.debug(f"Preserved single-tile nucleus {nucleus_id} -> {new_id} in tile2")
-            else:
-                # This nucleus was deleted.
-                # Remove ALL pixels from the appropriate tile.
-                if nucleus_id in nuclei_in_overlap1:
-                    updated_tile1[tile1_mask == nucleus_id] = 0
-                    logging.debug(f"Deleted single-tile nucleus {nucleus_id} from tile1")
-
-                if nucleus_id in nuclei_in_overlap2:
-                    updated_tile2[tile2_mask == nucleus_id] = 0
-                    logging.debug(f"Deleted single-tile nucleus {nucleus_id} from tile2")
-
-        # STEP 3: Ensure overlap regions are identical in both tiles.
-        # CRITICAL: Only update pixels that don't conflict with complete nucleus decisions.
-        # If a nucleus was completely deleted from a tile, don't restore it in the overlap.
-
-        # Create masks for pixels that should be updated in each tile.
-        update_mask1 = np.ones_like(merged_overlap, dtype=bool)
-        update_mask2 = np.ones_like(merged_overlap, dtype=bool)
-
-        # For each nucleus in the merged overlap, check if it conflicts with tile decisions.
-        merged_nuclei = set(np.unique(merged_overlap[merged_overlap > 0]))
-
-        for nucleus_id in merged_nuclei:
-            nucleus_pixels_in_merged = merged_overlap == nucleus_id
-
-            # Check if this nucleus was completely deleted from tile1.
-            nucleus_exists_in_tile1 = np.any(updated_tile1 == nucleus_id)
-            if not nucleus_exists_in_tile1:
-                # Don't restore this nucleus in tile1's overlap region.
-                update_mask1[nucleus_pixels_in_merged] = False
-                logging.debug(f"Preventing restoration of deleted nucleus {nucleus_id} in tile1 overlap")
-
-            # Check if this nucleus was completely deleted from tile2.
-            nucleus_exists_in_tile2 = np.any(updated_tile2 == nucleus_id)
-            if not nucleus_exists_in_tile2:
-                # Don't restore this nucleus in tile2's overlap region.
-                update_mask2[nucleus_pixels_in_merged] = False
-                logging.debug(f"Preventing restoration of deleted nucleus {nucleus_id} in tile2 overlap")
-
-        # Apply the merged overlap only where it doesn't conflict with tile decisions.
-        updated_tile1[tile1_slice_y, tile1_slice_x][update_mask1] = merged_overlap[update_mask1]
-        updated_tile2[tile2_slice_y, tile2_slice_x][update_mask2] = merged_overlap[update_mask2]
-
-        # Ensure both overlap regions are identical by taking the union of valid updates.
-        final_overlap = np.zeros_like(merged_overlap)
-        final_overlap[update_mask1 & update_mask2] = merged_overlap[update_mask1 & update_mask2]
-
-        updated_tile1[tile1_slice_y, tile1_slice_x] = final_overlap
-        updated_tile2[tile2_slice_y, tile2_slice_x] = final_overlap
-
-        logging.debug(f"Successfully merged tile pair: {len(mapping)} nuclei processed")
-
+        logging.debug(f"Enhanced merge completed: {len(mapping)} cross-boundary nuclei preserved")
         return updated_tile1, updated_tile2, mapping
 
     except Exception as e:
-        logging.error(f"Error during tile pair merge: {e}")
+        logging.error(f"Error during enhanced tile pair merge {coord1}-{coord2}: {e}")
         logging.error(traceback.format_exc())
         # Return original tiles if merge fails.
         return tile1_mask, tile2_mask, {}
@@ -397,7 +542,6 @@ def merge_two_tiles(
 
 def merge_tiles_two_phase(
     coords: List[TileCoord],
-    loader: Callable[[slice, slice], NDArray[np.uint32]],
     height: int,
     width: int,
     tile_h: int,
@@ -409,34 +553,36 @@ def merge_tiles_two_phase(
     output_dir: Optional[Path] = None,
 ) -> NDArray[np.uint32]:
     """
-    Two-phase tile merging with systematic overlap processing and persistent storage.
+    Enhanced two-phase tile merging with nucleus ID management and proper file handling.
 
-    CORE PRINCIPLE: No new global IDs are created during merging. Only preserve or delete existing IDs.
-    Cross-boundary nuclei maintain their original IDs throughout both tiles after merging.
+    This function implements an enhanced two-phase approach to tile merging using the
+    improved 3-step algorithm with proper Step 3 (Cleanup) implementation:
 
-    This function implements a two-phase approach to tile merging using the 3-step algorithm:
-    1. Phase 1: Process all vertical overlaps (horizontally adjacent tiles)
-       - Save intermediate results to merged_tile_masks_npz/
-    2. Phase 2: Process all horizontal overlaps (vertically adjacent tiles)
-       - Load from merged_tile_masks_npz/, process, and save back
-    3. Final Assembly: Combine all tiles into final merged mask
+    Phase 0: File Management and ID Reassignment
+    - Copy tile masks from tile_masks_npz/ to merged_tile_masks_npz/
+    - Reassign nucleus IDs to prevent conflicts between independently processed tiles
 
-    The 3-step merging rule:
+    Phase 1: Process all vertical overlaps (horizontally adjacent tiles)
+    - Apply enhanced 3-step merging with proper cleanup
+    - Save intermediate results to merged_tile_masks_npz/
+
+    Phase 2: Process all horizontal overlaps (vertically adjacent tiles)
+    - Load from merged_tile_masks_npz/, process with enhanced algorithm
+    - Save back to merged_tile_masks_npz/
+
+    Phase 3: Final Assembly
+    - Combine all tiles into final merged mask
+
+    The enhanced 3-step merging algorithm:
     1. Priority Selection: Tile with most nuclei gets priority
-    2. Border Deletion: Remove priority tile nuclei touching borders, preserve
-       non-priority nuclei touching priority borders (cross-boundary nuclei)
-    3. Cleanup: Remove remaining non-priority nuclei in overlap region
-
-    This systematic approach ensures consistent merge rule application and
-    better handling of cross-boundary nuclei. The persistent storage allows
-    for debugging and validation of intermediate results.
+    2a. Border Deletion: Remove priority tile nuclei touching tile borders
+    2b. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
+    3. Cleanup: Delete non-priority nuclei completely in overlap region
 
     Parameters
     ----------
     coords : List[Tuple[int, int]]
         List of (row, col) coordinates for all tiles.
-    loader : Callable
-        Function to load tile data for given row/column slices.
     height, width : int
         Full image dimensions in pixels.
     tile_h, tile_w : int
@@ -444,53 +590,66 @@ def merge_tiles_two_phase(
     overlap : int
         Overlap between adjacent tiles in pixels.
     use_gpu : bool, default True
-        Whether to use GPU acceleration.
+        Whether to use GPU acceleration (currently forced to CPU).
     merge_batch_size : int, default 4
-        Number of tile pairs to process in parallel during each phase.
+        Number of tile pairs to process in parallel (currently unused).
     debug_mode : bool, default False
         Whether to enable debug logging.
     output_dir : Optional[Path], default None
-        Output directory for persistent storage. If None, uses current directory.
+        Output directory for results. If None, uses current directory.
 
     Returns
     -------
     NDArray[np.uint32]
-        Final merged mask with original nucleus IDs preserved.
+        Final merged mask with unique nucleus IDs and proper cleanup.
     """
-    logging.info(f"Starting two-phase merge for {len(coords)} tiles")
+    logging.info(f"Starting enhanced two-phase merge for {len(coords)} tiles")
 
-    # Set up persistent storage directories.
+    # Set up directory paths.
     if output_dir is None:
         output_dir = Path(".")
 
+    # Source directory with original tile masks.
+    source_masks_dir = output_dir / "masks" / "tile_masks_npz"
+    # Target directory for merged tile masks.
     merged_masks_dir = output_dir / "masks" / "merged_tile_masks_npz"
-    merged_masks_dir.mkdir(parents=True, exist_ok=True)
 
-    logging.info(f"Using persistent storage: {merged_masks_dir}")
+    logging.info(f"Source directory: {source_masks_dir}")
+    logging.info(f"Target directory: {merged_masks_dir}")
+
+    # Phase 0: File Management and Nucleus ID Reassignment.
+    logging.info("Phase 0: File management and nucleus ID conflict resolution")
+
+    # Step 0a: Copy tile masks from source to target directory.
+    copy_tile_masks_to_merged_directory(source_masks_dir, merged_masks_dir, coords, tile_h, tile_w, overlap)
+
+    # Step 0b: Reassign nucleus IDs to prevent conflicts.
+    logging.info("Reassigning nucleus IDs to prevent conflicts between tiles")
+    current_id = 1  # Start nucleus IDs from 1.
+
+    for r, c in tqdm(coords, desc="Reassigning nucleus IDs"):
+        # Load tile mask.
+        tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)
+
+        # Get unique nucleus IDs (excluding background).
+        unique_ids = np.unique(tile_mask[tile_mask > 0])
+
+        if len(unique_ids) > 0:
+            # Create ID mapping.
+            for old_id in unique_ids:
+                tile_mask[tile_mask == old_id] = current_id
+                current_id += 1
+
+            # Save updated tile mask.
+            _save_tile_to_storage((r, c), tile_mask, merged_masks_dir, tile_h, tile_w, overlap)
+
+            if debug_mode:
+                logging.debug(f"Tile ({r},{c}): Reassigned {len(unique_ids)} nuclei, next ID: {current_id}")
+
+    logging.info(f"Nucleus ID reassignment completed. Next available ID: {current_id}")
 
     stride_h = tile_h - overlap
     stride_w = tile_w - overlap
-
-    # Phase 0: Load and save original tile masks to persistent storage.
-    logging.info("Phase 0: Initializing persistent tile storage")
-
-    for r, c in tqdm(coords, desc="Initializing tiles"):
-        y_start = r * stride_h
-        y_end = min(height, y_start + tile_h)
-        x_start = c * stride_w
-        x_end = min(width, x_start + tile_w)
-
-        # Load original tile data.
-        tile_data = loader(slice(y_start, y_end), slice(x_start, x_end))
-
-        # Save to persistent storage with same naming convention as original tiles.
-        tile_filename = f"{r}_{c}.npz"
-        tile_path = merged_masks_dir / tile_filename
-        np.savez_compressed(tile_path, mask=tile_data)
-
-        if debug_mode:
-            nuclei_count = len(np.unique(tile_data[tile_data > 0]))
-            logging.debug(f"Initialized tile ({r},{c}): {nuclei_count} nuclei -> {tile_path}")
 
     # Create overlap dictionaries.
     vertical_overlaps, horizontal_overlaps = create_overlap_dictionaries(
@@ -508,8 +667,8 @@ def merge_tiles_two_phase(
 
         try:
             # Load tiles from persistent storage.
-            tile1 = _load_tile_from_storage(coord1, merged_masks_dir)
-            tile2 = _load_tile_from_storage(coord2, merged_masks_dir)
+            tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
+            tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
 
             # Debug logging for merge operations.
             if debug_mode:
@@ -518,18 +677,25 @@ def merge_tiles_two_phase(
                 logging.debug(f"Phase 1: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
                 logging.debug(f"Overlap region: {overlap_slices}")
 
-            # Perform merge using 3-step algorithm.
-            updated_tile1, updated_tile2, _ = merge_two_tiles(
-                tile1,
-                tile2,
+            # Perform merge using enhanced 3-step algorithm.
+            updated_tile1, updated_tile2, mapping = _merge_two_tiles(
+                coord1,
+                coord2,
                 overlap_slices,
+                merged_masks_dir,
+                overlap,
+                tile_h,
+                tile_w,
                 use_gpu=use_gpu,
-                gid_offset=gid_offset
             )
 
+            # Log mapping results.
+            if debug_mode and len(mapping) > 0:
+                logging.debug(f"Phase 1: Cross-boundary nuclei preserved: {list(mapping.keys())}")
+
             # Save updated tiles back to persistent storage.
-            _save_tile_to_storage(coord1, updated_tile1, merged_masks_dir)
-            _save_tile_to_storage(coord2, updated_tile2, merged_masks_dir)
+            _save_tile_to_storage(coord1, updated_tile1, merged_masks_dir, tile_h, tile_w, overlap)
+            _save_tile_to_storage(coord2, updated_tile2, merged_masks_dir, tile_h, tile_w, overlap)
 
             # Debug logging for merge results.
             if debug_mode:
@@ -550,8 +716,8 @@ def merge_tiles_two_phase(
 
         try:
             # Load tiles from persistent storage (includes Phase 1 updates).
-            tile1 = _load_tile_from_storage(coord1, merged_masks_dir)
-            tile2 = _load_tile_from_storage(coord2, merged_masks_dir)
+            tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
+            tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
 
             # Debug logging for merge operations.
             if debug_mode:
@@ -560,18 +726,25 @@ def merge_tiles_two_phase(
                 logging.debug(f"Phase 2: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
                 logging.debug(f"Overlap region: {overlap_slices}")
 
-            # Perform merge using 3-step algorithm.
-            updated_tile1, updated_tile2, _ = merge_two_tiles(
-                tile1,
-                tile2,
+            # Perform merge using enhanced 3-step algorithm.
+            updated_tile1, updated_tile2, mapping = _merge_two_tiles(
+                coord1,
+                coord2,
                 overlap_slices,
+                merged_masks_dir,
+                overlap,
+                tile_h,
+                tile_w,
                 use_gpu=use_gpu,
-                gid_offset=gid_offset
             )
 
+            # Log mapping results.
+            if debug_mode and len(mapping) > 0:
+                logging.debug(f"Phase 2: Cross-boundary nuclei preserved: {list(mapping.keys())}")
+
             # Save updated tiles back to persistent storage.
-            _save_tile_to_storage(coord1, updated_tile1, merged_masks_dir)
-            _save_tile_to_storage(coord2, updated_tile2, merged_masks_dir)
+            _save_tile_to_storage(coord1, updated_tile1, merged_masks_dir, tile_h, tile_w, overlap)
+            _save_tile_to_storage(coord2, updated_tile2, merged_masks_dir, tile_h, tile_w, overlap)
 
             # Debug logging for merge results.
             if debug_mode:
@@ -584,13 +757,35 @@ def merge_tiles_two_phase(
             continue
     
     # Phase 3: Assemble final merged image from persistent storage.
-    logging.info("Phase 3: Assembling final merged image from persistent storage")
+    # COMPLETELY REWRITTEN: Use a priority-based assembly that respects merge decisions.
+    logging.info("Phase 3: Assembling final merged image with priority-based placement")
     merged = np.zeros((height, width), dtype=np.uint32)
 
-    for r, c in coords:
+    # Create a priority map to track which tiles have priority in each region.
+    priority_map = np.full((height, width), -1, dtype=np.int32)  # -1 = no tile assigned yet.
+
+    # Process tiles in a specific order to ensure consistent priority assignment.
+    sorted_coords = sorted(coords, key=lambda coord: (coord[0], coord[1]))
+
+    # First pass: Assign priority for each pixel based on tile processing order.
+    for priority_idx, (r, c) in enumerate(sorted_coords):
+        y_start = r * stride_h
+        y_end = min(height, y_start + tile_h)
+        x_start = c * stride_w
+        x_end = min(width, x_start + tile_w)
+
+        # Assign this tile's priority to all pixels in its region.
+        # Later tiles will overwrite priority in overlapping regions.
+        priority_map[y_start:y_end, x_start:x_end] = priority_idx
+
+        if debug_mode:
+            logging.debug(f"Assigned priority {priority_idx} to tile ({r},{c}) region [{y_start}:{y_end}, {x_start}:{x_end}]")
+
+    # Second pass: Place pixels from tiles only where they have priority.
+    for priority_idx, (r, c) in enumerate(sorted_coords):
         try:
             # Load final merged tile from persistent storage.
-            tile_mask = _load_tile_from_storage((r, c), merged_masks_dir)
+            tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)
 
             y_start = r * stride_h
             y_end = min(height, y_start + tile_h)
@@ -601,11 +796,33 @@ def merge_tiles_two_phase(
             actual_h = y_end - y_start
             actual_w = x_end - x_start
 
-            merged[y_start:y_end, x_start:x_end] = tile_mask[:actual_h, :actual_w]
+            # REVOLUTIONARY FIX: Place COMPLETE nuclei based on 3-step merge decisions.
+            tile_region = tile_mask[:actual_h, :actual_w]
+            merged_region = merged[y_start:y_end, x_start:x_end]
+
+            # Strategy: For each nucleus in this tile, place it COMPLETELY if no conflict exists.
+            # This ensures that preserved nuclei maintain their natural shapes.
+            unique_nuclei = np.unique(tile_region[tile_region > 0])
+
+            for nucleus_id in unique_nuclei:
+                nucleus_mask = (tile_region == nucleus_id)
+
+                # Check if this nucleus conflicts with already placed nuclei.
+                conflict_mask = nucleus_mask & (merged_region > 0)
+                has_conflict = np.any(conflict_mask)
+
+                if not has_conflict:
+                    # No conflict - place the ENTIRE nucleus.
+                    merged[y_start:y_end, x_start:x_end][nucleus_mask] = nucleus_id
+                else:
+                    # Conflict exists - only place non-conflicting pixels.
+                    safe_mask = nucleus_mask & (merged_region == 0)
+                    merged[y_start:y_end, x_start:x_end][safe_mask] = nucleus_id
 
             if debug_mode:
                 nuclei_count = len(np.unique(tile_mask[tile_mask > 0]))
-                logging.debug(f"Assembled tile ({r},{c}): {nuclei_count} nuclei")
+                total_pixels = np.sum(tile_mask > 0)
+                logging.debug(f"Assembled tile ({r},{c}): {nuclei_count} nuclei, {total_pixels} total pixels")
 
         except Exception as e:
             logging.error(f"Failed to load final tile ({r},{c}): {e}")
@@ -616,16 +833,18 @@ def merge_tiles_two_phase(
 
     # Log merge efficiency for quality assessment.
     if debug_mode:
-        # Calculate total input nuclei by loading original tiles.
+        # Calculate total input nuclei by loading original tiles from source directory.
+        source_masks_dir = output_dir / "masks" / "tile_masks_npz"
         total_input_nuclei = 0
-        for r, c in coords:
-            y_start = r * stride_h
-            y_end = min(height, y_start + tile_h)
-            x_start = c * stride_w
-            x_end = min(width, x_start + tile_w)
 
-            original_tile = loader(slice(y_start, y_end), slice(x_start, x_end))
-            total_input_nuclei += len(np.unique(original_tile[original_tile > 0]))
+        for r, c in coords:
+            try:
+                original_tile_path = source_masks_dir / f"{r}_{c}.npz"
+                if original_tile_path.exists():
+                    original_tile = np.load(original_tile_path)["mask"]
+                    total_input_nuclei += len(np.unique(original_tile[original_tile > 0]))
+            except Exception as e:
+                logging.warning(f"Could not load original tile ({r},{c}) for efficiency calculation: {e}")
 
         merge_efficiency = (final_nuclei_count / total_input_nuclei) * 100 if total_input_nuclei > 0 else 0
         logging.debug(f"Merge efficiency: {final_nuclei_count}/{total_input_nuclei} = {merge_efficiency:.1f}%")

@@ -3,6 +3,8 @@ Cellpose-Merge – GPU-accelerated mask-merging utility.
 
 Re-exports
 ----------
-cli_entry  – main() convenience wrapper used by external scripts
+Main merging functions for tile processing and overlap resolution.
 """
-from .cli import cli_entry
+from .rules import merge_tiles_cpu_3step
+from .gpu_merge import merge_patch_gpu_3step
+from .two_phase_merge import _merge_two_tiles

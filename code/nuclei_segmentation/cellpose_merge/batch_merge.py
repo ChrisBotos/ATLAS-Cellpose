@@ -807,7 +807,7 @@ def _merge_cluster_incremental(
         The actual merging is done directly into the global array.
     """
     import traceback
-    from .rules import merge_patch_cpu
+    from .rules import merge_tiles_cpu_3step
     from .gpu_merge import merge_patch_gpu
 
     stride_h = tile_h - overlap
@@ -1088,7 +1088,7 @@ def _process_tile_group_with_merging(
     Tuple[int, int]
         Updated global ID counter and number of merge operations performed.
     """
-    from .rules import merge_patch_cpu
+    from .rules import merge_tiles_cpu_3step
     from .gpu_merge import merge_patch_gpu
 
     # Calculate bounding box for the tile group.
@@ -1159,7 +1159,7 @@ def _process_tile_group_with_merging(
                 stack = np.stack(stack_layers, axis=0)  # Shape: (N, H, W)
 
                 # Apply merge function.
-                merge_fn = merge_patch_gpu if use_gpu else merge_patch_cpu
+                merge_fn = merge_patch_gpu if use_gpu else merge_tiles_cpu_3step
                 merged_group, mapping = merge_fn(stack, threshold=threshold)
 
                 merge_operations = 1  # One merge operation for the group.
@@ -1293,7 +1293,7 @@ def merge_cluster_batched(
         Merged patch, (y0, x0) coordinates, and mapping dictionary.
     """
     # Import merge functions here to avoid circular imports
-    from .rules import merge_patch_cpu
+    from .rules import merge_tiles_cpu_3step
     from .gpu_merge import merge_patch_gpu
 
     # DEPRECATION WARNING: Recommend migration to two-phase merging.
@@ -1619,7 +1619,7 @@ def merge_cluster_batched(
                         logging.warning(f"Tile ({r},{c}) could not be placed in batch stack - bounds issue")
 
                 # Merge this batch
-                merge_fn = merge_patch_gpu if use_gpu else merge_patch_cpu
+                merge_fn = merge_patch_gpu if use_gpu else merge_tiles_cpu_3step
                 batch_merged, _ = merge_fn(batch_stack, threshold=threshold)
 
                 # Shift labels to ensure uniqueness across batches

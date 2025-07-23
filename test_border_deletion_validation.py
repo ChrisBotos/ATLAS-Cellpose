@@ -35,7 +35,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 # Add the cellpose_merge module to path.
 sys.path.append('code/nuclei_segmentation/cellpose_merge')
 
-from rules import merge_patch_cpu_3step, _find_border_touching_nuclei
+from rules import merge_tiles_cpu_3step, _find_border_touching_nuclei
 
 
 def analyze_pipeline_results(results_dir: Path):
@@ -136,7 +136,7 @@ def test_3step_algorithm_directly():
     
     # Apply 3-step algorithm.
     patch = np.stack([overlap1, overlap2], axis=0)
-    merged, mapping = merge_patch_cpu_3step(patch)
+    merged, mapping = merge_tiles_cpu_3step(patch)
     
     print("Merged result:")
     print(merged)

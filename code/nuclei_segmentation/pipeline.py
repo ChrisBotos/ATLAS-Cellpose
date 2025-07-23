@@ -355,7 +355,6 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     tile_w=settings["tile_side_length"],
                     overlap=overlap_pixels,
                     tiles_path=tiles_source_path,
-                    threshold=settings.get("merge_overlap_threshold", 0.3),
                     use_gpu=settings.get("use_gpu", True),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),

@@ -47,7 +47,6 @@ def merge_masks_streaming(
     tile_w: int,
     overlap: int,
     tiles_path: str | Path,
-    threshold: float = 0.3,
     use_gpu: bool = True,
     qc: bool = False,
     qc_dir: str | Path | None = None,
@@ -280,7 +279,6 @@ def merge_masks_streaming(
     try:
         merged = merge_tiles_two_phase(
             coords=coords,
-            loader=_loader,
             height=height,
             width=width,
             tile_h=tile_h,

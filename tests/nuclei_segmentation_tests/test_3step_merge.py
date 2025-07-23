@@ -39,7 +39,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from code.nuclei_segmentation.cellpose_merge.rules import (
-    merge_patch_cpu_3step,
+    merge_tiles_cpu_3step,
     _count_nuclei_in_tile,
     _find_border_touching_nuclei
 )
@@ -124,7 +124,7 @@ class TestThreeStepMerging:
         single_tile[0, 10:20, 10:20] = 1
         single_tile[0, 30:40, 30:40] = 2
         
-        merged, mapping = merge_patch_cpu_3step(single_tile)
+        merged, mapping = merge_tiles_cpu_3step(single_tile)
         
         # Should preserve both nuclei.
         assert np.array_equal(merged, single_tile[0])
@@ -135,7 +135,7 @@ class TestThreeStepMerging:
         """Test the exact 3-step rule with controlled synthetic data."""
         patch = self.create_controlled_test_patch()
 
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
 
         # Validate Step 1: Priority Selection
         # Tile 0 has 3 nuclei, Tile 1 has 2 nuclei -> Tile 0 should be priority.
@@ -171,7 +171,7 @@ class TestThreeStepMerging:
         # Tile 1: Non-priority tile (1 nucleus).
         patch[1, 30:38, 30:38] = 3  # Internal to non-priority (should be deleted - not cross-boundary).
 
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
 
         # Validate exact rule implementation.
         assert 1 in mapping, "Priority internal nucleus should be kept"
@@ -199,7 +199,7 @@ class TestThreeStepMerging:
         # Non-cross-boundary nucleus.
         patch[1, 20:28, 20:28] = 4  # Doesn't touch priority border (should be deleted).
 
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
 
         # Validate exact preservation rule.
         assert 1 in mapping, "Priority internal nucleus should be kept"
@@ -220,7 +220,7 @@ class TestThreeStepMerging:
         patch = np.zeros((2, 50, 50), dtype=np.uint32)
         # Both tiles are empty.
         
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
         
         # Should return empty merged mask.
         assert np.all(merged == 0)
@@ -232,7 +232,7 @@ class TestThreeStepMerging:
         large_patch = np.zeros((2, 20000, 20000), dtype=np.uint32)
         
         with pytest.raises(RuntimeError, match="exceeding safe CPU limit"):
-            merge_patch_cpu_3step(large_patch)
+            merge_tiles_cpu_3step(large_patch)
 
 
 class TestEdgeCases:
@@ -252,7 +252,7 @@ class TestEdgeCases:
         # Tile 2: 1 nucleus.
         patch[2, 40:50, 40:50] = 4
         
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
         
         # Should handle multiple tiles correctly.
         assert merged.shape == (50, 50)
@@ -269,7 +269,7 @@ class TestEdgeCases:
         patch[1, 15:25, 15:25] = 3
         patch[1, 35:45, 35:45] = 4
 
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
 
         # Should handle tie-breaking (first tile gets priority by default).
         assert merged.shape == (50, 50)
@@ -290,7 +290,7 @@ class TestEdgeCases:
         patch[1, 45:55, 45:55] = 6  # Internal, doesn't touch priority border (should be deleted).
         patch[1, 25:35, 52:60] = 7  # Touches priority right border (cross-boundary - should be kept).
 
-        merged, mapping = merge_patch_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_3step(patch)
 
         # Step 1 validation: Priority selection.
         # Tile 0 has 4 nuclei, Tile 1 has 3 nuclei -> Tile 0 is priority.

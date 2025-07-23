@@ -46,7 +46,7 @@ if ROOT not in sys.path:
 
 from code.nuclei_segmentation.cellpose_merge.two_phase_merge import (
     create_overlap_dictionaries,
-    merge_two_tiles,
+    _merge_two_tiles,
     merge_tiles_two_phase
 )
 
@@ -212,7 +212,7 @@ class TestNucleusContinuity:
         assert np.any(tile1 == 1), "Cross-boundary nucleus should exist in tile1"
         assert np.any(tile2 == 1), "Cross-boundary nucleus should exist in tile2"
 
-        updated_tile1, updated_tile2, mapping = merge_two_tiles(
+        updated_tile1, updated_tile2, mapping = _merge_two_tiles(
             tile1, tile2, overlap_slices, use_gpu=False
         )
 
@@ -264,7 +264,7 @@ class TestNucleusContinuity:
         assert nucleus2_area > 0, "Large nucleus should exist in tile2"
         assert nucleus1_area > nucleus2_area, "Most of the nucleus should be in tile1"
 
-        updated_tile1, updated_tile2, mapping = merge_two_tiles(
+        updated_tile1, updated_tile2, mapping = _merge_two_tiles(
             tile1, tile2, overlap_slices, use_gpu=False
         )
 
@@ -300,7 +300,7 @@ class TestNucleusContinuity:
             slice(0, 64),     # tile2_x: leftmost 64 pixels
         )
 
-        updated_tile1, updated_tile2, mapping = merge_two_tiles(
+        updated_tile1, updated_tile2, mapping = _merge_two_tiles(
             tile1, tile2, overlap_slices, use_gpu=False
         )
 
@@ -351,7 +351,7 @@ class TestNucleusContinuity:
             slice(0, 256), slice(0, 64)
         )
         
-        updated_tile1, updated_tile2, mapping = merge_two_tiles(
+        updated_tile1, updated_tile2, mapping = _merge_two_tiles(
             tile1, tile2, overlap_slices, use_gpu=False
         )
         
@@ -376,12 +376,12 @@ class TestNucleusContinuity:
         )
         
         # Test GPU merge.
-        updated_tile1_gpu, updated_tile2_gpu, mapping_gpu = merge_two_tiles(
+        updated_tile1_gpu, updated_tile2_gpu, mapping_gpu = _merge_two_tiles(
             tile1, tile2, overlap_slices, use_gpu=True
         )
 
         # Test CPU merge for comparison.
-        updated_tile1_cpu, updated_tile2_cpu, mapping_cpu = merge_two_tiles(
+        updated_tile1_cpu, updated_tile2_cpu, mapping_cpu = _merge_two_tiles(
             tile1, tile2, overlap_slices, use_gpu=False
         )
         
