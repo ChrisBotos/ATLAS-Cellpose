@@ -6,10 +6,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 Script Name: segmentation.py.
 Description:
     End‑to‑end wrapper that runs Cellpose on large histological slides using
-    fixed‑size overlapping tiles and fuses the per‑tile masks via the streaming
-    merge engine in ``cellpose_merge``.  This revision switches to the new
-    ``merge_masks_streaming`` signature that consumes on‑disk *NPZ* tiles
-    instead of an in‑memory ``data_loader`` callback.
+    fixed‑size overlapping tiles.
 
 Key Features:
     • Automatically falls back to a single‑pass evaluation when the image fits
@@ -54,7 +51,6 @@ import numpy as np
 from numpy.lib.format import open_memmap
 
 from .tiling import split_image_into_tiles
-from cellpose_merge.merge_tiles import merge_masks_streaming
 
 # Alias for readability.
 MaskReturn = Tuple[np.memmap, List[None], int]
