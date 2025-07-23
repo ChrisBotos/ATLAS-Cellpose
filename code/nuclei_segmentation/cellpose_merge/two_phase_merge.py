@@ -730,12 +730,11 @@ def merge_tiles_two_phase(
         coord1, coord2 = tile_pair
 
         try:
-            # Load tiles from persistent storage.
-            tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
-            tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
 
             # Debug logging for merge operations.
             if debug_mode:
+                tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
+                tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
                 nuclei_before_1 = len(np.unique(tile1[tile1 > 0]))
                 nuclei_before_2 = len(np.unique(tile2[tile2 > 0]))
                 logging.debug(f"Phase 1: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
@@ -779,12 +778,10 @@ def merge_tiles_two_phase(
         coord1, coord2 = tile_pair
 
         try:
-            # Load tiles from persistent storage (includes Phase 1 updates).
-            tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
-            tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
-
             # Debug logging for merge operations.
             if debug_mode:
+                tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
+                tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
                 nuclei_before_1 = len(np.unique(tile1[tile1 > 0]))
                 nuclei_before_2 = len(np.unique(tile2[tile2 > 0]))
                 logging.debug(f"Phase 2: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
