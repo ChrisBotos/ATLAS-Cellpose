@@ -45,7 +45,6 @@ dependencies:
     - "transformers"      # Transformer models for potential NLP applications in bioinformatics.
     - "pyarrow"           # High-performance columnar data format for large datasets.
     - "fastparquet"       # Fast parquet file I/O for efficient data storage and retrieval.
-    - "numpy<2.0"         # Ensure NumPy 1.x for compatibility with PyTorch and other packages.
 
 
 ## ═══════════════════════════════════════════════════════════════════════════════

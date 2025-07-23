@@ -54,7 +54,10 @@ def main():
     """
     try:
         # 1) Load config and directories.
-        settings, CELLPOSE_PARAMS, PROJECT_DIRS = load_config()
+        # Check for custom job name from environment (used by server job scripts).
+        import os
+        job_name = os.environ.get('SEGMENTATION_JOB_NAME')
+        settings, CELLPOSE_PARAMS, PROJECT_DIRS = load_config(job_name=job_name)
 
         # 2) Snapshot parsed settings to disk.
         snapshot_path = Path(settings["output_dir"]) / "settings_snapshot.json"
