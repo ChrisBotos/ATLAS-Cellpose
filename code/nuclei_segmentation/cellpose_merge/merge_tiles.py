@@ -288,7 +288,6 @@ def merge_masks_streaming(
             merge_batch_size=merge_batch_size,
             debug_mode=debug_mode,
             output_dir=output_dir,  # Pass output directory for persistent storage.
-            source_tiles_dir=path,  # Pass the actual tiles path for previous results support.
         )
 
         # Save the final merged mask.

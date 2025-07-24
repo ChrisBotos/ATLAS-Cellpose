@@ -227,6 +227,187 @@ def _find_border_touching_nuclei(
     return boundary_touching_nuclei, overlap_region_nuclei
 
 
+def _expand_masks_directionally(
+    masks1: NDArray[np.uint32],
+    masks2: NDArray[np.uint32],
+    direction: str,
+    expansion_pixels: int = 6
+) -> NDArray[np.uint32]:
+    """
+    Expand nucleus masks directionally into background pixels for improved spatial coverage.
+    
+    This function performs controlled directional expansion of nucleus masks to improve
+    spatial representation in kidney I/R injury tissue analysis. The expansion helps
+    recover nucleus boundaries that may have been truncated during tiling operations,
+    particularly important for accurate morphometric analysis of tubular epithelial cells.
+    
+    The expansion algorithm:
+    1. Identifies all unique nucleus labels in masks1
+    2. For each nucleus, expands row by row (or column by column) in the specified direction
+    3. Expansion continues until hitting another nucleus or reaching maximum expansion distance
+    4. Prevents conflicts by never overwriting existing nuclei from either mask
+    
+    Parameters
+    ----------
+    masks1 : NDArray[np.uint32]
+        Primary mask array containing nuclei to be expanded.
+    masks2 : NDArray[np.uint32]
+        Secondary mask array used for conflict detection during expansion.
+    direction : str
+        Direction of expansion. Must be one of: 'up', 'down', 'left', 'right'.
+    expansion_pixels : int, default 2
+        Maximum number of pixels to expand in the specified direction.
+        
+    Returns
+    -------
+    NDArray[np.uint32]
+        Expanded version of masks1 with nuclei extended in the specified direction.
+        
+    Raises
+    ------
+    ValueError
+        If direction is not one of the valid options or expansion_pixels is negative.
+        
+    Notes
+    -----
+    The function expands each nucleus systematically, row by row or column by column,
+    until it encounters another nucleus or reaches the maximum expansion distance.
+    """
+    if masks1.size == 0 or masks2.size == 0:
+        logging.debug("Empty input masks provided to expansion function")
+        return masks1.copy()
+        
+    if expansion_pixels <= 0:
+        raise ValueError(f"expansion_pixels must be positive, got {expansion_pixels}")
+        
+    valid_directions = {'up', 'down', 'left', 'right'}
+    if direction not in valid_directions:
+        raise ValueError(f"Invalid direction '{direction}'. Must be one of: {valid_directions}")
+    
+    # Create working copy of masks1 for expansion.
+    expanded_masks1 = masks1.copy()
+    h, w = expanded_masks1.shape
+    
+    # Get unique nucleus labels to expand (excluding background).
+    unique_labels = np.unique(masks1[masks1 > 0])
+    if len(unique_labels) == 0:
+        logging.debug("No nuclei found in masks1 for expansion")
+        return expanded_masks1
+    
+    logging.debug(f"Expanding {len(unique_labels)} nuclei {direction} by up to {expansion_pixels} pixels")
+    
+    # Track expansion statistics.
+    total_pixels_expanded = 0
+    nuclei_expanded_count = 0
+    
+    # Process each nucleus individually.
+    for nucleus_id in unique_labels:
+        nucleus_mask = (masks1 == nucleus_id)
+        if not np.any(nucleus_mask):
+            continue
+            
+        nucleus_expanded = False
+        pixels_expanded_this_nucleus = 0
+        
+        if direction == 'up':
+            # Expand upward row by row.
+            for col in range(w):
+                col_mask = nucleus_mask[:, col]
+                if np.any(col_mask):
+                    top_row = np.where(col_mask)[0][0]
+                    
+                    # Expand upward from this column until hitting obstacle or max distance.
+                    for step in range(1, expansion_pixels + 1):
+                        new_row = top_row - step
+                        if new_row < 0:
+                            break
+                        
+                        # Check if target pixel is background in both masks.
+                        if expanded_masks1[new_row, col] == 0 and masks2[new_row, col] == 0:
+                            expanded_masks1[new_row, col] = nucleus_id
+                            pixels_expanded_this_nucleus += 1
+                            nucleus_expanded = True
+                        else:
+                            # Hit an obstacle, stop expansion for this column.
+                            break
+                            
+        elif direction == 'down':
+            # Expand downward row by row.
+            for col in range(w):
+                col_mask = nucleus_mask[:, col]
+                if np.any(col_mask):
+                    bottom_row = np.where(col_mask)[0][-1]
+                    
+                    # Expand downward from this column until hitting obstacle or max distance.
+                    for step in range(1, expansion_pixels + 1):
+                        new_row = bottom_row + step
+                        if new_row >= h:
+                            break
+                        
+                        # Check if target pixel is background in both masks.
+                        if expanded_masks1[new_row, col] == 0 and masks2[new_row, col] == 0:
+                            expanded_masks1[new_row, col] = nucleus_id
+                            pixels_expanded_this_nucleus += 1
+                            nucleus_expanded = True
+                        else:
+                            # Hit an obstacle, stop expansion for this column.
+                            break
+                            
+        elif direction == 'left':
+            # Expand leftward column by column.
+            for row in range(h):
+                row_mask = nucleus_mask[row, :]
+                if np.any(row_mask):
+                    left_col = np.where(row_mask)[0][0]
+                    
+                    # Expand leftward from this row until hitting obstacle or max distance.
+                    for step in range(1, expansion_pixels + 1):
+                        new_col = left_col - step
+                        if new_col < 0:
+                            break
+                        
+                        # Check if target pixel is background in both masks.
+                        if expanded_masks1[row, new_col] == 0 and masks2[row, new_col] == 0:
+                            expanded_masks1[row, new_col] = nucleus_id
+                            pixels_expanded_this_nucleus += 1
+                            nucleus_expanded = True
+                        else:
+                            # Hit an obstacle, stop expansion for this row.
+                            break
+                            
+        elif direction == 'right':
+            # Expand rightward column by column.
+            for row in range(h):
+                row_mask = nucleus_mask[row, :]
+                if np.any(row_mask):
+                    right_col = np.where(row_mask)[0][-1]
+                    
+                    # Expand rightward from this row until hitting obstacle or max distance.
+                    for step in range(1, expansion_pixels + 1):
+                        new_col = right_col + step
+                        if new_col >= w:
+                            break
+                        
+                        # Check if target pixel is background in both masks.
+                        if expanded_masks1[row, new_col] == 0 and masks2[row, new_col] == 0:
+                            expanded_masks1[row, new_col] = nucleus_id
+                            pixels_expanded_this_nucleus += 1
+                            nucleus_expanded = True
+                        else:
+                            # Hit an obstacle, stop expansion for this row.
+                            break
+        
+        if nucleus_expanded:
+            nuclei_expanded_count += 1
+            total_pixels_expanded += pixels_expanded_this_nucleus
+            logging.debug(f"Nucleus {nucleus_id}: expanded by {pixels_expanded_this_nucleus} pixels {direction}")
+    
+    logging.info(f"Directional expansion completed: {nuclei_expanded_count}/{len(unique_labels)} nuclei expanded")
+    logging.info(f"Total pixels expanded {direction}: {total_pixels_expanded}")
+    
+    return expanded_masks1
+
+
 def merge_tiles_cpu_3step(
     tile1_path: Union[str, Path],
     tile2_path: Union[str, Path],
@@ -268,6 +449,7 @@ def merge_tiles_cpu_3step(
     2. Border Deletion: Remove priority tile nuclei touching tile borders
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
     4. Cleanup: Remove remaining non-priority nuclei in overlap region
+    5. Directional Expansion: Expand preserved cross-boundary nuclei for better coverage
 
     The key insight is using overlap_length=None for priority tile border detection
     and overlap_length=actual_overlap with appropriate direction for non-priority
@@ -401,63 +583,16 @@ def merge_tiles_cpu_3step(
 
     logging.info(f"STEP 2 SUMMARY: Deleted {priority_deleted_count} priority border-touching nuclei")
 
-    # Step 5b: Cross-boundary Duplication - Create TRUE OVERLAPS by duplicating cross-boundary nuclei.
-    # These nuclei will appear in BOTH tiles with the SAME ID, creating true overlapping masks.
+    # Step 5b: Cross-boundary Preservation - Preserve non-priority nuclei extending into overlap.
+    # These are nuclei that touch the boundary line (cross-boundary nuclei).
     cross_boundary_preserved_count = 0
-
     for nucleus_id in non_priority_boundary_nuclei:
-        # CRITICAL: Duplicate this nucleus into the PRIORITY tile's overlap region.
-        # This creates true overlaps where the same nucleus ID appears in both tiles.
-
-        if priority_is_tile1:
-            # Non-priority is tile2, duplicate nucleus from tile2 into tile1 overlap region.
-            nucleus_mask_tile2 = (tile2_mask == nucleus_id)
-
-            if tile_relationship == 'horizontal':  # tile1 left of tile2
-                # Duplicate from tile2's left overlap region to tile1's right overlap region.
-                source_region = nucleus_mask_tile2[:, :overlap_length]  # Left part of tile2
-                target_region = updated_tile1_mask[:, -overlap_length:]  # Right part of tile1
-
-                # Only duplicate where there's no existing nucleus in the target.
-                safe_duplication = source_region & (target_region == 0)
-                updated_tile1_mask[:, -overlap_length:][safe_duplication] = nucleus_id
-
-            elif tile_relationship == 'vertical':  # tile1 above tile2
-                # Duplicate from tile2's top overlap region to tile1's bottom overlap region.
-                source_region = nucleus_mask_tile2[:overlap_length, :]  # Top part of tile2
-                target_region = updated_tile1_mask[-overlap_length:, :]  # Bottom part of tile1
-
-                # Only duplicate where there's no existing nucleus in the target.
-                safe_duplication = source_region & (target_region == 0)
-                updated_tile1_mask[-overlap_length:, :][safe_duplication] = nucleus_id
-
-        else:
-            # Non-priority is tile1, duplicate nucleus from tile1 into tile2 overlap region.
-            nucleus_mask_tile1 = (tile1_mask == nucleus_id)
-
-            if tile_relationship == 'horizontal':  # tile1 left of tile2
-                # Duplicate from tile1's right overlap region to tile2's left overlap region.
-                source_region = nucleus_mask_tile1[:, -overlap_length:]  # Right part of tile1
-                target_region = updated_tile2_mask[:, :overlap_length]  # Left part of tile2
-
-                # Only duplicate where there's no existing nucleus in the target.
-                safe_duplication = source_region & (target_region == 0)
-                updated_tile2_mask[:, :overlap_length][safe_duplication] = nucleus_id
-
-            elif tile_relationship == 'vertical':  # tile1 above tile2
-                # Duplicate from tile1's bottom overlap region to tile2's top overlap region.
-                source_region = nucleus_mask_tile1[-overlap_length:, :]  # Bottom part of tile1
-                target_region = updated_tile2_mask[:overlap_length, :]  # Top part of tile2
-
-                # Only duplicate where there's no existing nucleus in the target.
-                safe_duplication = source_region & (target_region == 0)
-                updated_tile2_mask[:overlap_length, :][safe_duplication] = nucleus_id
-
+        # These nuclei are preserved (no deletion), just log for tracking.
         mapping[nucleus_id] = nucleus_id  # Preserve original ID.
         cross_boundary_preserved_count += 1
-        logging.debug(f"STEP 3 DUPLICATE: Cross-boundary nucleus {nucleus_id} duplicated for overlap creation")
+        logging.debug(f"STEP 3 PRESERVE: Cross-boundary nucleus {nucleus_id} (extends into overlap)")
 
-    logging.info(f"STEP 3 SUMMARY: Created overlaps for {cross_boundary_preserved_count} cross-boundary nuclei")
+    logging.info(f"STEP 3 SUMMARY: Preserved {cross_boundary_preserved_count} cross-boundary nuclei")
 
     # Step 5c: Cleanup - Delete non-priority nuclei in overlap region that are NOT cross-boundary.
     # These are nuclei completely in the overlap region that don't extend from the non-priority tile.
@@ -478,13 +613,53 @@ def merge_tiles_cpu_3step(
 
     logging.info(f"STEP 4 SUMMARY: Deleted {cleanup_deleted_count} non-priority nuclei in overlap region")
 
-    # Final logging.
+    # Step 6: Directional Expansion - Expand preserved cross-boundary nuclei.
+    # This step helps recover nucleus boundaries that may have been truncated during tiling.
+    logging.info("STEP 6: Applying directional expansion to preserved cross-boundary nuclei")
+    
+    if len(non_priority_boundary_nuclei) > 0:
+        # Determine expansion direction based on tile relationship.
+        # Cross-boundary nuclei should expand toward the priority tile.
+        expansion_direction_mapping = {
+            "tile1_above_tile2": "down" if not priority_is_tile1 else "up",
+            "tile1_left_of_tile2": "right" if not priority_is_tile1 else "left", 
+            "tile1_below_tile2": "up" if not priority_is_tile1 else "down",
+            "tile1_right_of_tile2": "left" if not priority_is_tile1 else "right"
+        }
+        
+        expansion_direction = expansion_direction_mapping[tile_relationship]
+        
+        # Apply expansion directly to the appropriate tile mask.
+        if priority_is_tile1:
+            # Non-priority is tile2, expand cross-boundary nuclei in tile2.
+            logging.debug(f"Expanding tile2 nuclei {expansion_direction} toward tile1")
+            updated_tile2_mask = _expand_masks_directionally(
+                updated_tile2_mask, 
+                updated_tile1_mask, 
+                expansion_direction
+            )
+        else:
+            # Non-priority is tile1, expand cross-boundary nuclei in tile1.
+            logging.debug(f"Expanding tile1 nuclei {expansion_direction} toward tile2")
+            updated_tile1_mask = _expand_masks_directionally(
+                updated_tile1_mask, 
+                updated_tile2_mask, 
+                expansion_direction
+            )
+
+        logging.info(f"STEP 6 SUMMARY: Directional expansion applied {expansion_direction} to "
+                    f"{len(non_priority_boundary_nuclei)} cross-boundary nuclei")
+    else:
+        logging.info("STEP 6 SUMMARY: No cross-boundary nuclei to expand")
+
+    # Final logging with expansion statistics.
     final_tile1_nuclei = len(np.unique(updated_tile1_mask[updated_tile1_mask > 0]))
     final_tile2_nuclei = len(np.unique(updated_tile2_mask[updated_tile2_mask > 0]))
 
-    logging.info(f"Enhanced 3-step merge completed:")
+    logging.info(f"Enhanced 3-step merge with expansion completed:")
     logging.info(f"  Tile1: {tile1_nuclei_count} -> {final_tile1_nuclei} nuclei")
     logging.info(f"  Tile2: {tile2_nuclei_count} -> {final_tile2_nuclei} nuclei")
-    logging.info(f"  Total preserved cross-boundary nuclei: {len(mapping)}")
+    logging.info(f"  Cross-boundary nuclei preserved: {len(mapping)}")
+    logging.info(f"  Expansion direction applied: {expansion_direction}")
 
     return updated_tile1_mask, updated_tile2_mask, mapping

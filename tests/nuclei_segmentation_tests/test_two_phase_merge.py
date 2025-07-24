@@ -6,10 +6,10 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 Script Name: test_two_phase_merge.py.
 Description:
     Comprehensive test suite for the two-phase tile merging implementation using
-    the new 3-step algorithm. Tests overlap dictionary creation, pairwise tile
+    the new 4-step algorithm. Tests overlap dictionary creation, pairwise tile
     merging, and the complete two-phase merge pipeline with various tile configurations.
 
-    The new 3-step merging rule:
+    The new 4-step merging rule:
     1. Priority Selection: Tile with most nuclei gets priority
     2. Border Deletion: Remove priority tile nuclei touching borders, preserve
        non-priority nuclei touching priority borders
@@ -22,7 +22,7 @@ Dependencies:
 
 Key Features:
     • Overlap dictionary generation tests for various tile arrangements.
-    • Pairwise merge tests with synthetic overlapping nuclei using 3-step algorithm.
+    • Pairwise merge tests with synthetic overlapping nuclei using 4-step algorithm.
     • Integration tests comparing two-phase vs single-tile results.
     • Edge case handling for irregular tile patterns and boundary conditions.
     • Performance validation for simplified algorithm.
@@ -431,7 +431,7 @@ class TestTwoPhaseIntegration:
         coords = [(0, 0), (0, 1), (1, 0), (1, 1)]
         loader = self.create_tile_loader(tile_data)
         
-        # Run two-phase merge with new 3-step algorithm.
+        # Run two-phase merge with new 4-step algorithm.
         merged = merge_tiles_two_phase(
             coords=coords,
             loader=loader,

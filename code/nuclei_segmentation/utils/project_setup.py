@@ -28,13 +28,12 @@ def setup_project_structure():
     return paths
 
 
-def load_config(config_path=None, job_name=None):
+def load_config(config_path=None):
     """
     Load INI config, copy to timestamped results folder, and return parsed settings.
 
     Args:
         config_path (str or Path, optional): Path to original INI config file.
-        job_name (str, optional): Custom job name for server runs (overrides config output_dir).
 
     Returns:
         tuple: (settings dict, CELLPOSE_PARAMS dict, PROJECT_DIRS dict).
@@ -50,26 +49,9 @@ def load_config(config_path=None, job_name=None):
     base_config.read(config_path)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Use job_name if provided (for server runs), otherwise use config setting.
-    if job_name:
-        name = job_name
-    else:
-        name = base_config.get("general", "output_dir", fallback="iri_results")
-
+    name = base_config.get("general", "output_dir", fallback="iri_results")
     output_dir = dirs["results"] / f"{timestamp}_{name}"
     output_dir.mkdir(exist_ok=True)
-
-    # Create a symlink to the latest results for easy access by job scripts.
-    latest_link = dirs["results"] / "latest"
-    if latest_link.exists() or latest_link.is_symlink():
-        latest_link.unlink()
-    try:
-        latest_link.symlink_to(output_dir.name)
-    except (OSError, NotImplementedError):
-        # Fallback for systems that don't support symlinks.
-        with open(dirs["results"] / "latest.txt", "w") as f:
-            f.write(str(output_dir.name))
 
     copied_config_path = output_dir / "config_used.ini"
     shutil.copy2(config_path, copied_config_path)
@@ -79,6 +61,7 @@ def load_config(config_path=None, job_name=None):
 
     # Main settings.
     settings = {
+        "job_name": config.get("general", "job_name", fallback="default_job_name"),
         "output_dir": output_dir,
         "image_path": resolve_path(config.get("general", "image_path"), dirs["data"]),
         "upscale_factor": config.getint("general", "upscale_factor", fallback=1),
@@ -170,6 +153,8 @@ def load_config(config_path=None, job_name=None):
         "parallel_memory_limit_gb": config.getfloat("cellpose", "parallel_memory_limit_gb", fallback=6.0),
         "parallel_timeout_seconds": config.getint("cellpose", "parallel_timeout_seconds", fallback=300),
     }
+
+    # settings['output_dir'] = str(settings['job_name'] + '_' + settings['output_dir'])
 
     return settings, CELLPOSE_PARAMS, dirs
 

@@ -3,11 +3,11 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: test_gpu_merge_3step_integration.py.
+Script Name: test_gpu_merge_4step_integration.py.
 Description:
-    Integration test for GPU merge function with 3-step algorithm. This test
+    Integration test for GPU merge function with 4-step algorithm. This test
     validates that the GPU merge function correctly falls back to the CPU
-    implementation and produces identical results for the 3-step merge algorithm.
+    implementation and produces identical results for the 4-step merge algorithm.
 
 Dependencies:
     • Python ≥ 3.10.
@@ -15,7 +15,7 @@ Dependencies:
     • cellpose_merge.gpu_merge, cellpose_merge.rules modules.
 
 Usage:
-    python -m pytest tests/test_gpu_merge_3step_integration.py -v -s
+    python -m pytest tests/test_gpu_merge_4step_integration.py -v -s
 
 Arguments:
     None (pytest handles test discovery and execution).
@@ -24,7 +24,7 @@ Inputs:
     Synthetic tile masks with controlled overlapping scenarios.
 
 Outputs:
-    Test results validating GPU-CPU integration for 3-step merge.
+    Test results validating GPU-CPU integration for 4-step merge.
 
 Key Features:
     • GPU-CPU result consistency validation.
@@ -35,7 +35,7 @@ Key Features:
 
 Notes:
     This test ensures that the GPU merge function correctly implements
-    the 3-step algorithm and produces identical results to the CPU version.
+    the 4-step algorithm and produces identical results to the CPU version.
 """
 
 from __future__ import annotations
@@ -53,12 +53,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_3step
-from code.nuclei_segmentation.cellpose_merge.gpu_merge import merge_patch_gpu_3step
+from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
+from code.nuclei_segmentation.cellpose_merge.gpu_merge import merge_patch_gpu_4step
 
 
-class TestGPUMerge3StepIntegration:
-    """Integration tests for GPU merge with 3-step algorithm."""
+class TestGPUMerge4stepIntegration:
+    """Integration tests for GPU merge with 4-step algorithm."""
     
     def setup_method(self):
         """Set up logging for detailed test output."""
@@ -68,7 +68,7 @@ class TestGPUMerge3StepIntegration:
         """
         Create a test patch for GPU-CPU comparison.
         
-        This patch tests all aspects of the 3-step algorithm:
+        This patch tests all aspects of the 4-step algorithm:
         - Priority selection
         - Border deletion
         - Cross-boundary preservation
@@ -91,13 +91,13 @@ class TestGPUMerge3StepIntegration:
         patch = self.create_test_patch()
         
         print("\n=== GPU-CPU Result Consistency Test ===")
-        print("Comparing GPU and CPU 3-step merge results...")
+        print("Comparing GPU and CPU 4-step merge results...")
         
         # Run CPU merge.
-        cpu_merged, cpu_mapping = merge_tiles_cpu_3step(patch)
+        cpu_merged, cpu_mapping = merge_tiles_cpu_4step(patch)
         
         # Run GPU merge (should fall back to CPU).
-        gpu_merged, gpu_mapping = merge_patch_gpu_3step(patch)
+        gpu_merged, gpu_mapping = merge_patch_gpu_4step(patch)
         
         print(f"CPU mapping: {cpu_mapping}")
         print(f"GPU mapping: {gpu_mapping}")
@@ -114,10 +114,10 @@ class TestGPUMerge3StepIntegration:
         
         print("\n=== GPU Fallback Behavior Test ===")
         
-        # The GPU implementation should always fall back to CPU for the 3-step algorithm.
-        merged, mapping = merge_patch_gpu_3step(patch)
+        # The GPU implementation should always fall back to CPU for the 4-step algorithm.
+        merged, mapping = merge_patch_gpu_4step(patch)
         
-        # Validate the 3-step rule is correctly applied.
+        # Validate the 4-step rule is correctly applied.
         expected_nuclei = {1, 4}  # Internal priority + cross-boundary.
         actual_nuclei = set(mapping.keys())
         
@@ -126,7 +126,7 @@ class TestGPUMerge3StepIntegration:
         
         assert actual_nuclei == expected_nuclei, f"Expected {expected_nuclei}, got {actual_nuclei}"
         
-        print("✓ GPU fallback correctly applies 3-step algorithm")
+        print("✓ GPU fallback correctly applies 4-step algorithm")
     
     def test_gpu_step2_border_deletion(self):
         """Test that GPU merge correctly implements Step 2 Border Deletion."""
@@ -134,7 +134,7 @@ class TestGPUMerge3StepIntegration:
         
         print("\n=== GPU Step 2 Border Deletion Test ===")
         
-        merged, mapping = merge_patch_gpu_3step(patch)
+        merged, mapping = merge_patch_gpu_4step(patch)
         
         # Step 2 validation: Priority border nuclei should be deleted.
         assert 2 not in mapping, "Priority top border nucleus (2) should be deleted"
@@ -171,7 +171,7 @@ class TestGPUMerge3StepIntegration:
         small_patch[1, 4:8, 4:8] = 2
         
         # Should fall back to CPU due to small size.
-        merged, mapping = merge_patch_gpu_3step(small_patch)
+        merged, mapping = merge_patch_gpu_4step(small_patch)
         
         # Should still work correctly.
         assert merged.shape == (10, 10)
@@ -224,7 +224,7 @@ class TestGPUMerge3StepIntegration:
         
         for i, patch in enumerate(edge_cases):
             try:
-                merged, mapping = merge_patch_gpu_3step(patch)
+                merged, mapping = merge_patch_gpu_4step(patch)
                 print(f"✓ Edge case {i+1} handled correctly")
             except Exception as e:
                 print(f"✗ Edge case {i+1} failed: {e}")

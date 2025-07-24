@@ -3,9 +3,9 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: test_3step_merge.py.
+Script Name: test_4step_merge.py.
 Description:
-    Comprehensive test suite for the new 3-step tile merging implementation.
+    Comprehensive test suite for the new 4-step tile merging implementation.
     Tests the simplified priority-based merging algorithm that replaces the
     previous 4-step approach with better performance and scientific accuracy.
 
@@ -17,7 +17,7 @@ Dependencies:
 Key Features:
     • Priority selection tests for various tile configurations.
     • Border deletion tests with synthetic overlapping nuclei.
-    • Integration tests comparing 3-step vs expected results.
+    • Integration tests comparing 4-step vs expected results.
     • Performance validation for simplified algorithm.
     • Edge case handling for irregular tile patterns.
 """
@@ -39,14 +39,14 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from code.nuclei_segmentation.cellpose_merge.rules import (
-    merge_tiles_cpu_3step,
+    merge_tiles_cpu_4step,
     _count_nuclei_in_tile,
     _find_border_touching_nuclei
 )
 
 
 class TestUtilityFunctions:
-    """Test utility functions for the 3-step algorithm."""
+    """Test utility functions for the 4-step algorithm."""
     
     def test_count_nuclei_in_tile(self):
         """Test nucleus counting in tile masks."""
@@ -92,12 +92,12 @@ class TestUtilityFunctions:
 
 
 class TestThreeStepMerging:
-    """Test the complete 3-step merge algorithm with exact rule validation."""
+    """Test the complete 4-step merge algorithm with exact rule validation."""
 
     def create_controlled_test_patch(self) -> np.ndarray:
         """
         Create a controlled test patch where we know exactly which nuclei
-        touch which borders and can validate the 3-step rule precisely.
+        touch which borders and can validate the 4-step rule precisely.
         """
         patch = np.zeros((2, 50, 50), dtype=np.uint32)
 
@@ -124,18 +124,18 @@ class TestThreeStepMerging:
         single_tile[0, 10:20, 10:20] = 1
         single_tile[0, 30:40, 30:40] = 2
         
-        merged, mapping = merge_tiles_cpu_3step(single_tile)
+        merged, mapping = merge_tiles_cpu_4step(single_tile)
         
         # Should preserve both nuclei.
         assert np.array_equal(merged, single_tile[0])
         assert len(mapping) == 2
         assert 1 in mapping and 2 in mapping
     
-    def test_exact_3step_rule_implementation(self):
-        """Test the exact 3-step rule with controlled synthetic data."""
+    def test_exact_4step_rule_implementation(self):
+        """Test the exact 4-step rule with controlled synthetic data."""
         patch = self.create_controlled_test_patch()
 
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
 
         # Validate Step 1: Priority Selection
         # Tile 0 has 3 nuclei, Tile 1 has 2 nuclei -> Tile 0 should be priority.
@@ -171,7 +171,7 @@ class TestThreeStepMerging:
         # Tile 1: Non-priority tile (1 nucleus).
         patch[1, 30:38, 30:38] = 3  # Internal to non-priority (should be deleted - not cross-boundary).
 
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
 
         # Validate exact rule implementation.
         assert 1 in mapping, "Priority internal nucleus should be kept"
@@ -199,7 +199,7 @@ class TestThreeStepMerging:
         # Non-cross-boundary nucleus.
         patch[1, 20:28, 20:28] = 4  # Doesn't touch priority border (should be deleted).
 
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
 
         # Validate exact preservation rule.
         assert 1 in mapping, "Priority internal nucleus should be kept"
@@ -220,7 +220,7 @@ class TestThreeStepMerging:
         patch = np.zeros((2, 50, 50), dtype=np.uint32)
         # Both tiles are empty.
         
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
         
         # Should return empty merged mask.
         assert np.all(merged == 0)
@@ -232,7 +232,7 @@ class TestThreeStepMerging:
         large_patch = np.zeros((2, 20000, 20000), dtype=np.uint32)
         
         with pytest.raises(RuntimeError, match="exceeding safe CPU limit"):
-            merge_tiles_cpu_3step(large_patch)
+            merge_tiles_cpu_4step(large_patch)
 
 
 class TestEdgeCases:
@@ -252,7 +252,7 @@ class TestEdgeCases:
         # Tile 2: 1 nucleus.
         patch[2, 40:50, 40:50] = 4
         
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
         
         # Should handle multiple tiles correctly.
         assert merged.shape == (50, 50)
@@ -269,14 +269,14 @@ class TestEdgeCases:
         patch[1, 15:25, 15:25] = 3
         patch[1, 35:45, 35:45] = 4
 
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
 
         # Should handle tie-breaking (first tile gets priority by default).
         assert merged.shape == (50, 50)
         assert len(mapping) >= 1
 
-    def test_comprehensive_3step_rule_validation(self):
-        """Comprehensive test validating all aspects of the 3-step rule."""
+    def test_comprehensive_4step_rule_validation(self):
+        """Comprehensive test validating all aspects of the 4-step rule."""
         patch = np.zeros((2, 60, 60), dtype=np.uint32)
 
         # Tile 0: Priority tile (4 nuclei - gets priority).
@@ -290,7 +290,7 @@ class TestEdgeCases:
         patch[1, 45:55, 45:55] = 6  # Internal, doesn't touch priority border (should be deleted).
         patch[1, 25:35, 52:60] = 7  # Touches priority right border (cross-boundary - should be kept).
 
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
 
         # Step 1 validation: Priority selection.
         # Tile 0 has 4 nuclei, Tile 1 has 3 nuclei -> Tile 0 is priority.

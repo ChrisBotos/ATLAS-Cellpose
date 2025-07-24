@@ -594,7 +594,6 @@ def merge_tiles_two_phase(
     merge_batch_size: int = 4,
     debug_mode: bool = False,
     output_dir: Optional[Path] = None,
-    source_tiles_dir: Optional[Path] = None,
 ) -> NDArray[np.uint32]:
     """
     Enhanced two-phase tile merging with nucleus ID management and proper file handling.
@@ -654,13 +653,7 @@ def merge_tiles_two_phase(
         output_dir = Path(".")
 
     # Source directory with original tile masks.
-    if source_tiles_dir is not None:
-        source_masks_dir = source_tiles_dir
-        logging.info(f"Using provided source tiles directory: {source_masks_dir}")
-    else:
-        source_masks_dir = output_dir / "masks" / "tile_masks_npz"
-        logging.info(f"Using default source tiles directory: {source_masks_dir}")
-
+    source_masks_dir = output_dir / "masks" / "tile_masks_npz"
     # Target directory for merged tile masks.
     merged_masks_dir = output_dir / "masks" / "merged_tile_masks_npz"
 
@@ -692,33 +685,6 @@ def merge_tiles_two_phase(
     current_id = max_existing_id + 1
     logging.info(f"Starting ID reassignment from safe ID: {current_id} (max existing: {max_existing_id})")
 
-    # CROSS-BOUNDARY PRESERVATION: Track nucleus IDs that appear in multiple tiles.
-    # These should keep the same ID to maintain cross-boundary connections.
-    global_id_mapping = {}  # Maps original_id -> final_global_id
-    cross_boundary_ids = set()  # IDs that appear in multiple tiles
-
-    # First pass: Identify cross-boundary nuclei.
-    logging.info("Identifying cross-boundary nuclei...")
-    id_to_tiles = {}  # Maps nucleus_id -> set of tiles containing it
-
-    for r, c in coords:
-        tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)
-        unique_ids = np.unique(tile_mask[tile_mask > 0])
-
-        for nucleus_id in unique_ids:
-            if nucleus_id not in id_to_tiles:
-                id_to_tiles[nucleus_id] = set()
-            id_to_tiles[nucleus_id].add((r, c))
-
-    # Identify cross-boundary nuclei (appear in multiple tiles).
-    for nucleus_id, tile_set in id_to_tiles.items():
-        if len(tile_set) > 1:
-            cross_boundary_ids.add(nucleus_id)
-            global_id_mapping[nucleus_id] = nucleus_id  # Keep original ID
-
-    logging.info(f"Found {len(cross_boundary_ids)} cross-boundary nuclei: {sorted(cross_boundary_ids)}")
-
-    # Second pass: Assign unique IDs to non-cross-boundary nuclei.
     for r, c in tqdm(coords, desc="Reassigning nucleus IDs"):
         # Load tile mask.
         tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)
@@ -727,31 +693,22 @@ def merge_tiles_two_phase(
         unique_ids = np.unique(tile_mask[tile_mask > 0])
 
         if len(unique_ids) > 0:
-            # Process each nucleus ID.
+            # CRITICAL FIX: Verify no ID conflicts before assignment.
             for old_id in unique_ids:
-                if old_id in cross_boundary_ids:
-                    # Cross-boundary nucleus: keep original ID.
-                    new_id = old_id
-                    if debug_mode:
-                        logging.debug(f"Tile ({r},{c}): Preserving cross-boundary nucleus {old_id}")
-                else:
-                    # Regular nucleus: assign new unique ID.
-                    if old_id not in global_id_mapping:
-                        global_id_mapping[old_id] = current_id
-                        current_id += 1
-                    new_id = global_id_mapping[old_id]
+                # Double-check that current_id doesn't already exist.
+                if np.any(tile_mask == current_id):
+                    logging.error(f"❌ CRITICAL: ID collision detected! ID {current_id} already exists in tile ({r},{c})")
+                    raise RuntimeError(f"ID collision: {current_id} already exists")
 
-                # Apply ID mapping.
-                if old_id != new_id:
-                    tile_mask[tile_mask == old_id] = new_id
+                # Perform safe ID assignment.
+                tile_mask[tile_mask == old_id] = current_id
+                current_id += 1
 
             # Save updated tile mask.
             _save_tile_to_storage((r, c), tile_mask, merged_masks_dir, tile_h, tile_w, overlap)
 
             if debug_mode:
-                cross_boundary_count = sum(1 for uid in unique_ids if uid in cross_boundary_ids)
-                regular_count = len(unique_ids) - cross_boundary_count
-                logging.debug(f"Tile ({r},{c}): {cross_boundary_count} cross-boundary + {regular_count} regular nuclei")
+                logging.debug(f"Tile ({r},{c}): Reassigned {len(unique_ids)} nuclei, next ID: {current_id}")
 
     logging.info(f"Nucleus ID reassignment completed. Next available ID: {current_id}")
 
@@ -773,11 +730,12 @@ def merge_tiles_two_phase(
         coord1, coord2 = tile_pair
 
         try:
+            # Load tiles from persistent storage.
+            tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
+            tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
 
             # Debug logging for merge operations.
             if debug_mode:
-                tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
-                tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
                 nuclei_before_1 = len(np.unique(tile1[tile1 > 0]))
                 nuclei_before_2 = len(np.unique(tile2[tile2 > 0]))
                 logging.debug(f"Phase 1: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
@@ -821,10 +779,12 @@ def merge_tiles_two_phase(
         coord1, coord2 = tile_pair
 
         try:
+            # Load tiles from persistent storage (includes Phase 1 updates).
+            tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
+            tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
+
             # Debug logging for merge operations.
             if debug_mode:
-                tile1 = _load_tile_from_storage(coord1, merged_masks_dir, tile_h, tile_w, overlap)
-                tile2 = _load_tile_from_storage(coord2, merged_masks_dir, tile_h, tile_w, overlap)
                 nuclei_before_1 = len(np.unique(tile1[tile1 > 0]))
                 nuclei_before_2 = len(np.unique(tile2[tile2 > 0]))
                 logging.debug(f"Phase 2: Merging tiles {coord1} ({nuclei_before_1} nuclei) and {coord2} ({nuclei_before_2} nuclei)")
@@ -860,25 +820,33 @@ def merge_tiles_two_phase(
             logging.error(f"Phase 2: Failed to process tile pair {coord1}-{coord2}: {e}")
             continue
     
-    # Phase 3: Assemble final merged image with STREAMING AREA-BASED CONFLICT RESOLUTION.
-    # MEMORY-EFFICIENT: Process conflicts tile-by-tile without storing full individual masks.
-    logging.info("Phase 3: Assembling final merged image with streaming area-based conflict resolution")
-
-    # Create the final merged mask.
+    # Phase 3: Assemble final merged image from persistent storage.
+    # COMPLETELY REWRITTEN: Use a priority-based assembly that respects merge decisions.
+    logging.info("Phase 3: Assembling final merged image with priority-based placement")
     merged = np.zeros((height, width), dtype=np.uint32)
 
-    # Track nucleus areas and overlap statistics efficiently.
-    nucleus_areas = {}  # Maps nucleus_id -> total pixel count
-    overlap_map = {}  # Maps (y,x) -> set of nucleus_ids (only for overlapping pixels)
-    overlapping_nucleus_pairs = set()
+    # Create a priority map to track which tiles have priority in each region.
+    priority_map = np.full((height, width), -1, dtype=np.int32)  # -1 = no tile assigned yet.
 
-    # Process tiles in a specific order to ensure consistent assembly.
+    # Process tiles in a specific order to ensure consistent priority assignment.
     sorted_coords = sorted(coords, key=lambda coord: (coord[0], coord[1]))
 
-    # STREAMING ASSEMBLY: Process tiles one by one with area-based conflict resolution.
-    logging.info("Streaming assembly: Processing tiles with area-based conflict resolution...")
+    # First pass: Assign priority for each pixel based on tile processing order.
+    for priority_idx, (r, c) in enumerate(sorted_coords):
+        y_start = r * stride_h
+        y_end = min(height, y_start + tile_h)
+        x_start = c * stride_w
+        x_end = min(width, x_start + tile_w)
 
-    for tile_idx, (r, c) in enumerate(sorted_coords):
+        # Assign this tile's priority to all pixels in its region.
+        # Later tiles will overwrite priority in overlapping regions.
+        priority_map[y_start:y_end, x_start:x_end] = priority_idx
+
+        if debug_mode:
+            logging.debug(f"Assigned priority {priority_idx} to tile ({r},{c}) region [{y_start}:{y_end}, {x_start}:{x_end}]")
+
+    # Second pass: Place pixels from tiles only where they have priority.
+    for priority_idx, (r, c) in enumerate(sorted_coords):
         try:
             # Load final merged tile from persistent storage.
             tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)
@@ -892,176 +860,37 @@ def merge_tiles_two_phase(
             actual_h = y_end - y_start
             actual_w = x_end - x_start
 
-            # Extract the relevant portion of the tile mask.
+            # REVOLUTIONARY FIX: Place COMPLETE nuclei based on 3-step merge decisions.
             tile_region = tile_mask[:actual_h, :actual_w]
-
-            # Get current state of the merged region.
             merged_region = merged[y_start:y_end, x_start:x_end]
 
-            # Process each nucleus in this tile.
+            # Strategy: For each nucleus in this tile, place it COMPLETELY if no conflict exists.
+            # This ensures that preserved nuclei maintain their natural shapes.
             unique_nuclei = np.unique(tile_region[tile_region > 0])
 
             for nucleus_id in unique_nuclei:
                 nucleus_mask = (tile_region == nucleus_id)
-                nucleus_pixel_count = np.sum(nucleus_mask)
 
-                # Update total area for this nucleus.
-                if nucleus_id not in nucleus_areas:
-                    nucleus_areas[nucleus_id] = 0
-                nucleus_areas[nucleus_id] += nucleus_pixel_count
-
-                # Find conflicts with already placed nuclei.
+                # Check if this nucleus conflicts with already placed nuclei.
                 conflict_mask = nucleus_mask & (merged_region > 0)
+                has_conflict = np.any(conflict_mask)
 
-                if np.any(conflict_mask):
-                    # Handle conflicts using area-based resolution.
-                    conflict_coords = np.where(conflict_mask)
-
-                    for i in range(len(conflict_coords[0])):
-                        local_y, local_x = conflict_coords[0][i], conflict_coords[1][i]
-                        global_y = y_start + local_y
-                        global_x = x_start + local_x
-
-                        existing_id = merged_region[local_y, local_x]
-
-                        # AREA-BASED CONFLICT RESOLUTION:
-                        # Compare current areas (smaller nucleus wins).
-                        current_nucleus_area = nucleus_areas[nucleus_id]
-                        existing_nucleus_area = nucleus_areas.get(existing_id, float('inf'))
-
-                        if current_nucleus_area < existing_nucleus_area:
-                            # Current nucleus is smaller - it wins the conflict.
-                            merged[global_y, global_x] = nucleus_id
-                            merged_region[local_y, local_x] = nucleus_id
-
-                        # Track this as an overlapping pixel.
-                        if (global_y, global_x) not in overlap_map:
-                            overlap_map[(global_y, global_x)] = {existing_id}
-                        overlap_map[(global_y, global_x)].add(nucleus_id)
-
-                        # Track overlapping pairs.
-                        overlapping_nucleus_pairs.add((min(existing_id, nucleus_id), max(existing_id, nucleus_id)))
-
-                # Place non-conflicting pixels.
-                non_conflict_mask = nucleus_mask & (merged_region == 0)
-                if np.any(non_conflict_mask):
-                    merged[y_start:y_end, x_start:x_end][non_conflict_mask] = nucleus_id
+                if not has_conflict:
+                    # No conflict - place the ENTIRE nucleus.
+                    merged[y_start:y_end, x_start:x_end][nucleus_mask] = nucleus_id
+                else:
+                    # Conflict exists - only place non-conflicting pixels.
+                    safe_mask = nucleus_mask & (merged_region == 0)
+                    merged[y_start:y_end, x_start:x_end][safe_mask] = nucleus_id
 
             if debug_mode:
-                nuclei_count = len(unique_nuclei)
-                conflicts = np.sum(merged_region != tile_region) if np.any(tile_region > 0) else 0
-                logging.debug(f"Tile ({r},{c}): {nuclei_count} nuclei, {conflicts} conflicts resolved")
+                nuclei_count = len(np.unique(tile_mask[tile_mask > 0]))
+                total_pixels = np.sum(tile_mask > 0)
+                logging.debug(f"Assembled tile ({r},{c}): {nuclei_count} nuclei, {total_pixels} total pixels")
 
         except Exception as e:
             logging.error(f"Failed to load final tile ({r},{c}): {e}")
             continue
-
-    # Calculate final statistics.
-    total_nuclei = len(nucleus_areas)
-    total_overlapping_pixels = len(overlap_map)
-    max_overlap_depth = max((len(nucleus_set) for nucleus_set in overlap_map.values()), default=0)
-
-    logging.info(f"Streaming area-based conflict resolution completed:")
-    logging.info(f"  Total nuclei: {total_nuclei}")
-    logging.info(f"  Total overlapping pixels: {total_overlapping_pixels}")
-    logging.info(f"  Maximum overlap depth: {max_overlap_depth} nuclei per pixel")
-    logging.info(f"  Overlapping nucleus pairs: {len(overlapping_nucleus_pairs)}")
-
-    if debug_mode:
-        # Show examples of nuclei areas.
-        sample_nuclei = sorted(nucleus_areas.keys())[:5]  # Show first 5 nuclei
-        for nucleus_id in sample_nuclei:
-            logging.debug(f"  Nucleus {nucleus_id}: {nucleus_areas[nucleus_id]} pixels")
-
-        if overlapping_nucleus_pairs:
-            logging.debug(f"  Example overlapping pairs: {sorted(overlapping_nucleus_pairs)[:5]}")
-
-    # Save LIGHTWEIGHT overlap information (no individual masks to save memory).
-    overlap_info = {
-        'overlap_map': overlap_map,  # Only overlapping pixels stored
-        'nucleus_areas': nucleus_areas,  # Area information for each nucleus
-        'overlapping_pixels': total_overlapping_pixels,
-        'max_overlap_depth': max_overlap_depth,
-        'overlapping_pairs': overlapping_nucleus_pairs,
-        'all_nucleus_ids': sorted(nucleus_areas.keys())
-    }
-
-    # Save overlap data to output directory for visualization.
-    overlap_file = output_dir / "masks" / "overlap_data.npz"
-    try:
-        np.savez_compressed(overlap_file,
-                           overlap_info=overlap_info,
-                           merged_mask=merged)
-        logging.info(f"Saved lightweight overlap data to: {overlap_file}")
-    except Exception as e:
-        logging.warning(f"Failed to save overlap data: {e}")
-        logging.info("Continuing without overlap data file")
-
-    # Log final summary with area-based conflict resolution results.
-    logging.info(f"STREAMING AREA-BASED CONFLICT RESOLUTION SUMMARY:")
-    logging.info(f"  Final nuclei count: {total_nuclei}")
-    logging.info(f"  Pixels with overlaps resolved: {total_overlapping_pixels}")
-    logging.info(f"  Nucleus pairs sharing pixels: {len(overlapping_nucleus_pairs)}")
-
-    if debug_mode:
-        # Show examples of area-based resolution.
-        sample_nuclei = sorted(nucleus_areas.keys())[:5]  # Show first 5 nuclei
-        for nucleus_id in sample_nuclei:
-            logging.debug(f"  Nucleus {nucleus_id}: {nucleus_areas[nucleus_id]} pixels (area)")
-
-        if overlapping_nucleus_pairs:
-            logging.debug(f"  Example overlapping pairs: {sorted(overlapping_nucleus_pairs)[:5]}")
-
-    logging.info("Streaming area-based conflict resolution completed successfully")
-
-    # TARGETED GAP FIX: Fill specific 1-pixel gaps at tile boundaries only.
-    # This addresses the exact black border issue without affecting background areas.
-    logging.info("Checking for boundary gaps...")
-    gaps_filled = 0
-
-    # Only check pixels at exact stride boundaries where gaps typically occur.
-    boundary_pixels_to_check = []
-
-    # Collect vertical boundary pixels.
-    for x in range(stride_w, width, stride_w):
-        if x < width:
-            for y in range(height):
-                boundary_pixels_to_check.append((y, x))
-
-    # Collect horizontal boundary pixels.
-    for y in range(stride_h, height, stride_h):
-        if y < height:
-            for x in range(width):
-                boundary_pixels_to_check.append((y, x))
-
-    # Check each boundary pixel for gaps.
-    for y, x in boundary_pixels_to_check:
-        if merged[y, x] == 0:  # This pixel is currently empty.
-            # Check if this is a gap between nuclei (not legitimate background).
-            # Look for nuclei in the immediate neighborhood.
-            neighbor_nuclei = []
-            for dy in [-1, 0, 1]:
-                for dx in [-1, 0, 1]:
-                    if dy == 0 and dx == 0:
-                        continue  # Skip center pixel.
-                    ny, nx = y + dy, x + dx
-                    if 0 <= ny < height and 0 <= nx < width:
-                        neighbor_value = merged[ny, nx]
-                        if neighbor_value > 0:
-                            neighbor_nuclei.append(neighbor_value)
-
-            # Only fill if there are at least 2 neighboring nuclei (indicating a gap).
-            if len(neighbor_nuclei) >= 2:
-                # Use the most common neighboring nucleus ID.
-                unique_neighbors, counts = np.unique(neighbor_nuclei, return_counts=True)
-                most_common_neighbor = unique_neighbors[np.argmax(counts)]
-                merged[y, x] = most_common_neighbor
-                gaps_filled += 1
-
-    if gaps_filled > 0:
-        logging.info(f"Filled {gaps_filled} boundary gap pixels")
-    else:
-        logging.info("No boundary gaps detected")
 
     final_nuclei_count = len(np.unique(merged[merged > 0]))
     logging.info(f"Two-phase merge completed. Final image contains {final_nuclei_count} nuclei")

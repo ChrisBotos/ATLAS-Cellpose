@@ -5,7 +5,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: test_step2_border_deletion_validation.py.
 Description:
-    Comprehensive validation test for Step 2 Border Deletion rule in the 3-step
+    Comprehensive validation test for Step 2 Border Deletion rule in the 4-step
     merge algorithm. This test specifically focuses on verifying that priority
     tile nuclei touching priority tile borders are correctly deleted, while
     non-priority nuclei touching priority tile borders are preserved.
@@ -32,7 +32,7 @@ Key Features:
     • Synthetic test cases with known expected outcomes.
     • Comprehensive logging of merge decisions for debugging.
     • Edge case testing for corner and multi-border scenarios.
-    • Integration with existing 3-step merge implementation.
+    • Integration with existing 4-step merge implementation.
 
 Notes:
     This test is designed to identify and fix issues where Step 2 Border
@@ -55,7 +55,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from code.nuclei_segmentation.cellpose_merge.rules import (
-    merge_tiles_cpu_3step,
+    merge_tiles_cpu_4step,
     _find_border_touching_nuclei,
     _find_nuclei_touching_priority_border
 )
@@ -106,7 +106,7 @@ class TestStep2BorderDeletionValidation:
         print("\n=== Step 2 Border Deletion Validation ===")
         print("Testing priority tile border-touching nuclei deletion...")
         
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
         
         # Step 2 validation: Priority border nuclei should be deleted.
         assert 2 not in mapping, "Priority top border nucleus (2) should be deleted"
@@ -144,7 +144,7 @@ class TestStep2BorderDeletionValidation:
         print("\n=== Cross-boundary Nuclei Preservation ===")
         print("Testing non-priority cross-boundary nuclei preservation...")
         
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
         
         # Cross-boundary nuclei should be preserved.
         assert 5 in mapping, "Cross-boundary nucleus (5) touching priority top border should be kept"
@@ -174,7 +174,7 @@ class TestStep2BorderDeletionValidation:
         
         print("\n=== Complete Step 2 Rule Validation ===")
         
-        merged, mapping = merge_tiles_cpu_3step(patch)
+        merged, mapping = merge_tiles_cpu_4step(patch)
         
         # Expected final nuclei: {1, 5, 6} (internal priority + 2 cross-boundary).
         expected_nuclei = {1, 5, 6}

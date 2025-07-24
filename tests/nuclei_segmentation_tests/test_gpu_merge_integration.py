@@ -365,8 +365,8 @@ class TestErrorHandlingIntegration:
                 if call_count <= 2:  # Fail first two calls.
                     raise RuntimeError("CUDA out of memory")
                 # Succeed on subsequent calls.
-                from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_3step
-                return merge_tiles_cpu_3step(*args, **kwargs)
+                from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
+                return merge_tiles_cpu_4step(*args, **kwargs)
             
             mock_gpu.side_effect = side_effect
             

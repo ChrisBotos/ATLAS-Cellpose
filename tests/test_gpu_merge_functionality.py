@@ -136,7 +136,7 @@ def test_cpu_merge_backend():
     
     try:
         # Import the CPU merge function.
-        from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_3step
+        from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
         logger.info("CPU merge backend imported successfully")
         
         # Create test data.
@@ -152,7 +152,7 @@ def test_cpu_merge_backend():
         
         # Test CPU merge.
         start_time = time.time()
-        merged, mapping = merge_tiles_cpu_3step(patch, threshold=0.3)
+        merged, mapping = merge_tiles_cpu_4step(patch, threshold=0.3)
         cpu_time = time.time() - start_time
         
         logger.info(f"CPU merge completed in {cpu_time:.3f}s")
@@ -189,7 +189,7 @@ def test_merge_backend_selection():
         
         # Check if CPU backend is available.
         try:
-            from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_3step
+            from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
             cpu_available = True
             logger.info("CPU merge backend is available")
         except ImportError:

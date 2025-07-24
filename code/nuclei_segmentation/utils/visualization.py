@@ -482,7 +482,6 @@ def create_overlay(img_crop: np.ndarray, masks_crop: np.ndarray, logger) -> np.n
                         0.8 * colors[i, c] + 0.2 * overlay[..., c][mask]
                     )
         else:
-            # TODO, do this when you read this: add a way to track progress here if possible? Maybe with a loading bar.
             overlay = plot.mask_overlay(img_crop, masks_crop, colors=colors)
 
         if overlay.mean() < 0.2:

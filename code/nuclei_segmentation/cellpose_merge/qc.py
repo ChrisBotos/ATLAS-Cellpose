@@ -227,18 +227,7 @@ def write_overlays(
                     merged_tiles_dir, coords, crop_info, tile_h, tile_w, overlap, tissue_background
                 )
             else:
-                # Try to load overlap data for enhanced visualization.
-                overlap_data = None
-                overlap_file = qc_dir.parent / "masks" / "overlap_data.npz"
-                if overlap_file.exists():
-                    try:
-                        overlap_npz = np.load(overlap_file, allow_pickle=True)
-                        overlap_data = overlap_npz['overlap_info'].item()
-                        logging.info("Loaded overlap data for enhanced after_merging visualization")
-                    except Exception as e:
-                        logging.warning(f"Failed to load overlap data: {e}")
-
-                after_overlay = _create_after_merging_overlay(merged, crop_info, tissue_background, overlap_data)
+                after_overlay = _create_after_merging_overlay(merged, crop_info, tissue_background)
 
         else:
             # Use new refactored overlay functions with proper tissue background.
@@ -815,7 +804,7 @@ def _generate_tile_color(tile_row: int, tile_col: int) -> ColorArray:
 
 """AFTER MERGING VISUALIZATION"""
 
-def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, tissue_background: RGBArray, overlap_data: Dict = None) -> RGBArray:
+def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, tissue_background: RGBArray) -> RGBArray:
     """
     Create the after merging overlay showing final segmentation results.
 
@@ -863,72 +852,18 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, t
         colors = np.random.randint(100, 256, size=(max_label + 1, 3), dtype=np.uint16)
         colors[0] = [0, 0, 0]  # Background remains transparent.
 
-        # OVERLAPPING MASKS VISUALIZATION: Show overlaps if overlap_data is provided.
-        if overlap_data is not None and 'overlap_map' in overlap_data:
-            logging.info("Creating overlay with overlapping masks visualization")
+        # Apply colors to each nucleus with alpha blending.
+        nucleus_alpha = 0.4  # More transparent for better tissue visibility.
 
-            # Extract overlap information for the crop region.
-            overlap_map = overlap_data['overlap_map']
-
-            # Apply colors with overlap visualization.
-            nucleus_alpha = 0.3  # More transparent to show overlaps better.
-            overlap_alpha = 0.6  # Stronger alpha for overlap regions.
-
-            # First pass: Apply base colors for all nuclei.
-            for label in range(1, max_label + 1):
-                nucleus_mask = merged_crop == label
-                if np.any(nucleus_mask):
-                    # Blend nucleus color with tissue background.
-                    for c in range(3):
-                        overlay[nucleus_mask, c] = (
-                            (1 - nucleus_alpha) * overlay[nucleus_mask, c] +
-                            nucleus_alpha * colors[label, c]
-                        ).astype(np.uint16)
-
-            # Second pass: Highlight overlapping regions with special visualization.
-            overlap_pixels_visualized = 0
-            for y in range(crop_height):
-                for x in range(crop_width):
-                    global_y = crop_y_start + y
-                    global_x = crop_x_start + x
-
-                    if (global_y, global_x) in overlap_map:
-                        overlapping_nuclei = overlap_map[(global_y, global_x)]
-
-                        if len(overlapping_nuclei) > 1:
-                            # This pixel has overlapping nuclei - create special visualization.
-                            # Mix colors of all overlapping nuclei.
-                            mixed_color = np.zeros(3, dtype=np.float32)
-                            for nucleus_id in overlapping_nuclei:
-                                if nucleus_id <= max_label:
-                                    mixed_color += colors[nucleus_id].astype(np.float32)
-
-                            mixed_color = mixed_color / len(overlapping_nuclei)
-
-                            # Apply mixed color with higher alpha to highlight overlaps.
-                            for c in range(3):
-                                overlay[y, x, c] = (
-                                    (1 - overlap_alpha) * tissue_background[y, x, c] +
-                                    overlap_alpha * mixed_color[c]
-                                ).astype(np.uint16)
-
-                            overlap_pixels_visualized += 1
-
-            logging.info(f"Visualized {overlap_pixels_visualized} overlapping pixels in crop region")
-
-        else:
-            # Standard visualization without overlap information.
-            nucleus_alpha = 0.4  # More transparent for better tissue visibility.
-
-            for label in range(1, max_label + 1):
-                nucleus_mask = merged_crop == label
-                if np.any(nucleus_mask):
-                    # Blend nucleus color with tissue background.
-                    for c in range(3):
-                        overlay[nucleus_mask, c] = (
-                            (1 - nucleus_alpha) * overlay[nucleus_mask, c] +
-                            nucleus_alpha * colors[label, c]
-                        ).astype(np.uint16)
+        for label in range(1, max_label + 1):
+            nucleus_mask = merged_crop == label
+            if np.any(nucleus_mask):
+                # Blend nucleus color with tissue background.
+                for c in range(3):
+                    overlay[nucleus_mask, c] = (
+                        (1 - nucleus_alpha) * overlay[nucleus_mask, c] +
+                        nucleus_alpha * colors[label, c]
+                    ).astype(np.uint16)
 
         logging.debug(f"Applied colors to nuclei in after merging overlay.")
     else:
