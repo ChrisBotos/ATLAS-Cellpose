@@ -401,16 +401,63 @@ def merge_tiles_cpu_3step(
 
     logging.info(f"STEP 2 SUMMARY: Deleted {priority_deleted_count} priority border-touching nuclei")
 
-    # Step 5b: Cross-boundary Preservation - Preserve non-priority nuclei extending into overlap.
-    # These are nuclei that touch the boundary line (cross-boundary nuclei).
+    # Step 5b: Cross-boundary Duplication - Create TRUE OVERLAPS by duplicating cross-boundary nuclei.
+    # These nuclei will appear in BOTH tiles with the SAME ID, creating true overlapping masks.
     cross_boundary_preserved_count = 0
+
     for nucleus_id in non_priority_boundary_nuclei:
-        # These nuclei are preserved (no deletion), just log for tracking.
+        # CRITICAL: Duplicate this nucleus into the PRIORITY tile's overlap region.
+        # This creates true overlaps where the same nucleus ID appears in both tiles.
+
+        if priority_is_tile1:
+            # Non-priority is tile2, duplicate nucleus from tile2 into tile1 overlap region.
+            nucleus_mask_tile2 = (tile2_mask == nucleus_id)
+
+            if tile_relationship == 'horizontal':  # tile1 left of tile2
+                # Duplicate from tile2's left overlap region to tile1's right overlap region.
+                source_region = nucleus_mask_tile2[:, :overlap_length]  # Left part of tile2
+                target_region = updated_tile1_mask[:, -overlap_length:]  # Right part of tile1
+
+                # Only duplicate where there's no existing nucleus in the target.
+                safe_duplication = source_region & (target_region == 0)
+                updated_tile1_mask[:, -overlap_length:][safe_duplication] = nucleus_id
+
+            elif tile_relationship == 'vertical':  # tile1 above tile2
+                # Duplicate from tile2's top overlap region to tile1's bottom overlap region.
+                source_region = nucleus_mask_tile2[:overlap_length, :]  # Top part of tile2
+                target_region = updated_tile1_mask[-overlap_length:, :]  # Bottom part of tile1
+
+                # Only duplicate where there's no existing nucleus in the target.
+                safe_duplication = source_region & (target_region == 0)
+                updated_tile1_mask[-overlap_length:, :][safe_duplication] = nucleus_id
+
+        else:
+            # Non-priority is tile1, duplicate nucleus from tile1 into tile2 overlap region.
+            nucleus_mask_tile1 = (tile1_mask == nucleus_id)
+
+            if tile_relationship == 'horizontal':  # tile1 left of tile2
+                # Duplicate from tile1's right overlap region to tile2's left overlap region.
+                source_region = nucleus_mask_tile1[:, -overlap_length:]  # Right part of tile1
+                target_region = updated_tile2_mask[:, :overlap_length]  # Left part of tile2
+
+                # Only duplicate where there's no existing nucleus in the target.
+                safe_duplication = source_region & (target_region == 0)
+                updated_tile2_mask[:, :overlap_length][safe_duplication] = nucleus_id
+
+            elif tile_relationship == 'vertical':  # tile1 above tile2
+                # Duplicate from tile1's bottom overlap region to tile2's top overlap region.
+                source_region = nucleus_mask_tile1[-overlap_length:, :]  # Bottom part of tile1
+                target_region = updated_tile2_mask[:overlap_length, :]  # Top part of tile2
+
+                # Only duplicate where there's no existing nucleus in the target.
+                safe_duplication = source_region & (target_region == 0)
+                updated_tile2_mask[:overlap_length, :][safe_duplication] = nucleus_id
+
         mapping[nucleus_id] = nucleus_id  # Preserve original ID.
         cross_boundary_preserved_count += 1
-        logging.debug(f"STEP 3 PRESERVE: Cross-boundary nucleus {nucleus_id} (extends into overlap)")
+        logging.debug(f"STEP 3 DUPLICATE: Cross-boundary nucleus {nucleus_id} duplicated for overlap creation")
 
-    logging.info(f"STEP 3 SUMMARY: Preserved {cross_boundary_preserved_count} cross-boundary nuclei")
+    logging.info(f"STEP 3 SUMMARY: Created overlaps for {cross_boundary_preserved_count} cross-boundary nuclei")
 
     # Step 5c: Cleanup - Delete non-priority nuclei in overlap region that are NOT cross-boundary.
     # These are nuclei completely in the overlap region that don't extend from the non-priority tile.

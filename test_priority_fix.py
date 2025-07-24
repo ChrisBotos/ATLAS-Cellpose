@@ -156,8 +156,51 @@ def test_priority_fix():
         
         print(f"Overall coverage: {coverage:.1f}% ({zero_pixels} zero pixels)")
         print(f"Final nuclei count: {len(np.unique(merged_mask[merged_mask > 0]))}")
-        
-        return gaps_found == 0
+
+        # Additional analysis: Check for 1-pixel gaps between different nuclei.
+        gap_count = 0
+        h, w = merged_mask.shape
+
+        # Check horizontal gaps.
+        for x in range(1, w-1):
+            for y in range(h):
+                if merged_mask[y, x] == 0:
+                    left = merged_mask[y, x-1]
+                    right = merged_mask[y, x+1]
+                    if left > 0 and right > 0 and left != right:
+                        gap_count += 1
+
+        # Check vertical gaps.
+        for y in range(1, h-1):
+            for x in range(w):
+                if merged_mask[y, x] == 0:
+                    top = merged_mask[y-1, x]
+                    bottom = merged_mask[y+1, x]
+                    if top > 0 and bottom > 0 and top != bottom:
+                        gap_count += 1
+
+        print(f"1-pixel gaps between different nuclei: {gap_count}")
+
+        # Check for overlapping masks (same nucleus ID in multiple locations).
+        unique_ids = np.unique(merged_mask[merged_mask > 0])
+        overlapping_nuclei = 0
+
+        for nucleus_id in unique_ids:
+            nucleus_pixels = np.sum(merged_mask == nucleus_id)
+            # Check if this nucleus appears in multiple disconnected regions.
+            nucleus_mask = (merged_mask == nucleus_id)
+
+            # Use connected components to count separate regions.
+            from scipy import ndimage
+            labeled_regions, num_regions = ndimage.label(nucleus_mask)
+
+            if num_regions > 1:
+                overlapping_nuclei += 1
+                print(f"  Nucleus {nucleus_id}: {num_regions} separate regions ({nucleus_pixels} total pixels)")
+
+        print(f"Nuclei with multiple regions (potential cross-boundary): {overlapping_nuclei}")
+
+        return gaps_found == 0 and gap_count < 10  # Allow some minor gaps.
         
     finally:
         # Cleanup.
