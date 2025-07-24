@@ -818,32 +818,15 @@ def merge_tiles_two_phase(
             continue
     
     # Phase 3: Assemble final merged image from persistent storage.
-    # COMPLETELY REWRITTEN: Use a priority-based assembly that respects merge decisions.
-    logging.info("Phase 3: Assembling final merged image with priority-based placement")
+    # ORIGINAL APPROACH: Use the conflict-resolution strategy but ensure complete coverage.
+    logging.info("Phase 3: Assembling final merged image with gap-aware placement")
     merged = np.zeros((height, width), dtype=np.uint32)
 
-    # Create a priority map to track which tiles have priority in each region.
-    priority_map = np.full((height, width), -1, dtype=np.int32)  # -1 = no tile assigned yet.
-
-    # Process tiles in a specific order to ensure consistent priority assignment.
+    # Process tiles in a specific order to ensure consistent assembly.
     sorted_coords = sorted(coords, key=lambda coord: (coord[0], coord[1]))
 
-    # First pass: Assign priority for each pixel based on tile processing order.
-    for priority_idx, (r, c) in enumerate(sorted_coords):
-        y_start = r * stride_h
-        y_end = min(height, y_start + tile_h)
-        x_start = c * stride_w
-        x_end = min(width, x_start + tile_w)
-
-        # Assign this tile's priority to all pixels in its region.
-        # Later tiles will overwrite priority in overlapping regions.
-        priority_map[y_start:y_end, x_start:x_end] = priority_idx
-
-        if debug_mode:
-            logging.debug(f"Assigned priority {priority_idx} to tile ({r},{c}) region [{y_start}:{y_end}, {x_start}:{x_end}]")
-
-    # Second pass: Place pixels from tiles only where they have priority.
-    for priority_idx, (r, c) in enumerate(sorted_coords):
+    # Place pixels from tiles using conflict resolution.
+    for tile_idx, (r, c) in enumerate(sorted_coords):
         try:
             # Load final merged tile from persistent storage.
             tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)
@@ -857,7 +840,7 @@ def merge_tiles_two_phase(
             actual_h = y_end - y_start
             actual_w = x_end - x_start
 
-            # REVOLUTIONARY FIX: Place COMPLETE nuclei based on 3-step merge decisions.
+            # ORIGINAL STRATEGY: Place COMPLETE nuclei based on 3-step merge decisions.
             tile_region = tile_mask[:actual_h, :actual_w]
             merged_region = merged[y_start:y_end, x_start:x_end]
 
@@ -888,6 +871,55 @@ def merge_tiles_two_phase(
         except Exception as e:
             logging.error(f"Failed to load final tile ({r},{c}): {e}")
             continue
+
+    # TARGETED GAP FIX: Fill specific 1-pixel gaps at tile boundaries only.
+    # This addresses the exact black border issue without affecting background areas.
+    logging.info("Checking for boundary gaps...")
+    gaps_filled = 0
+
+    # Only check pixels at exact stride boundaries where gaps typically occur.
+    boundary_pixels_to_check = []
+
+    # Collect vertical boundary pixels.
+    for x in range(stride_w, width, stride_w):
+        if x < width:
+            for y in range(height):
+                boundary_pixels_to_check.append((y, x))
+
+    # Collect horizontal boundary pixels.
+    for y in range(stride_h, height, stride_h):
+        if y < height:
+            for x in range(width):
+                boundary_pixels_to_check.append((y, x))
+
+    # Check each boundary pixel for gaps.
+    for y, x in boundary_pixels_to_check:
+        if merged[y, x] == 0:  # This pixel is currently empty.
+            # Check if this is a gap between nuclei (not legitimate background).
+            # Look for nuclei in the immediate neighborhood.
+            neighbor_nuclei = []
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    if dy == 0 and dx == 0:
+                        continue  # Skip center pixel.
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < height and 0 <= nx < width:
+                        neighbor_value = merged[ny, nx]
+                        if neighbor_value > 0:
+                            neighbor_nuclei.append(neighbor_value)
+
+            # Only fill if there are at least 2 neighboring nuclei (indicating a gap).
+            if len(neighbor_nuclei) >= 2:
+                # Use the most common neighboring nucleus ID.
+                unique_neighbors, counts = np.unique(neighbor_nuclei, return_counts=True)
+                most_common_neighbor = unique_neighbors[np.argmax(counts)]
+                merged[y, x] = most_common_neighbor
+                gaps_filled += 1
+
+    if gaps_filled > 0:
+        logging.info(f"Filled {gaps_filled} boundary gap pixels")
+    else:
+        logging.info("No boundary gaps detected")
 
     final_nuclei_count = len(np.unique(merged[merged > 0]))
     logging.info(f"Two-phase merge completed. Final image contains {final_nuclei_count} nuclei")

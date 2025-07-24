@@ -51,5 +51,5 @@ Also, the big change is that the script utilize gpu acceleration and batching to
 
 17) Implemented the two phase merging strategy (vertical overlaps first then horizontal ones).
 
-16) Created a script that creates white masks on a black background.
+18) Created a script that creates white masks on a black background.
 
