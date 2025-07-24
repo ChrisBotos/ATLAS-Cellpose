@@ -7,7 +7,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 Script Name: feature_extraction_test.py.
 Description:
     Test suite for the nuclei feature extraction functionality used in the analysis of
-    kidney tissue after ischemia-reperfusion injury. Tests the extraction of morphological,
+    tissue after ischemia-reperfusion injury. Tests the extraction of morphological,
     intensity, texture, and spatial features from segmented nuclei.
 
 Dependencies:
@@ -33,7 +33,7 @@ Key Features:
 
 Notes:
     • These tests verify the correct behavior of feature extraction functions essential for
-      quantitative analysis of nuclear morphology in kidney I/R injury studies.
+      quantitative analysis of nuclear morphology in tissue I/R injury studies.
     • Uses synthetic data to ensure reproducibility and avoid dependencies on real images.
 """
 

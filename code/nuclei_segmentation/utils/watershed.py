@@ -1,9 +1,9 @@
 """
-Watershed-based Nuclei Splitting for Kidney I/R Injury Analysis.
+Watershed-based Nuclei Splitting for Tissue Analysis.
 
 This module provides specialized watershed algorithms for splitting merged nuclei
-in segmentation masks. This is particularly important for kidney tissue analysis
-after ischemia-reperfusion injury, where inflammatory infiltrates can create
+in segmentation masks. This is particularly important for tissue analysis
+where inflammatory infiltrates or high cellular density can create
 densely packed nuclear clusters that basic segmentation algorithms may fail to
 separate properly.
 
@@ -174,7 +174,7 @@ def refine_segmentation_with_edges(image, masks, settings, logger):
     Refine segmentation masks using Canny edge detection.
 
     This function improves segmentation accuracy by incorporating edge information
-    from the original image. In kidney tissue, nuclei often have distinct boundaries
+    from the original image. In tissue samples, nuclei often have distinct boundaries
     that may not be perfectly captured by Cellpose. By detecting these edges and
     using them to refine the segmentation, we can achieve more accurate delineation
     of nuclear boundaries, especially in densely packed regions.

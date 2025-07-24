@@ -5,7 +5,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: merge_file_utils.py.
 Description:
-    File handling utilities for tile mask merging operations in kidney I/R injury analysis.
+    File handling utilities for tile mask merging operations in tissue analysis.
     This module provides robust file discovery, path resolution, and filename parsing
     capabilities for various tile mask formats (TIFF, NPZ) used in spatial multiomics
     segmentation workflows.

@@ -7,10 +7,10 @@ Package Name: nuclei_segmentation
 Description:
     Nuclei Segmentation Package for Kidney I/R Injury Analysis.
 
-This package contains tools for segmenting and analyzing nuclei in kidney tissue sections
-from ischemia-reperfusion injury experiments. It provides a complete workflow from image
+This package contains tools for segmenting and analyzing nuclei in tissue sections
+from experimental studies. It provides a complete workflow from image
 preprocessing to feature extraction for downstream analysis of nuclear morphology changes
-during kidney injury and repair processes.
+during tissue injury and repair processes.
 
 Key Components:
     • run_this.py: Main entry point for the segmentation pipeline.

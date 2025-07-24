@@ -5,33 +5,33 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: batch_merge.py.
 Description:
-    DEPRECATED: This module implements complex cluster-based batching strategies
-    that have been superseded by the new two-phase merging approach in
-    two_phase_merge.py. The two-phase approach is more reliable, memory-efficient,
-    and easier to understand.
+    Legacy module implementing cluster-based batching strategies for tile merging.
+    The two-phase merging approach in two_phase_merge.py is recommended for new
+    implementations as it provides better reliability, memory efficiency, and
+    maintainability.
 
-    This module is maintained for backward compatibility but users should migrate
+    This module is maintained for backward compatibility. Users should migrate
     to the two-phase merging strategy by setting use_two_phase_merge=True in
     their configuration.
 
-    Legacy Description:
+    Functionality:
     Implements batched processing for GPU-based tile merging to handle large images
-    with thousands of tiles. This module addresses memory allocation errors by
-    processing tiles in spatial groups based on their overlap relationships.
+    with thousands of tiles. This module processes tiles in spatial groups based
+    on their overlap relationships to manage memory allocation.
 
 Dependencies:
     • Python ≥ 3.10.
     • numpy, torch, tqdm.
     • cellpose_merge.gpu_merge, cellpose_merge.rules.
 
-Key Features (DEPRECATED):
+Key Features:
     • Memory-efficient batched processing for large tile clusters.
     • Spatial proximity grouping to maintain merge rule consistency.
     • Configurable batch sizes with automatic memory management.
     • Comprehensive progress tracking and memory usage monitoring.
     • Graceful fallback to smaller batch sizes when memory is constrained.
 
-    RECOMMENDED ALTERNATIVE: Use two_phase_merge.py with use_two_phase_merge=True.
+    Recommended Alternative: Use two_phase_merge.py with use_two_phase_merge=True.
 """
 
 from __future__ import annotations

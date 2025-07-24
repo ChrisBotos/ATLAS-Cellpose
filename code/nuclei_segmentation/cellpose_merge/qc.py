@@ -6,7 +6,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 Script Name: qc.py.
 Description:
     Generate QC visualizations for tiled nucleus segmentation
-    in kidney I/R injury tissue analysis. This module creates comprehensive
+    in tissue analysis. This module creates comprehensive
     before/after overlays that help bioinformaticians assess tile merging quality
     and identify potential segmentation artifacts at tile boundaries.
 
@@ -68,7 +68,7 @@ Key Features:
     • Scientific context-aware logging for bioinformatics workflows.
 
 Notes:
-    • This module is specifically designed for kidney I/R injury tissue analysis.
+    • This module is designed for tissue analysis applications.
     • Color generation uses deterministic algorithms for reproducible results.
     • All overlays use 16-bit composition buffers to prevent overflow artifacts.
     • The QC process helps identify nucleus boundary alignment issues across tiles.
@@ -135,7 +135,7 @@ def write_overlays(
     Generate comprehensive QC overlays for nucleus segmentation merge validation.
 
     This function creates before/after overlay images that help
-    bioinformaticians assess the quality of tile merging in kidney I/R injury tissue
+    bioinformaticians assess the quality of tile merging in tissue
     sections. The visualizations highlight potential issues with nucleus boundary
     alignment and merging accuracy across tile boundaries.
 
@@ -1454,7 +1454,7 @@ def create_before_after_overlays(
     Create both before and after merging overlays from results directory.
 
     This is the main interface function that creates comprehensive QC visualizations
-    for kidney I/R injury tissue analysis. It automatically finds tile mask
+    for tissue analysis. It automatically finds tile mask
     directories and creates both before/after overlays with memory-efficient processing.
 
     Parameters

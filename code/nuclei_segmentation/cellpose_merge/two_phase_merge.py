@@ -5,12 +5,12 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: two_phase_merge.py.
 Description:
-    Two-phase tile merging implementation that systematically applies the new 3-step
-    merging rules to overlapping tile pairs. This approach replaces the complex
-    4-step algorithm with a simpler, more efficient priority-based method that
-    processes vertical overlaps first, then horizontal overlaps.
+    Two-phase tile merging implementation that systematically applies the 3-step
+    merging rules to overlapping tile pairs. This approach provides a simpler,
+    more efficient priority-based method that processes vertical overlaps first,
+    then horizontal overlaps.
 
-    The new 3-step merging rule:
+    The 3-step merging rule:
     1. Priority Selection: Tile with most nuclei gets priority
     2. Border Deletion: Remove priority tile nuclei touching borders, preserve
        non-priority nuclei touching priority borders
@@ -596,10 +596,10 @@ def merge_tiles_two_phase(
     output_dir: Optional[Path] = None,
 ) -> NDArray[np.uint32]:
     """
-    Enhanced two-phase tile merging with nucleus ID management and proper file handling.
+    Two-phase tile merging with nucleus ID management and proper file handling.
 
-    This function implements an enhanced two-phase approach to tile merging using the
-    improved 3-step algorithm with proper Step 3 (Cleanup) implementation:
+    This function implements a two-phase approach to tile merging using the
+    3-step algorithm with proper Step 3 (Cleanup) implementation:
 
     Phase 0: File Management and ID Reassignment
     - Copy tile masks from tile_masks_npz/ to merged_tile_masks_npz/
@@ -616,7 +616,7 @@ def merge_tiles_two_phase(
     Phase 3: Final Assembly
     - Combine all tiles into final merged mask
 
-    The enhanced 3-step merging algorithm:
+    The 3-step merging algorithm:
     1. Priority Selection: Tile with most nuclei gets priority
     2a. Border Deletion: Remove priority tile nuclei touching tile borders
     2b. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap

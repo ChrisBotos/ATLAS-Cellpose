@@ -2,7 +2,7 @@
 
 ## Overview
 
-The enhanced GPU tile merging system provides significant performance improvements for processing large kidney tissue images in the I/R injury analysis pipeline. This guide covers the new optimization features, configuration options, and best practices for maximizing GPU utilization while maintaining merge accuracy.
+The GPU tile merging system provides significant performance improvements for processing large tissue images in the I/R injury analysis pipeline. This guide covers the optimization features, configuration options, and best practices for maximizing GPU utilization while maintaining merge accuracy.
 
 ## Key Features
 

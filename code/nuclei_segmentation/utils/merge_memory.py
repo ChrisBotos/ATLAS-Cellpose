@@ -5,16 +5,16 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: merge_memory.py.
 Description:
-    Memory management utilities for tile mask merging in kidney I/R injury analysis.
+    Memory management utilities for tile mask merging in tissue analysis.
     This module provides accurate memory estimation, feasibility checking, and adaptive
     cluster splitting strategies to prevent memory allocation failures during large
     image processing.
 
-    CRITICAL FIXES IMPLEMENTED:
-    - Fixed sparse cluster memory estimation bug that caused 200+ GB allocation attempts.
-    - Implemented realistic memory calculations based on actual tile data, not bounding boxes.
-    - Added sparsity detection to handle clusters with few tiles spread across large areas.
-    - Enhanced overflow protection for uint32/uint64 data types.
+    Key Features:
+    - Accurate memory estimation for sparse cluster processing.
+    - Realistic memory calculations based on actual tile data rather than bounding boxes.
+    - Sparsity detection to handle clusters with few tiles spread across large areas.
+    - Overflow protection for uint32/uint64 data types.
 
 Dependencies:
     • Python ≥ 3.10.

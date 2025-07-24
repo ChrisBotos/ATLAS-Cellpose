@@ -1,7 +1,7 @@
 """
 IMAGE PREPROCESSING MODULE
 
-Preprocessing utilities for nuclear segmentation of kidney I/R tissue.
+Preprocessing utilities for nuclear segmentation of tissue samples.
 
 This module provides:
 - 16-bit to 8-bit conversion using percentile-based dynamic range.
@@ -11,7 +11,7 @@ This module provides:
 - Optional ROI cropping using relative or absolute bounding boxes.
 - Robust image saving to structured folders with logging support.
 
-This is for the preprocessing pipeline of spatial omics kidney data across I/R injury timepoints.
+This preprocessing pipeline supports spatial omics data analysis across multiple experimental timepoints.
 """
 
 import numpy as np

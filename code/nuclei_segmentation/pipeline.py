@@ -16,7 +16,7 @@ Usage:
     Not meant to be run directly. Imported by run_this.py.
 
 Inputs:
-    • DAPI-stained images of kidney tissue sections.
+    • DAPI-stained images of tissue sections.
     • Configuration settings for segmentation parameters.
 
 Outputs:
@@ -33,7 +33,7 @@ Key Features:
     • Comprehensive logging and error handling.
 
 Notes:
-    • This module is part of the nuclei segmentation package for kidney I/R injury analysis.
+    • This module is part of the nuclei segmentation package for tissue analysis.
     • It implements the core segmentation workflow but is not meant to be run directly.
 """
 

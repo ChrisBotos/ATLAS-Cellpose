@@ -6,8 +6,8 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 Script Name: test_tile_overlay_functions.py.
 Description:
     Comprehensive test suite for the memory-efficient tile overlay functionality
-    in kidney I/R injury tissue analysis. This test suite validates the new
-    overlay functions that can handle thousands of tiles without overwhelming RAM.
+    in tissue analysis. This test suite validates the overlay functions that can
+    handle thousands of tiles without overwhelming RAM.
 
     Tests cover:
     1. Tile coordinate parsing from different naming conventions

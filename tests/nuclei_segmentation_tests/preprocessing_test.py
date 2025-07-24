@@ -26,7 +26,7 @@ Key Features:
     • Tests for bit-depth conversion and normalization.
     • Tests for gamma correction and contrast enhancement (CLAHE).
     • Tests for image cropping and border handling.
-    • Tests for the full preprocessing pipeline used in kidney I/R spatial omics data.
+    • Tests for the full preprocessing pipeline used in spatial omics data.
 
 Notes:
     • These tests verify the correct behavior of image preprocessing functions essential for accurate nuclei segmentation.

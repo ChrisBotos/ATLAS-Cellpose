@@ -2,9 +2,8 @@
 Utility functions for nuclei segmentation and analysis.
 
 This package provides a comprehensive set of utilities for segmenting and analyzing
-nuclei in kidney tissue images after ischemia-reperfusion injury. It includes
-functions for image preprocessing, segmentation, tiling, watershed splitting,
-visualization, and more.
+nuclei in tissue images. It includes functions for image preprocessing, segmentation,
+tiling, watershed splitting, visualization, and more.
 
 Modules:
     project_setup: Project structure and configuration utilities.

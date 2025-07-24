@@ -5,12 +5,12 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: merge_id_management.py.
 Description:
-    ID management utilities for tile mask merging in kidney I/R injury analysis.
+    ID management utilities for tile mask merging in tissue analysis.
     This module provides robust global ID allocation, overflow prevention, and
     data type management for very large images with millions of nuclei.
 
     Key Features:
-    - Enhanced uint32/uint64 overflow protection for large image processing.
+    - Uint32/uint64 overflow protection for large image processing.
     - Segmented ID allocation strategy to minimize conflicts during counter resets.
     - Automatic data type selection based on image size and nucleus count.
     - Comprehensive logging and diagnostic information for ID management.

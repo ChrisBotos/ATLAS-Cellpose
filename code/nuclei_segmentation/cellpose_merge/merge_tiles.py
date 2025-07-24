@@ -5,9 +5,9 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: merge_tiles.py.
 Description:
-    Clean implementation of merge_masks_streaming that only uses the two-phase
-    merging strategy. This replaces the complex cluster-based approach with
-    a simpler, more reliable method.
+    Implementation of merge_masks_streaming that uses the two-phase
+    merging strategy. This provides a simpler, more reliable method
+    for merging overlapping tile segmentations.
 
 Dependencies:
     • Python ≥ 3.10.
@@ -15,8 +15,8 @@ Dependencies:
     • cellpose_merge.two_phase_merge module.
 
 Key Features:
-    • Two-phase merging strategy only (no cluster-based fallback).
-    • Reduced verbose logging (debug mode controlled).
+    • Two-phase merging strategy for systematic overlap processing.
+    • Configurable debug logging for detailed merge analysis.
     • Clean, maintainable code structure.
 """
 

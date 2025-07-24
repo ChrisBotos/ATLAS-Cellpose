@@ -1,12 +1,12 @@
 # Ischemia-Reperfusion Injury Spatial Multiomics Analysis
 
-**Advanced Nuclei Segmentation Pipeline for Kidney Tissue Analysis**
+**Advanced Nuclei Segmentation Pipeline for Tissue Analysis**
 
 Created by **Christos Botos** and **Benedetta Manzato**, members of the lab of PI **Ahmed Mahfouz** at the Human Genetics Department of the Leiden University Medical Center.
 
 ## 🔬 Scientific Overview
 
-This project provides a comprehensive computational pipeline for analyzing nuclear morphology and spatial organization in kidney tissue sections following ischemia-reperfusion (I/R) injury. The pipeline combines state-of-the-art deep learning-based segmentation with advanced image processing techniques to extract quantitative features from DAPI-stained nuclei across different time points (10 hours, 2 days, 14 days) post-injury.
+This project provides a comprehensive computational pipeline for analyzing nuclear morphology and spatial organization in tissue sections following ischemia-reperfusion (I/R) injury. The pipeline combines state-of-the-art deep learning-based segmentation with advanced image processing techniques to extract quantitative features from DAPI-stained nuclei across different experimental time points.
 
 ### Research Context
 
@@ -158,11 +158,11 @@ If you prefer using pip and virtual environments (not recommended for complex bi
 
 ```bash
 # Create virtual environment
-python3.10 -m venv kidney_segmentation_env
+python3.10 -m venv tissue_segmentation_env
 
 # Activate virtual environment
-source kidney_segmentation_env/bin/activate  # Linux/macOS
-# kidney_segmentation_env\Scripts\activate  # Windows
+source tissue_segmentation_env/bin/activate  # Linux/macOS
+# tissue_segmentation_env\Scripts\activate  # Windows
 
 # Install dependencies
 pip install -r requirements.txt
@@ -343,7 +343,7 @@ resample = True  # Normalize to training diameter (30px)
 
 #### Scientific Rationale
 
-In kidney I/R injury, nuclear morphology varies significantly:
+In tissue I/R injury, nuclear morphology varies significantly:
 - **Healthy regions**: Regular, uniform nuclear size (~15-20 μm)
 - **Injured regions**: Swollen nuclei, irregular shapes, condensed chromatin
 - **Repair zones**: Mixed populations with varying sizes
@@ -1114,9 +1114,9 @@ def create_imagej_rois(masks):
 
 ## 🔬 Scientific Applications
 
-### Kidney I/R Injury Analysis
+### Tissue I/R Injury Analysis
 
-This pipeline has been specifically designed and validated for kidney ischemia-reperfusion injury research:
+This pipeline has been designed and validated for tissue ischemia-reperfusion injury research:
 
 #### Time-Course Analysis
 
@@ -1127,7 +1127,7 @@ injury_metrics = {}
 
 for timepoint in time_points:
     # Process images from each time point
-    settings['image_path'] = f'kidney_{timepoint}_post_IR.tif'
+    settings['image_path'] = f'tissue_{timepoint}_post_IR.tif'
     settings['output_dir'] = f'results_{timepoint}'
 
     # Extract nuclear features
@@ -1353,7 +1353,7 @@ grep -i "processing\|completed" logs/*.log
 
 ## 🤝 Contributing
 
-We welcome contributions to improve the kidney I/R injury analysis pipeline!
+We welcome contributions to improve the tissue I/R injury analysis pipeline!
 
 ### Development Setup
 
@@ -1408,7 +1408,7 @@ mypy code/nuclei_segmentation/
 
 ### Contribution Guidelines
 
-1. **Scientific Validation**: All changes must be validated on kidney tissue data
+1. **Scientific Validation**: All changes must be validated on tissue data
 2. **Documentation**: Update docstrings and README for new features
 3. **Testing**: Add tests for new functionality
 4. **Performance**: Profile memory usage and processing time
