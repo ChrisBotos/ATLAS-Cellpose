@@ -17,7 +17,7 @@ dependencies:
   # ───────── Visualization and Image Processing ─────────
   - matplotlib=3.8.*    # Using 3.8.* for better compatibility. Essential for plotting and visualization.
   - scikit-image=0.22.* # Relaxed version for compatibility. Core image processing library for microscopy data.
-  - pillow>=9.0         # Relaxed pillow version constraint. Image I/O and basic processing operations.
+  - pillow>=10.1        # Relaxed pillow version constraint. Image I/O and basic processing operations.
   - imageio             # Keep, no version pin needed. Handles diverse image formats for spatial data.
 
   # ───────── Machine Learning and Statistics ─────────

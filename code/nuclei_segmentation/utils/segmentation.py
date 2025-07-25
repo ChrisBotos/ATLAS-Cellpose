@@ -63,6 +63,40 @@ MaskReturn = Tuple[np.memmap, List[None], int]
 # Helper functions for mask processing.
 # -----------------------------------------------------------------------------
 
+def prepare_cellpose_parameters(cellpose_params, use_cellpose4=True):
+    """
+    Prepare Cellpose parameters for version-specific compatibility.
+
+    This function handles parameter differences between Cellpose3 and Cellpose4,
+    ensuring optimal segmentation performance across both versions.
+
+    Args:
+        cellpose_params (dict): Raw Cellpose parameters from configuration.
+        use_cellpose4 (bool): Whether to use Cellpose4 (True) or Cellpose3 (False).
+
+    Returns:
+        dict: Version-specific parameters ready for model.eval().
+    """
+    eval_params = {
+        "diameter": cellpose_params["diameter"],
+        "flow_threshold": cellpose_params["flow_threshold"],
+        "cellprob_threshold": cellpose_params["cellprob_threshold"],
+        "augment": False,
+        "batch_size": cellpose_params["batch_size"],
+        "do_3D": False,
+    }
+
+    # Handle resample parameter based on Cellpose version.
+    if use_cellpose4:
+        # Resample is deprecated in Cellpose4 v4.0.1+ but still works for compatibility.
+        if cellpose_params.get("resample", True):
+            eval_params["resample"] = True
+    else:
+        # Resample is still required in Cellpose3.
+        eval_params["resample"] = cellpose_params.get("resample", True)
+
+    return eval_params
+
 
 def relabel_mask_for_unique_ids(mask: np.ndarray, current_max_id: int) -> np.ndarray:
     """
@@ -110,23 +144,19 @@ def _run_single_pass_cellpose(model, image: np.ndarray, cellpose_params: dict, l
 
     logger.info("Running full‑image Cellpose segmentation (no tiling).")
     try:
-        # Use Cellpose4 auto-detection with diameter=None for adaptive diameter learning.
+        # Determine Cellpose version from parameters.
+        use_cellpose4 = cellpose_params.get("use_cellpose4", True)
+        cellpose_version = "Cellpose4" if use_cellpose4 else "Cellpose3"
+        logger.info(f"Using {cellpose_version} for full-image segmentation")
+
+        # Prepare version-specific parameters for adaptive diameter learning.
         # This enables optimal segmentation quality across varying nuclear morphology.
         try:
-            # Remove deprecated resample parameter for Cellpose4 v4.0.1+
-            eval_params = {
-                "diameter": cellpose_params["diameter"],
-                "flow_threshold": cellpose_params["flow_threshold"],
-                "cellprob_threshold": cellpose_params["cellprob_threshold"],
-                "augment": False,
-                "batch_size": cellpose_params["batch_size"],
-                "do_3D": False,
-            }
-
+            eval_params = prepare_cellpose_parameters(cellpose_params, use_cellpose4)
             cellpose_results = model.eval(image[..., None], **eval_params)
         except Exception as e:
-            logger.error(f"✗ Cellpose auto-detection failed on full image: {e}")
-            logger.error("Please check that diameter=None is set for proper auto-detection")
+            logger.error(f"✗ {cellpose_version} auto-detection failed on full image: {e}")
+            logger.error("Please check that diameter=0/None is set for proper auto-detection")
             logger.error("Image statistics: mean={:.1f}, std={:.1f}, min={}, max={}".format(
                 float(np.mean(image)), float(np.std(image)),
                 float(np.min(image)), float(np.max(image))
@@ -207,10 +237,10 @@ def run_cellpose_on_tiles(
 
     Parameters
     ----------
-    model : cellpose.models.CellposeModel
+    model : cellpose.models.CellposeModel or cellpose.models.Cellpose
         Pre-loaded Cellpose model instance configured for nuclear segmentation.
         Should be initialized with appropriate model type (typically 'nuclei').
-        Uses CellposeModel class (Cellpose 4.0+) instead of deprecated Cellpose.
+        Supports both CellposeModel (Cellpose4) and Cellpose (Cellpose3) classes.
     image : np.ndarray
         Two-dimensional greyscale DAPI-stained image array of shape (H, W).
         Represents nuclear staining in kidney tissue sections.
@@ -441,24 +471,18 @@ def run_cellpose_on_tiles(
 
                 # Run Cellpose segmentation on the current tile.
                 # The model expects a 3D array with channel dimension, so we add one.
-                # Use Cellpose4 auto-detection with diameter=None for adaptive diameter learning.
-                try:
-                    # Remove deprecated resample parameter for Cellpose4 v4.0.1+
-                    eval_params = {
-                        "diameter": cellpose_params["diameter"],
-                        "flow_threshold": cellpose_params["flow_threshold"],
-                        "cellprob_threshold": cellpose_params["cellprob_threshold"],
-                        "augment": False,  # Disable augmentation for consistent results.
-                        "batch_size": cellpose_params["batch_size"],
-                        "do_3D": False,  # Process as 2D nuclear segmentation.
-                    }
+                # Use version-specific parameters for adaptive diameter learning.
+                use_cellpose4 = cellpose_params.get("use_cellpose4", True)
+                cellpose_version = "Cellpose4" if use_cellpose4 else "Cellpose3"
 
+                try:
+                    eval_params = prepare_cellpose_parameters(cellpose_params, use_cellpose4)
                     cellpose_results = model.eval(current_tile[..., None], **eval_params)
                 except Exception as e:
-                    logger.error(f"✗ Cellpose auto-detection failed on tile {tile_idx}: {e}")
+                    logger.error(f"✗ {cellpose_version} auto-detection failed on tile {tile_idx}: {e}")
                     logger.error(f"Tile {tile_idx} statistics: mean={tile_stats['mean']:.1f}, "
                                 f"std={tile_stats['std']:.1f}, min={tile_stats['min']}, max={tile_stats['max']}")
-                    logger.error("Please ensure diameter=None is configured for auto-detection")
+                    logger.error("Please ensure diameter=0/None is configured for auto-detection")
                     raise e
 
                 # Extract masks from Cellpose results (first element).

@@ -5,8 +5,9 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: parallel_segmentation.py.
 Description:
-    Parallel processing utilities for Cellpose4 segmentation to improve performance
+    Parallel processing utilities for Cellpose segmentation to improve performance
     on large kidney tissue images by processing multiple tiles simultaneously.
+    Supports both Cellpose3 and Cellpose4 based on configuration parameters.
 
 Dependencies:
     • Python >= 3.7.
@@ -60,6 +61,9 @@ from typing import List, Tuple, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from pathlib import Path
+
+# Import helper function for version-specific parameter handling.
+from .segmentation import prepare_cellpose_parameters
 
 
 def estimate_batch_memory_usage(tile_size: int, batch_size: int, dtype_size: int = 4) -> float:
@@ -195,25 +199,19 @@ def process_cellpose_batch(
                     logging.warning(f"Tile {tile_idx+1} has very low contrast (std={tile_stats['std']:.2f}), "
                                    f"may cause Cellpose issues")
 
-                # Run Cellpose on this tile with Cellpose4 auto-detection.
-                # Use diameter=None for adaptive diameter learning across tiles.
-                try:
-                    # Remove deprecated resample parameter for Cellpose4 v4.0.1+
-                    eval_params = {
-                        "diameter": cellpose_params["diameter"],
-                        "flow_threshold": cellpose_params["flow_threshold"],
-                        "cellprob_threshold": cellpose_params["cellprob_threshold"],
-                        "augment": False,
-                        "batch_size": cellpose_params["batch_size"],
-                        "do_3D": False,
-                    }
+                # Run Cellpose on this tile with version-specific auto-detection.
+                # Use diameter=0/None for adaptive diameter learning across tiles.
+                use_cellpose4 = cellpose_params.get("use_cellpose4", True)
+                cellpose_version = "Cellpose4" if use_cellpose4 else "Cellpose3"
 
+                try:
+                    eval_params = prepare_cellpose_parameters(cellpose_params, use_cellpose4)
                     cellpose_results = model.eval(tile_image[..., None], **eval_params)
                 except Exception as e:
-                    logging.error(f"✗ Cellpose auto-detection failed on tile {tile_idx+1}: {e}")
+                    logging.error(f"✗ {cellpose_version} auto-detection failed on tile {tile_idx+1}: {e}")
                     logging.error(f"Tile {tile_idx+1} statistics: mean={tile_stats['mean']:.1f}, "
                                  f"std={tile_stats['std']:.1f}, min={tile_stats['min']}, max={tile_stats['max']}")
-                    logging.error("Please ensure diameter=None is configured for auto-detection")
+                    logging.error("Please ensure diameter=0/None is configured for auto-detection")
                     raise e
 
                 # Extract mask and count cells.

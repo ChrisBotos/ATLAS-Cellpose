@@ -356,12 +356,22 @@ The adaptive diameter system automatically adjusts to these regional differences
 [cellpose]
 model_type = nuclei          # Pre-trained nuclear model
 gpu = True                   # Enable GPU acceleration
+use_cellpose4 = True         # Use Cellpose4 (True) or Cellpose3 (False)
 diameter = 0                 # Auto-detection (recommended)
 channels = 0,0               # Grayscale DAPI input
 flow_threshold = 0.9         # Flow gradient threshold
 cellprob_threshold = -9      # Cell probability threshold (sensitive)
 resample = True              # Normalize to training diameter
 ```
+
+#### Cellpose Version Selection
+
+The `use_cellpose4` parameter allows you to choose between Cellpose versions:
+
+- **`use_cellpose4 = True`** (default): Uses Cellpose4 with improved adaptive diameter detection and better boundary accuracy
+- **`use_cellpose4 = False`**: Attempts to use Cellpose3 for backward compatibility (requires cellpose<4.0 installation)
+
+**Note**: If Cellpose3 is requested but not available, the system automatically falls back to Cellpose4 with appropriate warnings.
 
 #### Parameter Optimization for Kidney Tissue
 

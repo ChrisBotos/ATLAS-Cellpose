@@ -65,30 +65,51 @@ def log_config(logger, settings, CELLPOSE_PARAMS):
 
 def setup_model(CELLPOSE_PARAMS, logger):
     """
-    Initialize Cellpose model for nuclear segmentation.
+    Initialize Cellpose model for nuclear segmentation with configurable version support.
 
-    Uses CellposeModel (Cellpose 4.0+).
+    Supports both Cellpose3 and Cellpose4 based on configuration parameter.
 
     Parameters
     ----------
     CELLPOSE_PARAMS : dict
         Configuration parameters for Cellpose model initialization.
+        Must include 'use_cellpose4' boolean parameter.
     logger : logging.Logger
         Logger instance for status reporting.
 
     Returns
     -------
-    cellpose.models.CellposeModel
+    cellpose.models.CellposeModel or cellpose.models.Cellpose
         Initialized Cellpose model ready for segmentation.
     """
     model_type = CELLPOSE_PARAMS["model_type"]
     use_gpu = CELLPOSE_PARAMS.get("gpu", False)
+    use_cellpose4 = CELLPOSE_PARAMS.get("use_cellpose4", True)
     device = 'cuda' if use_gpu and torch.cuda.is_available() else 'cpu'
 
-    # Use CellposeModel with model_type parameter.
-    model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
+    # Log which Cellpose version is being used.
+    cellpose_version = "Cellpose4" if use_cellpose4 else "Cellpose3"
+    logger.info(f"Using {cellpose_version} for nuclei segmentation")
 
-    logger.info(f"Using Cellpose model: {model_type}")
+    if use_cellpose4:
+        # Use CellposeModel (Cellpose4) with model_type parameter.
+        model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
+        logger.info(f"Initialized Cellpose4 model: {model_type}")
+    else:
+        # Try to use Cellpose (Cellpose3) with model_type parameter.
+        # Note: This requires Cellpose3 to be installed instead of Cellpose4.
+        try:
+            model = models.Cellpose(model_type=model_type, gpu=(device == 'cuda'))
+            logger.info(f"Initialized Cellpose3 model: {model_type}")
+        except AttributeError:
+            logger.warning("Cellpose3 API not available in current installation.")
+            logger.warning("Falling back to Cellpose4 (CellposeModel) for compatibility.")
+            logger.warning("To use true Cellpose3, please install cellpose<4.0")
+            model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
+            logger.info(f"Using Cellpose4 model as fallback: {model_type}")
+            # Update the parameter to reflect actual usage
+            cellpose_params["use_cellpose4"] = True
+
     logger.info(f"Using device: {device}")
     if device == 'cuda':
         try:
@@ -102,13 +123,13 @@ def setup_model(CELLPOSE_PARAMS, logger):
     cellprob_threshold = CELLPOSE_PARAMS.get("cellprob_threshold", -9.0)
     flow_threshold = CELLPOSE_PARAMS.get("flow_threshold", 0.4)
 
-    logger.info(f"Cellpose parameters: diameter={diameter} (0=auto-detect), resample={resample}")
+    logger.info(f"Cellpose parameters: diameter={diameter} (0/None=auto-detect), resample={resample}")
     logger.info(f"Detection thresholds: cellprob={cellprob_threshold}, flow={flow_threshold}")
 
-    if diameter == 0 and resample:
+    if (diameter == 0 or diameter is None) and resample:
         logger.info("ADAPTIVE DIAMETER: Adaptive diameter detection enabled - will optimize per tile")
-    elif diameter == 0 and not resample:
-        logger.warning("WARNING: diameter=0 with resample=False may not work optimally")
+    elif (diameter == 0 or diameter is None) and not resample:
+        logger.warning("WARNING: diameter=0/None with resample=False may not work optimally")
     else:
         logger.info(f"FIXED DIAMETER: Fixed diameter mode: {diameter}px")
 
