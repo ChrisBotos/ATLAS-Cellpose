@@ -812,14 +812,14 @@ def process_batch_worker_optimized(batch_args: Tuple) -> List[Tuple[int, int, in
 
 """MAIN OVERLAY PROCESSING FUNCTION"""
 
-def create_memory_efficient_overlay(
+def overlay(
     image_path: Union[str, Path],
     mask_path: Union[str, Path],
     output_path: Union[str, Path],
     config: Optional[OverlayConfig] = None
 ) -> None:
     """
-    Create memory-efficient overlay of segmentation masks on large microscopy images.
+    Overlay of segmentation masks on large microscopy images.
 
     Args:
         image_path: Path to input TIFF image file.
@@ -1181,43 +1181,6 @@ def create_memory_efficient_overlay(
         raise RuntimeError(f"Overlay creation failed: {e}")
 
 
-# Legacy wrapper function for backward compatibility.
-def overlay(
-    image_path: Union[str, Path],
-    mask_path: Union[str, Path],
-    out_path: Union[str, Path],
-    *,
-    tile: int = 1024,
-    workers: Union[int, str, None] = "auto",
-    alpha: float = 0.4,
-    seed: int = 42,
-    gpu: bool = False,
-) -> None:
-    """
-    Legacy wrapper for backward compatibility with existing code.
-
-    This function maintains the original API while using the new memory-efficient
-    implementation internally. All parameters are mapped to the new configuration
-    system for consistent behavior.
-    """
-    print("DEBUG: Using legacy overlay() wrapper - consider upgrading to create_memory_efficient_overlay()")
-
-    # Create configuration from legacy parameters.
-    config = OverlayConfig(
-        tile_size=tile,
-        workers=workers,
-        alpha=alpha,
-        seed=seed,
-        enable_gpu=gpu
-    )
-
-    # Call new implementation.
-    create_memory_efficient_overlay(image_path, mask_path, out_path, config)
-
-
-
-
-
 """COMMAND LINE INTERFACE"""
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -1376,7 +1339,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         config.validate()
 
         # Execute overlay creation.
-        create_memory_efficient_overlay(
+        overlay(
             image_path=args.image,
             mask_path=args.mask,
             output_path=args.out,
