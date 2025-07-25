@@ -108,7 +108,7 @@ def setup_model(CELLPOSE_PARAMS, logger):
             model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
             logger.info(f"Using Cellpose4 model as fallback: {model_type}")
             # Update the parameter to reflect actual usage
-            cellpose_params["use_cellpose4"] = True
+            CELLPOSE_PARAMS["use_cellpose4"] = True
 
     logger.info(f"Using device: {device}")
     if device == 'cuda':
@@ -376,7 +376,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     tile_w=settings["tile_side_length"],
                     overlap=overlap_pixels,
                     tiles_path=tiles_source_path,
-                    use_gpu=settings.get("use_gpu", True),
+                    use_gpu=settings.get("use_gpu", False),
                     qc=settings.get("qc_overlays", True),
                     qc_dir=settings.get("qc_dir", output_dir / "merge_qc_overlays"),
                     qc_merge_use_full_image=settings.get("qc_merge_use_full_image", False),

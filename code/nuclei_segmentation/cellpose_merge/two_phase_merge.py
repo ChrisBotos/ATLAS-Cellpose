@@ -285,12 +285,12 @@ def copy_tile_masks_to_merged_directory(
                     verification_passed = False
 
         if verification_passed:
-            logging.info("✅ Directory copy verification PASSED - All nuclei preserved")
+            logging.info("[OK] Directory copy verification PASSED - All nuclei preserved")
         else:
             if nuclei_loss_detected:
-                raise RuntimeError("❌ CRITICAL: Nuclei loss detected during directory copying!")
+                raise RuntimeError("[ERROR] CRITICAL: Nuclei loss detected during directory copying!")
             else:
-                raise RuntimeError("❌ Directory copy verification FAILED - File corruption detected")
+                raise RuntimeError("[ERROR] Directory copy verification FAILED - File corruption detected")
 
     except Exception as e:
         logging.error(f"Failed to copy directory {source_dir} to {target_dir}: {e}")

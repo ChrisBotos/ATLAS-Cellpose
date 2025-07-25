@@ -1,0 +1,87 @@
+name: iri310_cellpose3
+channels:
+  - conda-forge    # Community packages.
+  - pytorch        # PyTorch builds.
+  - defaults       # Default conda packages.
+
+dependencies:
+  # ───────── Core Scientific Computing Stack ─────────
+  - python=3.10
+  - pip
+  - numpy
+  - scipy
+  - pandas
+
+  # ───────── Visualization and Image Processing ─────────
+  - matplotlib
+  - scikit-image
+  - pillow
+  - imageio
+
+  # ───────── Machine Learning and Statistics ─────────
+  - scikit-learn
+  - joblib
+  - tqdm
+
+  # ───────── Deep Learning Framework ─────────
+  - pytorch
+  - torchvision
+
+  # ───────── Development and Testing ─────────
+  - pytest             # Unit testing framework for code validation.
+  - psutil             # System monitoring for memory and CPU usage tracking.
+
+  # ───────── Specialized Bioinformatics Packages (via pip) ─────────
+  - pip:
+    - "cellpose==3.0.10"  # Cellpose 3 for cell segmentation. Pin to specific stable version.
+    - "opencv-python-headless"  # OpenCV for image processing without GUI dependencies.
+    - "imagecodecs"       # TIFF optimization and compression codecs.
+    - "anndata"           # Annotated data structures for single-cell and spatial omics.
+    - "scanpy"            # Single-cell analysis toolkit for spatial transcriptomics integration.
+    - "transformers"      # Transformer models for potential NLP applications in bioinformatics.
+    - "pyarrow"           # High-performance columnar data format for large datasets.
+    - "fastparquet"       # Fast parquet file I/O for efficient data storage and retrieval.
+
+
+## ═══════════════════════════════════════════════════════════════════════════════
+## CELLPOSE3 ENVIRONMENT SETUP INSTRUCTIONS FOR I/R KIDNEY INJURY ANALYSIS
+## ═══════════════════════════════════════════════════════════════════════════════
+##
+## This environment uses Cellpose 3 instead of Cellpose 4 for compatibility testing.
+## Designed specifically for spatial multiomics analysis of ischemia/reperfusion
+## kidney injury, supporting cell segmentation, spatial transcriptomics, and
+## metabolomics data integration.
+##
+## '''Setup Instructions'''
+## 1. Install miniconda/conda if not already installed.
+## 2. Install mamba for faster dependency resolution:
+##    conda install -n base mamba -c conda-forge
+## 3. Create the environment:
+##    mamba env create -f cellpose3_environment.yml
+## 4. Activate the environment:
+##    conda activate iri310_cellpose3
+## 5. Test the environment:
+##    python code/nuclei_segmentation/run_this.py
+##
+## '''Target Package Versions for Cellpose3'''
+## - Python 3.10.x (optimal compatibility for bioinformatics packages)
+## - NumPy 1.26.x (downgraded from 2.x for PyTorch compatibility)
+## - SciPy 1.13.x (statistical functions for spatial analysis)
+## - Pandas 2.2.x (data manipulation for omics datasets)
+## - PyTorch 2.2.0 (CUDA: 12.1, GPU acceleration)
+## - TorchVision 0.17.x (computer vision for microscopy image processing)
+## - scikit-image 0.22.x (image processing for tissue analysis)
+## - Cellpose 3.x.x (cell segmentation with legacy API compatibility)
+## - Scanpy (single-cell and spatial transcriptomics analysis)
+## - AnnData (annotated data structures for omics)
+##
+## '''Technical Configuration Notes'''
+## - Uses Python 3.10.
+## - Uses flexible channel priority to resolve complex dependency conflicts.
+## - NumPy constrained to <2.0 to avoid compatibility issues with PyTorch.
+## - Cellpose 3 may have different API requirements than Cellpose 4.
+## - GPU acceleration should work with CUDA 12.1+.
+##
+## Author: Christos Botos
+## Environment created: 2025-01-25
+## Compatible with: Ubuntu WSL, Linux systems with CUDA 12.1+

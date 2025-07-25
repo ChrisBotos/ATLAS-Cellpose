@@ -81,30 +81,10 @@ def merge_patch_gpu_3step(
     """
     import logging
 
-    # Check if GPU is available and has sufficient memory.
-    if not torch.cuda.is_available():
-        logging.debug("CUDA not available, falling back to CPU implementation")
-        return merge_tiles_cpu_3step(patch, tile1_border_nuclei, tile2_border_nuclei)
+    # TODO: Implement proper GPU 3-step merge algorithm.
+    # For now, this function is a placeholder that should not be called directly.
+    # The actual merging is handled by the two-phase merge system using CPU implementation.
 
-    try:
-        # Check GPU memory availability.
-        gpu_memory_mb = torch.cuda.get_device_properties(0).total_memory / (1024**2)
-        if gpu_memory_mb < 1000:  # Less than 1GB
-            logging.debug("Insufficient GPU memory, falling back to CPU implementation")
-            return merge_tiles_cpu_3step(patch, tile1_border_nuclei, tile2_border_nuclei)
-
-        # For small patches, CPU is often faster due to GPU overhead.
-        patch_size_mb = patch.nbytes / (1024**2)
-        if patch_size_mb < 10:  # Less than 10MB
-            logging.debug("Small patch size, using CPU implementation for efficiency")
-            return merge_tiles_cpu_3step(patch, tile1_border_nuclei, tile2_border_nuclei)
-
-        # TODO make a GPU implementation.
-        # For now, fall back to CPU implementation for the 3-step algorithm.
-        # This ensures correctness while we can optimize the GPU version later.
-        logging.debug("GPU 3-step merge using CPU implementation (GPU optimization pending)")
-        return merge_tiles_cpu_3step(patch, tile1_border_nuclei, tile2_border_nuclei)
-
-    except Exception as e:
-        logging.warning(f"GPU merge initialization failed: {e}, falling back to CPU")
-        return merge_tiles_cpu_3step(patch, tile1_border_nuclei, tile2_border_nuclei)
+    logging.warning("merge_patch_gpu_3step called directly - this function is not yet implemented")
+    logging.warning("Use the two-phase merge system instead, which handles CPU/GPU fallback properly")
+    raise NotImplementedError("GPU 3-step merge is not yet implemented")

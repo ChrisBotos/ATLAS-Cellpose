@@ -47,7 +47,7 @@ def merge_masks_streaming(
     tile_w: int,
     overlap: int,
     tiles_path: str | Path,
-    use_gpu: bool = True,
+    use_gpu: bool = False,
     qc: bool = False,
     qc_dir: str | Path | None = None,
     qc_merge_use_full_image: bool = False,

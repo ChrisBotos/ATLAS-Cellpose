@@ -208,7 +208,7 @@ def process_cellpose_batch(
                     eval_params = prepare_cellpose_parameters(cellpose_params, use_cellpose4)
                     cellpose_results = model.eval(tile_image[..., None], **eval_params)
                 except Exception as e:
-                    logging.error(f"✗ {cellpose_version} auto-detection failed on tile {tile_idx+1}: {e}")
+                    logging.error(f"[X] {cellpose_version} auto-detection failed on tile {tile_idx+1}: {e}")
                     logging.error(f"Tile {tile_idx+1} statistics: mean={tile_stats['mean']:.1f}, "
                                  f"std={tile_stats['std']:.1f}, min={tile_stats['min']}, max={tile_stats['max']}")
                     logging.error("Please ensure diameter=0/None is configured for auto-detection")
@@ -234,7 +234,7 @@ def process_cellpose_batch(
                             logging.info(f"  Tile {tile_idx+1} diameter variation: CV = {diameter_cv:.1f}%")
                     elif isinstance(detected_diameters, (int, float)) and detected_diameters > 0:
                         # Single diameter detected.
-                        logging.info(f"✓ Tile {tile_idx+1}: Auto-detected diameter = {detected_diameters:.1f}px")
+                        logging.info(f"[OK] Tile {tile_idx+1}: Auto-detected diameter = {detected_diameters:.1f}px")
                     else:
                         logging.debug(f"Tile {tile_idx+1}: No valid diameter detected (value: {detected_diameters}), using model default")
                 else:

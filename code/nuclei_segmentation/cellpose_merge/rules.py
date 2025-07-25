@@ -227,6 +227,329 @@ def _find_border_touching_nuclei(
     return boundary_touching_nuclei, overlap_region_nuclei
 
 
+# def _expand_masks_directionally(
+#     masks1: NDArray[np.uint32],
+#     masks2: NDArray[np.uint32],
+#     direction: str,
+#     expansion_pixels: int = 6,
+#     target_nuclei: set = None
+# ) -> Tuple[NDArray[np.uint32], NDArray[np.uint32], NDArray[np.uint32]]:
+#     """
+#     Expand nucleus masks directionally with gap-filling algorithm for improved spatial coverage.
+#
+#     This function performs controlled directional expansion of nucleus masks with an advanced
+#     gap-filling strategy. When expansion encounters another nucleus, the gap is split evenly
+#     between both nuclei, creating more natural boundary transitions in kidney I/R injury
+#     tissue analysis.
+#
+#     The enhanced expansion algorithm:
+#     1. Identifies target nucleus labels in masks1 (or all if target_nuclei is None)
+#     2. For each target nucleus, expands row by row (or column by column) in the specified direction
+#     3. When encountering another nucleus, calculates the gap distance
+#     4. Fills the gap by splitting space evenly between both nuclei
+#     5. Tracks all newly added pixels for visualization and validation
+#
+#     Parameters
+#     ----------
+#     masks1 : NDArray[np.uint32]
+#         Primary mask array containing nuclei to be expanded.
+#     masks2 : NDArray[np.uint32]
+#         Secondary mask array used for conflict detection during expansion.
+#     direction : str
+#         Direction of expansion. Must be one of: 'up', 'down', 'left', 'right'.
+#     expansion_pixels : int, default 6
+#         Maximum number of pixels to expand in the specified direction.
+#     target_nuclei : set, optional
+#         Set of nucleus IDs to expand. If None, expands all nuclei in masks1.
+#
+#     Returns
+#     -------
+#     Tuple[NDArray[np.uint32], NDArray[np.uint32], NDArray[np.uint32]]
+#         - Updated masks1 with expanded nuclei
+#         - Updated masks2 with gap-filled nuclei
+#         - Binary mask showing all newly added pixels during expansion
+#
+#     Raises
+#     ------
+#     ValueError
+#         If direction is not one of the valid options or expansion_pixels is negative.
+#
+#     Notes
+#     -----
+#     The gap-filling approach creates more natural boundaries by:
+#     - Preventing abrupt stops when nuclei encounter obstacles
+#     - Ensuring both nuclei benefit from boundary optimization
+#     - Maintaining spatial continuity in tissue morphometry analysis
+#     """
+#     if masks1.size == 0 or masks2.size == 0:
+#         logging.debug("Empty input masks provided to expansion function")
+#         return masks1.copy(), masks2.copy(), np.zeros_like(masks1, dtype=np.uint8)
+#
+#     if expansion_pixels <= 0:
+#         raise ValueError(f"expansion_pixels must be positive, got {expansion_pixels}")
+#
+#     valid_directions = {'up', 'down', 'left', 'right'}
+#     if direction not in valid_directions:
+#         raise ValueError(f"Invalid direction '{direction}'. Must be one of: {valid_directions}")
+#
+#     # Create working copies and expansion tracking mask.
+#     expanded_masks1 = masks1.copy()
+#     expanded_masks2 = masks2.copy()
+#     expansion_mask = np.zeros_like(masks1, dtype=np.uint8)
+#     h, w = expanded_masks1.shape
+#
+#     # Get nucleus labels to expand.
+#     if target_nuclei is not None:
+#         # Only expand specified target nuclei.
+#         all_labels = np.unique(masks1[masks1 > 0])
+#         unique_labels = [label for label in all_labels if label in target_nuclei]
+#         logging.debug(f"Expanding {len(unique_labels)} target nuclei {direction} with gap-filling algorithm")
+#     else:
+#         # Expand all nuclei (excluding background).
+#         unique_labels = np.unique(masks1[masks1 > 0])
+#         logging.debug(f"Expanding {len(unique_labels)} nuclei {direction} with gap-filling algorithm")
+#
+#     if len(unique_labels) == 0:
+#         logging.debug("No nuclei found for expansion")
+#         return expanded_masks1, expanded_masks2, expansion_mask
+#
+#     # Track expansion statistics.
+#     total_pixels_expanded = 0
+#     total_gaps_filled = 0
+#     nuclei_expanded_count = 0
+#
+#     # Process each nucleus individually.
+#     for nucleus_id in unique_labels:
+#         nucleus_mask = (masks1 == nucleus_id)
+#         if not np.any(nucleus_mask):
+#             continue
+#
+#         nucleus_expanded = False
+#         pixels_expanded_this_nucleus = 0
+#         gaps_filled_this_nucleus = 0
+#
+#         if direction == 'up':
+#             # Expand upward row by row with gap-filling.
+#             for col in range(w):
+#                 col_mask = nucleus_mask[:, col]
+#                 if np.any(col_mask):
+#                     top_row = np.where(col_mask)[0][0]
+#
+#                     # Find the nearest obstacle in this column.
+#                     obstacle_row = -1
+#                     for check_row in range(top_row - 1, max(-1, top_row - expansion_pixels - 1), -1):
+#                         if expanded_masks2[check_row, col] > 0:
+#                             obstacle_row = check_row
+#                             break
+#
+#                     if obstacle_row >= 0:
+#                         # Calculate gap and fill evenly.
+#                         gap_size = top_row - obstacle_row - 1
+#                         if gap_size > 0:
+#                             half_gap = gap_size // 2
+#
+#                             # Expand nucleus_id upward by half the gap.
+#                             for step in range(1, half_gap + 1):
+#                                 new_row = top_row - step
+#                                 if new_row >= 0:
+#                                     expanded_masks1[new_row, col] = nucleus_id
+#                                     expansion_mask[new_row, col] = 1
+#                                     pixels_expanded_this_nucleus += 1
+#                                     nucleus_expanded = True
+#
+#                             # Expand obstacle nucleus downward by remaining gap.
+#                             obstacle_id = expanded_masks2[obstacle_row, col]
+#                             for step in range(gap_size - half_gap):
+#                                 new_row = obstacle_row + step + 1
+#                                 if new_row < h and new_row < top_row:
+#                                     expanded_masks2[new_row, col] = obstacle_id
+#                                     expansion_mask[new_row, col] = 1
+#
+#                             gaps_filled_this_nucleus += 1
+#                     else:
+#                         # No obstacle found, expand normally up to max distance.
+#                         for step in range(1, expansion_pixels + 1):
+#                             new_row = top_row - step
+#                             if new_row < 0:
+#                                 break
+#                             if expanded_masks1[new_row, col] == 0 and expanded_masks2[new_row, col] == 0:
+#                                 expanded_masks1[new_row, col] = nucleus_id
+#                                 expansion_mask[new_row, col] = 1
+#                                 pixels_expanded_this_nucleus += 1
+#                                 nucleus_expanded = True
+#                             else:
+#                                 break
+#
+#         elif direction == 'down':
+#             # Expand downward row by row with gap-filling.
+#             for col in range(w):
+#                 col_mask = nucleus_mask[:, col]
+#                 if np.any(col_mask):
+#                     bottom_row = np.where(col_mask)[0][-1]
+#
+#                     # Find the nearest obstacle in this column.
+#                     obstacle_row = h
+#                     for check_row in range(bottom_row + 1, min(h, bottom_row + expansion_pixels + 1)):
+#                         if expanded_masks2[check_row, col] > 0:
+#                             obstacle_row = check_row
+#                             break
+#
+#                     if obstacle_row < h:
+#                         # Calculate gap and fill evenly.
+#                         gap_size = obstacle_row - bottom_row - 1
+#                         if gap_size > 0:
+#                             half_gap = gap_size // 2
+#
+#                             # Expand nucleus_id downward by half the gap.
+#                             for step in range(1, half_gap + 1):
+#                                 new_row = bottom_row + step
+#                                 if new_row < h:
+#                                     expanded_masks1[new_row, col] = nucleus_id
+#                                     expansion_mask[new_row, col] = 1
+#                                     pixels_expanded_this_nucleus += 1
+#                                     nucleus_expanded = True
+#
+#                             # Expand obstacle nucleus upward by remaining gap.
+#                             obstacle_id = expanded_masks2[obstacle_row, col]
+#                             for step in range(gap_size - half_gap):
+#                                 new_row = obstacle_row - step - 1
+#                                 if new_row >= 0 and new_row > bottom_row:
+#                                     expanded_masks2[new_row, col] = obstacle_id
+#                                     expansion_mask[new_row, col] = 1
+#
+#                             gaps_filled_this_nucleus += 1
+#                     else:
+#                         # No obstacle found, expand normally up to max distance.
+#                         for step in range(1, expansion_pixels + 1):
+#                             new_row = bottom_row + step
+#                             if new_row >= h:
+#                                 break
+#                             if expanded_masks1[new_row, col] == 0 and expanded_masks2[new_row, col] == 0:
+#                                 expanded_masks1[new_row, col] = nucleus_id
+#                                 expansion_mask[new_row, col] = 1
+#                                 pixels_expanded_this_nucleus += 1
+#                                 nucleus_expanded = True
+#                             else:
+#                                 break
+#
+#         elif direction == 'left':
+#             # Expand leftward column by column with gap-filling.
+#             for row in range(h):
+#                 row_mask = nucleus_mask[row, :]
+#                 if np.any(row_mask):
+#                     left_col = np.where(row_mask)[0][0]
+#
+#                     # Find the nearest obstacle in this row.
+#                     obstacle_col = -1
+#                     for check_col in range(left_col - 1, max(-1, left_col - expansion_pixels - 1), -1):
+#                         if expanded_masks2[row, check_col] > 0:
+#                             obstacle_col = check_col
+#                             break
+#
+#                     if obstacle_col >= 0:
+#                         # Calculate gap and fill evenly.
+#                         gap_size = left_col - obstacle_col - 1
+#                         if gap_size > 0:
+#                             half_gap = gap_size // 2
+#
+#                             # Expand nucleus_id leftward by half the gap.
+#                             for step in range(1, half_gap + 1):
+#                                 new_col = left_col - step
+#                                 if new_col >= 0:
+#                                     expanded_masks1[row, new_col] = nucleus_id
+#                                     expansion_mask[row, new_col] = 1
+#                                     pixels_expanded_this_nucleus += 1
+#                                     nucleus_expanded = True
+#
+#                             # Expand obstacle nucleus rightward by remaining gap.
+#                             obstacle_id = expanded_masks2[row, obstacle_col]
+#                             for step in range(gap_size - half_gap):
+#                                 new_col = obstacle_col + step + 1
+#                                 if new_col < w and new_col < left_col:
+#                                     expanded_masks2[row, new_col] = obstacle_id
+#                                     expansion_mask[row, new_col] = 1
+#
+#                             gaps_filled_this_nucleus += 1
+#                     else:
+#                         # No obstacle found, expand normally up to max distance.
+#                         for step in range(1, expansion_pixels + 1):
+#                             new_col = left_col - step
+#                             if new_col < 0:
+#                                 break
+#                             if expanded_masks1[row, new_col] == 0 and expanded_masks2[row, new_col] == 0:
+#                                 expanded_masks1[row, new_col] = nucleus_id
+#                                 expansion_mask[row, new_col] = 1
+#                                 pixels_expanded_this_nucleus += 1
+#                                 nucleus_expanded = True
+#                             else:
+#                                 break
+#
+#         elif direction == 'right':
+#             # Expand rightward column by column with gap-filling.
+#             for row in range(h):
+#                 row_mask = nucleus_mask[row, :]
+#                 if np.any(row_mask):
+#                     right_col = np.where(row_mask)[0][-1]
+#
+#                     # Find the nearest obstacle in this row.
+#                     obstacle_col = w
+#                     for check_col in range(right_col + 1, min(w, right_col + expansion_pixels + 1)):
+#                         if expanded_masks2[row, check_col] > 0:
+#                             obstacle_col = check_col
+#                             break
+#
+#                     if obstacle_col < w:
+#                         # Calculate gap and fill evenly.
+#                         gap_size = obstacle_col - right_col - 1
+#                         if gap_size > 0:
+#                             half_gap = gap_size // 2
+#
+#                             # Expand nucleus_id rightward by half the gap.
+#                             for step in range(1, half_gap + 1):
+#                                 new_col = right_col + step
+#                                 if new_col < w:
+#                                     expanded_masks1[row, new_col] = nucleus_id
+#                                     expansion_mask[row, new_col] = 1
+#                                     pixels_expanded_this_nucleus += 1
+#                                     nucleus_expanded = True
+#
+#                             # Expand obstacle nucleus leftward by remaining gap.
+#                             obstacle_id = expanded_masks2[row, obstacle_col]
+#                             for step in range(gap_size - half_gap):
+#                                 new_col = obstacle_col - step - 1
+#                                 if new_col >= 0 and new_col > right_col:
+#                                     expanded_masks2[row, new_col] = obstacle_id
+#                                     expansion_mask[row, new_col] = 1
+#
+#                             gaps_filled_this_nucleus += 1
+#                     else:
+#                         # No obstacle found, expand normally up to max distance.
+#                         for step in range(1, expansion_pixels + 1):
+#                             new_col = right_col + step
+#                             if new_col >= w:
+#                                 break
+#                             if expanded_masks1[row, new_col] == 0 and expanded_masks2[row, new_col] == 0:
+#                                 expanded_masks1[row, new_col] = nucleus_id
+#                                 expansion_mask[row, new_col] = 1
+#                                 pixels_expanded_this_nucleus += 1
+#                                 nucleus_expanded = True
+#                             else:
+#                                 break
+#
+#         if nucleus_expanded:
+#             nuclei_expanded_count += 1
+#             total_pixels_expanded += pixels_expanded_this_nucleus
+#             total_gaps_filled += gaps_filled_this_nucleus
+#             logging.debug(f"Nucleus {nucleus_id}: expanded by {pixels_expanded_this_nucleus} pixels, "
+#                          f"filled {gaps_filled_this_nucleus} gaps {direction}")
+#
+#     logging.info(f"Gap-filling expansion completed: {nuclei_expanded_count}/{len(unique_labels)} nuclei expanded")
+#     logging.info(f"Total pixels expanded {direction}: {total_pixels_expanded}")
+#     logging.info(f"Total gaps filled: {total_gaps_filled}")
+#
+#     return expanded_masks1, expanded_masks2, expansion_mask
+
+
 def merge_tiles_cpu_3step(
     tile1_path: Union[str, Path],
     tile2_path: Union[str, Path],
@@ -432,8 +755,55 @@ def merge_tiles_cpu_3step(
 
     logging.info(f"STEP 4 SUMMARY: Deleted {cleanup_deleted_count} non-priority nuclei in overlap region")
 
+    # Step 6: Directional Expansion with Gap-Filling - Expand preserved cross-boundary nuclei.
+    # This step helps recover nucleus boundaries that may have been truncated during tiling.
+    logging.info("STEP 6: Applying directional expansion with gap-filling to preserved cross-boundary nuclei")
+
+    expansion_mask = np.zeros_like(updated_tile1_mask, dtype=np.uint8)
+
+    # if len(non_priority_boundary_nuclei) > 0:
+    #     # Determine expansion direction based on tile relationship.
+    #     # Cross-boundary nuclei should expand toward the priority tile.
+    #     expansion_direction_mapping = {
+    #         "tile1_above_tile2": "down" if not priority_is_tile1 else "up",
+    #         "tile1_left_of_tile2": "right" if not priority_is_tile1 else "left",
+    #         "tile1_below_tile2": "up" if not priority_is_tile1 else "down",
+    #         "tile1_right_of_tile2": "left" if not priority_is_tile1 else "right"
+    #     }
+    #
+    #     expansion_direction = expansion_direction_mapping[tile_relationship]
+    #
+    #     # Apply gap-filling expansion directly to the appropriate tile masks.
+    #     if priority_is_tile1:
+    #         # Non-priority is tile2, expand cross-boundary nuclei in tile2.
+    #         logging.debug(f"Expanding tile2 nuclei {expansion_direction} toward tile1 with gap-filling")
+    #         updated_tile2_mask, updated_tile1_mask, expansion_mask = _expand_masks_directionally(
+    #             updated_tile2_mask,
+    #             updated_tile1_mask,
+    #             expansion_direction,
+    #             expansion_pixels=6,
+    #             target_nuclei=non_priority_boundary_nuclei
+    #         )
+    #     else:
+    #         # Non-priority is tile1, expand cross-boundary nuclei in tile1.
+    #         logging.debug(f"Expanding tile1 nuclei {expansion_direction} toward tile2 with gap-filling")
+    #         updated_tile1_mask, updated_tile2_mask, expansion_mask = _expand_masks_directionally(
+    #             updated_tile1_mask,
+    #             updated_tile2_mask,
+    #             expansion_direction,
+    #             expansion_pixels=6,
+    #             target_nuclei=non_priority_boundary_nuclei
+    #         )
+    #
+    #     logging.info(f"STEP 6 SUMMARY: Gap-filling expansion applied {expansion_direction} to "
+    #                 f"{len(non_priority_boundary_nuclei)} cross-boundary nuclei")
+    #     logging.info(f"Total expansion pixels added: {np.sum(expansion_mask)}")
+    # else:
+    #     logging.info("STEP 6 SUMMARY: No cross-boundary nuclei to expand")
+    #     expansion_direction = "none"
+
     # Step 7: Create Debug Visualization.
-    logging.info("STEP 5: Creating comprehensive debug visualization")
+    logging.info("STEP 7: Creating comprehensive debug visualization")
     try:
         _create_debug_visualization(
             original_tile1=tile1_mask,
@@ -457,5 +827,166 @@ def merge_tiles_cpu_3step(
     logging.info(f"  Tile1: {tile1_nuclei_count} -> {final_tile1_nuclei} nuclei")
     logging.info(f"  Tile2: {tile2_nuclei_count} -> {final_tile2_nuclei} nuclei")
     logging.info(f"  Cross-boundary nuclei preserved: {len(mapping)}")
+    # logging.info(f"  Expansion direction applied: {expansion_direction}")
+    # logging.info(f"  Total expansion pixels: {np.sum(expansion_mask)}")
 
     return updated_tile1_mask, updated_tile2_mask, mapping
+
+
+def _create_debug_visualization(
+    original_tile1: NDArray[np.uint32],
+    original_tile2: NDArray[np.uint32],
+    final_tile1: NDArray[np.uint32],
+    final_tile2: NDArray[np.uint32],
+    cross_boundary_nuclei: set,
+    expansion_mask: NDArray[np.uint8],
+    tile1_path: Path,
+    tile2_path: Path,
+    tile_relationship: str
+) -> None:
+    """
+    Create comprehensive debug visualization of the 3-step merging process.
+
+    This function generates a color-coded debug image that clearly shows the results
+    of each step in the merging algorithm, enabling validation and optimization of
+    the nucleus boundary handling in kidney I/R injury tissue analysis.
+
+    Color coding:
+    - Green pixels: Preserved cross-boundary nuclei (non-priority nuclei kept in Step 3)
+    - Red pixels: All other nuclei (priority nuclei and non-cross-boundary nuclei)
+    - Purple pixels: Newly expanded pixels added during directional expansion (Step 6)
+    - Black pixels: Background regions
+
+    Parameters
+    ----------
+    original_tile1, original_tile2 : NDArray[np.uint32]
+        Original tile masks before merging.
+    final_tile1, final_tile2 : NDArray[np.uint32]
+        Final tile masks after complete 3-step merging.
+    cross_boundary_nuclei : set
+        Set of nucleus IDs that were preserved as cross-boundary nuclei.
+    expansion_mask : NDArray[np.uint8]
+        Binary mask showing pixels added during directional expansion.
+    tile1_path, tile2_path : Path
+        Paths to the original tile files for naming the debug output.
+    tile_relationship : str
+        Spatial relationship between tiles for debug filename.
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+
+    # Create combined visualization canvas.
+    h1, w1 = final_tile1.shape
+    h2, w2 = final_tile2.shape
+    max_h = max(h1, h2)
+    combined_w = w1 + w2 + 20  # Add gap between tiles
+
+    # Initialize RGB debug image.
+    debug_image = np.zeros((max_h, combined_w, 3), dtype=np.uint8)
+
+    # Process tile1 (left side).
+    for nucleus_id in np.unique(final_tile1[final_tile1 > 0]):
+        nucleus_pixels = (final_tile1 == nucleus_id)
+
+        if nucleus_id in cross_boundary_nuclei:
+            # Green for preserved cross-boundary nuclei.
+            debug_image[:h1, :w1, 0][nucleus_pixels] = 0    # R
+            debug_image[:h1, :w1, 1][nucleus_pixels] = 255  # G
+            debug_image[:h1, :w1, 2][nucleus_pixels] = 0    # B
+        else:
+            # Red for all other nuclei.
+            debug_image[:h1, :w1, 0][nucleus_pixels] = 255  # R
+            debug_image[:h1, :w1, 1][nucleus_pixels] = 0    # G
+            debug_image[:h1, :w1, 2][nucleus_pixels] = 0    # B
+
+    # Process tile2 (right side).
+    tile2_offset = w1 + 20
+    for nucleus_id in np.unique(final_tile2[final_tile2 > 0]):
+        nucleus_pixels = (final_tile2 == nucleus_id)
+        shifted_pixels = np.zeros((max_h, combined_w), dtype=bool)
+        shifted_pixels[:h2, tile2_offset:tile2_offset+w2] = nucleus_pixels
+
+        if nucleus_id in cross_boundary_nuclei:
+            # Green for preserved cross-boundary nuclei.
+            debug_image[shifted_pixels, 0] = 0    # R
+            debug_image[shifted_pixels, 1] = 255  # G
+            debug_image[shifted_pixels, 2] = 0    # B
+        else:
+            # Red for all other nuclei.
+            debug_image[shifted_pixels, 0] = 255  # R
+            debug_image[shifted_pixels, 1] = 0    # G
+            debug_image[shifted_pixels, 2] = 0    # B
+
+    # Overlay expansion pixels in purple.
+    # Show all expansion pixels - the expansion algorithm now only expands cross-boundary nuclei.
+    exp_h, exp_w = expansion_mask.shape
+
+    # Handle potential dimension mismatches between expansion_mask and tiles.
+    tile1_exp_h = min(h1, exp_h)
+    tile1_exp_w = min(w1, exp_w)
+    tile2_exp_h = min(h2, exp_h)
+    tile2_exp_w = min(w2, exp_w)
+
+    # Since we now only expand cross-boundary nuclei, all expansion pixels are valid.
+    expansion_pixels_tile1 = (expansion_mask[:tile1_exp_h, :tile1_exp_w] > 0)
+    expansion_pixels_tile2 = (expansion_mask[:tile2_exp_h, :tile2_exp_w] > 0)
+
+    # Purple overlay for tile1 expansion pixels.
+    debug_image[:tile1_exp_h, :tile1_exp_w, 0][expansion_pixels_tile1] = 128  # R
+    debug_image[:tile1_exp_h, :tile1_exp_w, 1][expansion_pixels_tile1] = 0    # G
+    debug_image[:tile1_exp_h, :tile1_exp_w, 2][expansion_pixels_tile1] = 128  # B
+
+    # Purple overlay for tile2 expansion pixels (shifted).
+    shifted_expansion = np.zeros((max_h, combined_w), dtype=bool)
+    shifted_expansion[:tile2_exp_h, tile2_offset:tile2_offset+tile2_exp_w] = expansion_pixels_tile2
+    debug_image[shifted_expansion, 0] = 128  # R
+    debug_image[shifted_expansion, 1] = 0    # G
+    debug_image[shifted_expansion, 2] = 128  # B
+
+    # Create debug output filename.
+    tile1_name = tile1_path.stem
+    tile2_name = tile2_path.stem
+    debug_filename = f"debug_merge_{tile1_name}_{tile2_name}_{tile_relationship}.png"
+    debug_path = tile1_path.parent / "debug_visualizations" / debug_filename
+
+    # Ensure debug directory exists.
+    debug_path.parent.mkdir(exist_ok=True)
+
+    # Save debug visualization.
+    plt.figure(figsize=(15, 8))
+    plt.imshow(debug_image)
+    plt.title(f"3-Step Merge Debug: {tile_relationship}\n"
+              f"Green=Cross-boundary nuclei, Red=Other nuclei, Purple=Expanded pixels")
+    plt.axis('off')
+
+    # Add legend.
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='green', label='Cross-boundary nuclei (preserved)'),
+        Patch(facecolor='red', label='Other nuclei'),
+        Patch(facecolor='purple', label='Expanded pixels'),
+        Patch(facecolor='black', label='Background')
+    ]
+    plt.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1, 1))
+
+    plt.tight_layout()
+    plt.savefig(debug_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+    logging.info(f"Debug visualization saved: {debug_path}")
+
+    # Also save a detailed statistics file.
+    stats_path = debug_path.with_suffix('.txt')
+    with open(stats_path, 'w') as f:
+        f.write(f"3-Step Merge Debug Statistics\n")
+        f.write(f"============================\n\n")
+        f.write(f"Tile1: {tile1_name}\n")
+        f.write(f"Tile2: {tile2_name}\n")
+        f.write(f"Relationship: {tile_relationship}\n\n")
+        f.write(f"Cross-boundary nuclei: {len(cross_boundary_nuclei)}\n")
+        f.write(f"Cross-boundary IDs: {sorted(cross_boundary_nuclei)}\n\n")
+        f.write(f"Expansion pixels added: {np.sum(expansion_mask)}\n")
+        f.write(f"Final tile1 nuclei: {len(np.unique(final_tile1[final_tile1 > 0]))}\n")
+        f.write(f"Final tile2 nuclei: {len(np.unique(final_tile2[final_tile2 > 0]))}\n")
+
+    logging.info(f"Debug statistics saved: {stats_path}")
