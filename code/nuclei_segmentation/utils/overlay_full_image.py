@@ -133,11 +133,7 @@ def full_image_overlay(
             overlay(
                 image_path=img_path,
                 mask_path=mask_path,
-                out_path=out_path,
-                tile=tile,
-                workers=workers,
-                alpha=alpha,
-                gpu=gpu,
+                output_path=out_path,
             )
         else:
             raise ValueError(

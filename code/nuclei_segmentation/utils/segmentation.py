@@ -477,11 +477,14 @@ def run_cellpose_on_tiles(
 
                 try:
                     eval_params = prepare_cellpose_parameters(cellpose_params, use_cellpose4)
+                    logger.debug(f"Tile {tile_idx} Cellpose parameters: {eval_params}")
+                    logger.debug(f"Tile {tile_idx} input shape: {current_tile[..., None].shape}")
                     cellpose_results = model.eval(current_tile[..., None], **eval_params)
                 except Exception as e:
                     logger.error(f"✗ {cellpose_version} auto-detection failed on tile {tile_idx}: {e}")
                     logger.error(f"Tile {tile_idx} statistics: mean={tile_stats['mean']:.1f}, "
                                 f"std={tile_stats['std']:.1f}, min={tile_stats['min']}, max={tile_stats['max']}")
+                    logger.error(f"Parameters that failed: {eval_params}")
                     logger.error("Please ensure diameter=0/None is configured for auto-detection")
                     raise e
 
@@ -531,7 +534,11 @@ def run_cellpose_on_tiles(
                 if raw_masks is None:
                     tile_segmentation_mask = np.zeros(current_tile.shape, dtype=np.uint32)
                     nuclei_in_tile = 0
-                    logger.info(f"  -> NUCLEI COUNT: No nuclei detected in tile {tile_idx}")
+                    logger.info(f"  -> NUCLEI COUNT: No nuclei detected in tile {tile_idx} (Cellpose returned None)")
+                    logger.info(f"     Tile stats: mean={tile_stats['mean']:.1f}, std={tile_stats['std']:.1f}")
+                    logger.info(f"     Parameters used: diameter={eval_params.get('diameter')}, "
+                               f"flow_threshold={eval_params.get('flow_threshold')}, "
+                               f"cellprob_threshold={eval_params.get('cellprob_threshold')}")
                 else:
                     tile_segmentation_mask = raw_masks.astype(np.uint32)
                     # Count unique non-zero labels (correct method for nuclei counting).
@@ -550,11 +557,17 @@ def run_cellpose_on_tiles(
                         total_cells += nuclei_in_tile
 
                         logger.info(f"  -> NUCLEI COUNT: {nuclei_in_tile} nuclei detected and labeled in tile {tile_idx}")
+                        logger.info(f"  -> Diameter used: {detected_diameters if 'detected_diameters' in locals() else 'auto'}")
 
                         # Use the unique mask for saving.
                         tile_segmentation_mask = unique_mask
                     else:
-                        logger.info(f"  -> No nuclei detected in tile {tile_idx}")
+                        logger.info(f"  -> NUCLEI COUNT: 0 nuclei detected in tile {tile_idx} (mask was not None but empty)")
+                        logger.info(f"     Mask shape: {raw_masks.shape}, unique values: {len(np.unique(raw_masks))}")
+                        logger.info(f"     Tile stats: mean={tile_stats['mean']:.1f}, std={tile_stats['std']:.1f}")
+                        logger.info(f"     Parameters used: diameter={eval_params.get('diameter')}, "
+                                   f"flow_threshold={eval_params.get('flow_threshold')}, "
+                                   f"cellprob_threshold={eval_params.get('cellprob_threshold')}")
 
                 # Save individual tile mask for downstream analysis and quality control.
                 # The filename format (y_start_x_start.npz) is required by the merge system.

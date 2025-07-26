@@ -248,14 +248,26 @@ def process_cellpose_batch(
                 if mask is None:
                     mask = np.zeros(tile_image.shape[:2], dtype=np.uint32)
                     cell_count = 0
+                    logging.info(f"NUCLEI COUNT: Batch {batch_idx}, tile {tile_idx+1}: 0 nuclei detected (Cellpose returned None)")
+                    logging.info(f"  Tile stats: mean={tile_stats['mean']:.1f}, std={tile_stats['std']:.1f}")
+                    logging.info(f"  Parameters: diameter={eval_params.get('diameter')}, "
+                                f"flow_threshold={eval_params.get('flow_threshold')}, "
+                                f"cellprob_threshold={eval_params.get('cellprob_threshold')}")
                 else:
                     mask = mask.astype(np.uint32)
                     # Count unique non-zero labels (correct method for nuclei counting).
                     cell_count = len(np.unique(mask[mask > 0])) if mask.size > 0 else 0
 
-                results.append((mask, slice_info, cell_count))
+                    if cell_count > 0:
+                        logging.info(f"NUCLEI COUNT: Batch {batch_idx}, tile {tile_idx+1}: {cell_count} nuclei detected")
+                        if 'detected_diameters' in locals():
+                            logging.info(f"  Diameter used: {detected_diameters}")
+                    else:
+                        logging.info(f"NUCLEI COUNT: Batch {batch_idx}, tile {tile_idx+1}: 0 nuclei detected (mask not None but empty)")
+                        logging.info(f"  Mask shape: {mask.shape}, unique values: {len(np.unique(mask))}")
+                        logging.info(f"  Tile stats: mean={tile_stats['mean']:.1f}, std={tile_stats['std']:.1f}")
 
-                logging.debug(f"NUCLEI COUNT: Batch {batch_idx}, tile {tile_idx+1}: {cell_count} nuclei detected")
+                results.append((mask, slice_info, cell_count))
 
                 # Clear intermediate results to free memory.
                 cellpose_results = None

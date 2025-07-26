@@ -41,62 +41,108 @@ Ischemia-reperfusion injury is a critical pathophysiological process in kidney t
 
 ## 🛠️ Installation
 
-### Environment Setup (Conda/Mamba - Recommended)
+### Quick Start (Local Machine)
 
-**Quick Start:**
 ```bash
-# 1. Install miniconda/conda if not already installed
-# 2. Install mamba for faster dependency resolution (optional but recommended)
+# 1. Create the environment
+mamba env create -f cellpose3_environment.yml
+
+# 2. Activate the environment
+conda activate iri310_cellpose3
+
+# 3. Run the pipeline
+wsl ./run_with_proper_env.sh
+```
+
+### Server Setup (Limited Permissions)
+
+For HPC clusters, shared servers, or systems where you don't have admin access:
+
+#### Step 1: Install Miniconda in Your Home Directory
+
+```bash
+# Download Miniconda (no admin privileges required)
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+
+# Install in your home directory
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
+
+# Initialize conda (adds to ~/.bashrc)
+source ~/miniconda3/etc/profile.d/conda.sh
+conda init bash
+
+# Restart terminal or reload bash configuration
+source ~/.bashrc
+```
+
+#### Step 2: Install Mamba and Create Environment
+
+```bash
+# Install mamba for faster dependency resolution
 conda install -n base mamba -c conda-forge
 
-# 3. Create the environment from the provided configuration
-mamba env create -f environment.yml
+# Create the environment from the YAML file
+mamba env create -f cellpose3_environment.yml
 
-# 4. Activate the environment
-conda activate iri310
+# Activate the environment (CRITICAL - must be done every session)
+conda activate iri310_cellpose3
 
-# 5. Test the environment
-python test_environment.py
+# Verify installation
+python -c "import torch, cellpose; print('✓ Environment setup successful')"
 ```
 
 ### Prerequisites
 
-- **Operating System**: Ubuntu 20.04+ or Windows with WSL2 (recommended)
-- **Python**: 3.10 (specifically tested and validated)
-- **CUDA**: ≥ 12.1 (for GPU acceleration)
-- **Memory**: ≥ 16 GB RAM (≥ 32 GB for large whole-slide images)
-- **GPU**: ≥ 8 GB VRAM (recommended for optimal deep learning performance)
-- **Storage**: ≥ 10 GB free space for conda environment and dependencies
+- **Operating System**: Ubuntu 20.04+, CentOS 7+, or Windows with WSL2
+- **Python**: 3.10 (automatically installed with environment)
+- **CUDA**: ≥ 12.1 (optional, for GPU acceleration)
+- **Memory**: ≥ 8 GB RAM (≥ 16 GB for large images)
+- **Storage**: ≥ 5 GB free space for conda environment
+- **Permissions**: User-level access (no admin/root required)
 
-### Conda Environment Setup (Recommended)
+### Environment Activation (CRITICAL)
 
-We **strongly recommend** using the provided conda environment for optimal compatibility and reproducibility. This environment has been extensively tested and validated for I/R kidney injury spatial multiomics analysis.
+⚠️ **The conda environment MUST be activated before running the pipeline.** The pipeline will fail if run with system Python.
 
-#### Step 1: Install Miniconda/Anaconda
-
-If you don't have conda installed:
-
-**Ubuntu/Linux:**
+**Recommended approach (use the wrapper script):**
 ```bash
-# Download and install Miniconda
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
-source ~/miniconda3/etc/profile.d/conda.sh
-conda init bash
+# This script automatically activates the environment
+./run_with_proper_env.sh
 ```
 
-**Windows (WSL2 recommended):**
+**Manual activation:**
 ```bash
-# In WSL2 Ubuntu terminal
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
-source ~/miniconda3/etc/profile.d/conda.sh
-conda init bash
+# Activate environment first, then run pipeline
+conda activate iri310_cellpose3
+python code/nuclei_segmentation/run_this.py
 ```
 
-#### Step 2: Install Mamba (Faster Dependency Resolution)
+**WSL/Windows users:**
+```bash
+# Full command with environment activation
+wsl bash -c "source ~/miniconda3/etc/profile.d/conda.sh && conda activate iri310_cellpose3 && python code/nuclei_segmentation/run_this.py"
+```
 
-Mamba provides significantly faster dependency resolution for complex bioinformatics environments:
+### Environment Testing
+
+After setting up the environment, validate it works correctly:
+
+```bash
+# Activate environment
+conda activate iri310_cellpose3
+
+# Run comprehensive environment test
+python test_environment_setup.py
+
+# If all tests pass, you're ready to run the pipeline
+./run_with_proper_env.sh
+```
+
+### Additional Resources
+
+- **📋 [Server Deployment Guide](SERVER_DEPLOYMENT_GUIDE.md)**: Detailed instructions for HPC clusters, Docker, and Singularity
+- **🧪 [Environment Test Script](test_environment_setup.py)**: Comprehensive validation of your setup
+- **🔧 [Environment Wrapper](run_with_proper_env.sh)**: Automated environment activation and pipeline execution
 
 ```bash
 conda install -n base mamba -c conda-forge
@@ -1195,7 +1241,173 @@ validation_metrics = {
 
 ---
 
+## 🖥️ Server Deployment Guide
+
+### HPC Cluster Setup
+
+For high-performance computing clusters with job schedulers (SLURM, PBS, etc.):
+
+#### 1. Interactive Session Setup
+```bash
+# Request interactive session with adequate resources
+srun --time=4:00:00 --mem=16G --cpus-per-task=4 --pty bash
+
+# Load required modules (if available)
+module load miniconda3  # or conda, python/3.10, etc.
+
+# If no conda module, install in home directory (see Server Setup above)
+```
+
+#### 2. Batch Job Script Example
+```bash
+#!/bin/bash
+#SBATCH --job-name=nuclei_segmentation
+#SBATCH --time=4:00:00
+#SBATCH --mem=16G
+#SBATCH --cpus-per-task=4
+#SBATCH --output=segmentation_%j.out
+#SBATCH --error=segmentation_%j.err
+
+# Load environment
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate iri310_cellpose3
+
+# Change to project directory
+cd /path/to/I-R-Injury-Spatial-Multiomics-Analysis
+
+# Run pipeline
+python code/nuclei_segmentation/run_this.py
+```
+
+### Docker/Singularity Deployment
+
+For containerized environments:
+
+#### 1. Create Dockerfile
+```dockerfile
+FROM continuumio/miniconda3:latest
+
+# Copy environment file
+COPY cellpose3_environment.yml /tmp/environment.yml
+
+# Create environment
+RUN mamba env create -f /tmp/environment.yml
+
+# Activate environment in shell
+SHELL ["conda", "run", "-n", "iri310_cellpose3", "/bin/bash", "-c"]
+
+# Copy project files
+COPY . /app
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["conda", "run", "-n", "iri310_cellpose3", "python", "code/nuclei_segmentation/run_this.py"]
+```
+
+#### 2. Singularity Definition File
+```singularity
+Bootstrap: docker
+From: continuumio/miniconda3:latest
+
+%files
+    cellpose3_environment.yml /tmp/environment.yml
+    . /app
+
+%post
+    mamba env create -f /tmp/environment.yml
+
+%environment
+    export PATH="/opt/conda/envs/iri310_cellpose3/bin:$PATH"
+
+%runscript
+    cd /app
+    python code/nuclei_segmentation/run_this.py
+```
+
+### Cloud Platform Setup
+
+#### AWS/Google Cloud/Azure
+```bash
+# 1. Launch instance with adequate resources (4+ CPUs, 16+ GB RAM)
+# 2. Install miniconda
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
+
+# 3. Follow standard server setup instructions above
+```
+
+---
+
 ## 🔧 Troubleshooting
+
+### Environment Issues
+
+#### 1. "ModuleNotFoundError: No module named 'torch'"
+
+**Cause**: Conda environment not activated or packages not installed.
+
+**Solutions**:
+```bash
+# Check if environment exists
+conda env list
+
+# Activate environment
+conda activate iri310_cellpose3
+
+# Verify activation
+which python  # Should show path with iri310_cellpose3
+
+# If still failing, recreate environment
+conda env remove -n iri310_cellpose3
+mamba env create -f cellpose3_environment.yml
+```
+
+#### 2. "Permission denied" during installation
+
+**Cause**: Trying to install in system directories without admin access.
+
+**Solutions**:
+```bash
+# Install miniconda in home directory (no admin needed)
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
+
+# Use user-level pip installs if needed
+pip install --user package_name
+```
+
+#### 3. "CUDA not available" warnings
+
+**Cause**: PyTorch installed without CUDA support or no GPU available.
+
+**Solutions**:
+```bash
+# Check GPU availability
+nvidia-smi
+
+# For CPU-only processing (slower but works)
+# Set in config: gpu = False
+
+# For GPU support, install CUDA-enabled PyTorch
+conda install pytorch torchvision pytorch-cuda=12.1 -c pytorch -c nvidia
+```
+
+#### 4. Environment activation fails in scripts
+
+**Cause**: Conda not properly initialized or wrong shell.
+
+**Solutions**:
+```bash
+# Reinitialize conda
+conda init bash
+source ~/.bashrc
+
+# Use full activation command
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate iri310_cellpose3
+
+# Or use the provided wrapper script
+./run_with_proper_env.sh
+```
 
 ### Common Issues and Solutions
 

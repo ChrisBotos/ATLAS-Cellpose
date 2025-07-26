@@ -1,87 +1,236 @@
 name: iri310_cellpose3
 channels:
-  - conda-forge    # Community packages.
-  - pytorch        # PyTorch builds.
-  - defaults       # Default conda packages.
+  - conda-forge    # Community packages with broad coverage and recent builds.
+  - pytorch        # Official PyTorch builds channel.
+  - defaults       # Default Anaconda channel as a fallback.
 
 dependencies:
   # ───────── Core Scientific Computing Stack ─────────
-  - python=3.10
-  - pip
-  - numpy
-  - scipy
-  - pandas
+  - python=3.10                 # Tested major version for broad package compatibility.
+  - pip                         # Ensure pip is available inside the environment.
+  - numpy                       # Numerical kernels. Keep < 2.0 if Torch build requires it.
+  - scipy                       # Scientific routines.
+  - pandas                      # DataFrames and tabular IO.
 
   # ───────── Visualization and Image Processing ─────────
-  - matplotlib
-  - scikit-image
-  - pillow
-  - imageio
+  - matplotlib                  # Plotting and figures.
+  - scikit-image                # Image processing toolkit.
+  - pillow                      # Imaging primitives.
+  - imageio                     # Simple image IO helpers.
 
   # ───────── Machine Learning and Statistics ─────────
-  - scikit-learn
-  - joblib
-  - tqdm
+  - scikit-learn                # Classical ML algorithms.
+  - joblib                      # Fast serialization and parallel utilities.
+  - tqdm                        # Progress bars for loops.
 
   # ───────── Deep Learning Framework ─────────
-  - pytorch
-  - torchvision
+  - pytorch                     # PyTorch. CUDA variant determined by the resolver and host.
+  - torchvision                 # Vision utilities and model zoo.
 
   # ───────── Development and Testing ─────────
-  - pytest             # Unit testing framework for code validation.
-  - psutil             # System monitoring for memory and CPU usage tracking.
+  - pytest                      # Unit testing framework for code validation.
+  - psutil                      # System monitoring for memory and CPU usage tracking.
 
-  # ───────── Specialized Bioinformatics Packages (via pip) ─────────
+  # ───────── Specialized Bioinformatics and IO Packages (via pip) ─────────
   - pip:
-    - "cellpose==3.0.10"  # Cellpose 3 for cell segmentation. Pin to specific stable version.
-    - "opencv-python-headless"  # OpenCV for image processing without GUI dependencies.
-    - "imagecodecs"       # TIFF optimization and compression codecs.
-    - "anndata"           # Annotated data structures for single-cell and spatial omics.
-    - "scanpy"            # Single-cell analysis toolkit for spatial transcriptomics integration.
-    - "transformers"      # Transformer models for potential NLP applications in bioinformatics.
-    - "pyarrow"           # High-performance columnar data format for large datasets.
-    - "fastparquet"       # Fast parquet file I/O for efficient data storage and retrieval.
+    - "cellpose==3.0.10"           # Cellpose 3 for cell segmentation. Pinned to a stable version.
+    - "opencv-python-headless"     # OpenCV for image processing without GUI dependencies.
+    - "imagecodecs"                # TIFF optimizations and compression codecs.
+    - "anndata"                    # Annotated matrices for single-cell and spatial omics.
+    - "scanpy"                     # Single-cell analysis toolkit for spatial transcriptomics workflows.
+    - "transformers"               # Transformer models for potential NLP tasks in bioinformatics.
+    - "pyarrow"                    # Columnar IO and Arrow memory format for large datasets.
+    - "fastparquet"                # High-performance Parquet IO.
 
+################################################################################
+## CELLPOSE3 ENVIRONMENT SETUP FOR I/R KIDNEY INJURY ANALYSIS.
+################################################################################
+## Purpose.
+## This environment supports nuclei segmentation with Cellpose 3 and downstream
+## spatial multiomics analyses for ischemia/reperfusion injury, including
+## spatial transcriptomics integration and Parquet/Arrow-based IO.
+##
+## Quick usage.
+##   1) Create environment in /exports to avoid $HOME quota issues.
+##   2) Activate environment for every run.
+##   3) Execute the pipeline scripts.
+##
+## IMPORTANT: Keep environments and package cache on the large filesystem.
+## Configure Conda to use /exports/humgen/cbotos for both envs and pkgs to avoid
+## "No space left on device" errors under $HOME.
+################################################################################
 
-## ═══════════════════════════════════════════════════════════════════════════════
-## CELLPOSE3 ENVIRONMENT SETUP INSTRUCTIONS FOR I/R KIDNEY INJURY ANALYSIS
-## ═══════════════════════════════════════════════════════════════════════════════
-##
-## This environment uses Cellpose 3 instead of Cellpose 4 for compatibility testing.
-## Designed specifically for spatial multiomics analysis of ischemia/reperfusion
-## kidney injury, supporting cell segmentation, spatial transcriptomics, and
-## metabolomics data integration.
-##
-## '''Setup Instructions'''
-## 1. Install miniconda/conda if not already installed.
-## 2. Install mamba for faster dependency resolution:
-##    conda install -n base mamba -c conda-forge
-## 3. Create the environment:
-##    mamba env create -f cellpose3_environment.yml
-## 4. Activate the environment:
-##    conda activate iri310_cellpose3
-## 5. Test the environment:
-##    python code/nuclei_segmentation/run_this.py
-##
-## '''Target Package Versions for Cellpose3'''
-## - Python 3.10.x (optimal compatibility for bioinformatics packages)
-## - NumPy 1.26.x (downgraded from 2.x for PyTorch compatibility)
-## - SciPy 1.13.x (statistical functions for spatial analysis)
-## - Pandas 2.2.x (data manipulation for omics datasets)
-## - PyTorch 2.2.0 (CUDA: 12.1, GPU acceleration)
-## - TorchVision 0.17.x (computer vision for microscopy image processing)
-## - scikit-image 0.22.x (image processing for tissue analysis)
-## - Cellpose 3.x.x (cell segmentation with legacy API compatibility)
-## - Scanpy (single-cell and spatial transcriptomics analysis)
-## - AnnData (annotated data structures for omics)
-##
-## '''Technical Configuration Notes'''
-## - Uses Python 3.10.
-## - Uses flexible channel priority to resolve complex dependency conflicts.
-## - NumPy constrained to <2.0 to avoid compatibility issues with PyTorch.
-## - Cellpose 3 may have different API requirements than Cellpose 4.
-## - GPU acceleration should work with CUDA 12.1+.
-##
-## Author: Christos Botos
-## Environment created: 2025-01-25
-## Compatible with: Ubuntu WSL, Linux systems with CUDA 12.1+
+################################################################################
+## SECTION A — One-time cleanup of any previous attempts.
+################################################################################
+## Paste the following in a shell. Comments end with a period.
+## Adjust paths if you used different locations or names.
+## Names used by these YAMLs: iri310_cellpose3 and iri310_cellpose3_minimal.
+
+# --- Begin cleanup commands. -------------------------------------------------.
+# Show current environments for situational awareness.
+conda info --envs
+
+# Deactivate any active conda environment.
+conda deactivate || true
+conda deactivate || true
+
+# Remove by name if registered.
+conda env remove -n iri310_cellpose3 -y || true
+conda env remove -n iri310_cellpose3_minimal -y || true
+
+# Remove by known home prefixes if they exist.
+conda env remove -p /home/cbotos/miniconda3/envs/iri310_cellpose3 -y || true
+conda env remove -p /home/cbotos/miniconda3/envs/iri310_cellpose3_minimal -y || true
+
+# Remove by known exports prefixes if they exist.
+conda env remove -p /exports/humgen/cbotos/conda-envs/iri310_cellpose3 -y || true
+conda env remove -p /exports/humgen/cbotos/conda-envs/iri310_cellpose3_minimal -y || true
+
+# Fallback removal for older conda implementations.
+conda remove --prefix /exports/humgen/cbotos/conda-envs/iri310_cellpose3 --all -y || true
+conda remove --prefix /exports/humgen/cbotos/conda-envs/iri310_cellpose3_minimal --all -y || true
+
+# Purge caches to reclaim space.
+conda clean --all --yes || true
+rm -rf ~/.cache/pip || true
+
+# Inspect free space baseline.
+df -h
+# --- End cleanup commands. ---------------------------------------------------.
+
+################################################################################
+## SECTION B — Configure Conda to store envs and pkgs under /exports.
+################################################################################
+## Create directories and set persistent configuration in ~/.condarc.
+
+# --- Begin configuration commands. ------------------------------------------.
+mkdir -p /exports/humgen/cbotos/conda-envs
+mkdir -p /exports/humgen/cbotos/conda-pkgs
+mkdir -p /exports/humgen/cbotos/tmp
+mkdir -p /exports/humgen/cbotos/.cache/pip
+
+# Register the directories with conda so future operations do not use $HOME.
+conda config --add envs_dirs /exports/humgen/cbotos/conda-envs
+conda config --add pkgs_dirs /exports/humgen/cbotos/conda-pkgs
+conda config --set channel_priority strict
+
+# Optional: steer temporary files and pip cache to /exports for this shell.
+export TMPDIR=/exports/humgen/cbotos/tmp
+export PIP_CACHE_DIR=/exports/humgen/cbotos/.cache/pip
+
+# Verify configuration.
+conda config --show envs_dirs pkgs_dirs channel_priority
+# --- End configuration commands. --------------------------------------------.
+
+################################################################################
+## SECTION C — Create the environment from this YAML in /exports.
+################################################################################
+## Use a prefix to force the exact location irrespective of the 'name:' field.
+## Prefer mamba for faster and more reliable solves on HPC if available.
+
+# --- Begin creation commands. -----------------------------------------------.
+# With conda.
+conda env create \
+  -p /exports/humgen/cbotos/conda-envs/iri310_cellpose3 \
+  -f /path/to/cellpose3_environment.yml
+
+# Or with mamba after installing it in base.
+# conda install -n base -c conda-forge mamba -y
+# mamba env create \
+#   -p /exports/humgen/cbotos/conda-envs/iri310_cellpose3 \
+#   -f /path/to/cellpose3_environment.yml
+
+# Activate and verify paths.
+conda activate /exports/humgen/cbotos/conda-envs/iri310_cellpose3
+which python
+python -c "import sys, site; print(sys.executable); print(site.getsitepackages())"
+# --- End creation commands. --------------------------------------------------.
+
+################################################################################
+## SECTION D — Optional GPU alignment and pip installs without caching.
+################################################################################
+## If torch.cuda.is_available() is False on a GPU node, ensure that the CUDA
+## toolkit and the PyTorch build match. You can install a specific CUDA wheel
+## from the PyTorch index if required. Replace cu121 with the cluster version.
+
+# Example to force a CUDA 12.1 build if needed.
+# pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu121 \
+#   "torch>=2.0,<3" torchvision
+
+# Reuse exports-based temporary and cache directories to avoid $HOME use.
+export TMPDIR=/exports/humgen/cbotos/tmp
+export PIP_CACHE_DIR=/exports/humgen/cbotos/.cache/pip
+
+# Example to reinstall critical packages without caching if a retry is needed.
+# pip install --no-cache-dir \
+#   "cellpose==3.0.10" opencv-python-headless imagecodecs pandas joblib pytest
+
+################################################################################
+## SECTION E — Sanity tests.
+################################################################################
+## Run after activation to prove core functionality and paths.
+
+python - <<'PY'
+import os, sys
+print("Python:", sys.version)
+print("Prefix:", sys.prefix)
+print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
+
+import torch, torchvision, cellpose, skimage, cv2, pandas, joblib, pytest
+print("torch:", torch.__version__, "cuda_avail:", torch.cuda.is_available())
+print("torchvision:", torchvision.__version__)
+print("cellpose:", cellpose.__version__)
+print("skimage:", skimage.__version__)
+print("opencv:", cv2.__version__)
+print("pandas:", pandas.__version__)
+print("joblib:", joblib.__version__)
+print("pytest:", pytest.__version__)
+print("Cellpose path:", os.path.dirname(cellpose.__file__))
+PY
+
+## CLI checks.
+cellpose --version
+cellpose --help | head -n 20
+
+## GPU smoke test to validate kernels on a GPU node.
+python - <<'PY'
+import torch
+if not torch.cuda.is_available():
+    raise SystemExit("CUDA not available. Run this test on a GPU node after loading the correct CUDA module.")
+x = torch.rand((4096, 4096), device="cuda")
+y = x @ x.T
+print("GPU matmul ok. Shape:", y.shape)
+PY
+
+################################################################################
+## SECTION F — Package versions reference.
+################################################################################
+## The exact package versions are determined by the solver and the available
+## builds on the cluster. Record them with the following command for provenance.
+
+conda list > /exports/humgen/cbotos/conda-envs/iri310_cellpose3/conda-list-freeze.txt
+
+## Indicative versions known to work on the cluster should be verified by the
+## tests above rather than assumed.
+## - Python: 3.10.x.
+## - PyTorch: 2.x with a matching CUDA build when GPUs are used.
+## - Cellpose: 3.0.10.
+## - NumPy: 1.26.x or compatible with the chosen PyTorch build.
+## - scikit-image: 0.22.x.
+## - pandas: 2.2.x.
+
+################################################################################
+## SECTION G — Removal of this environment if needed.
+################################################################################
+## Deactivate first, then remove by prefix to avoid ambiguity.
+
+conda deactivate || true
+conda env remove -p /exports/humgen/cbotos/conda-envs/iri310_cellpose3 -y
+# As a last resort.
+rm -rf /exports/humgen/cbotos/conda-envs/iri310_cellpose3
+
+################################################################################
+## Author: Christos Botos.
+## Last updated: 2025-07-26.
+################################################################################
