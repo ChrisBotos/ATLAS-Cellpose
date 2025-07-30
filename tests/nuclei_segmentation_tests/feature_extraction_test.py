@@ -42,17 +42,15 @@ import os
 import numpy as np
 import pandas as pd
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from PIL import Image
-from scipy import ndimage
-from skimage.measure import regionprops, label
+from skimage.measure import regionprops
 
 # Add the project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 # Import the module to be tested
-from code.nuclei_segmentation.extract_engineered_features import (
+from code.engineered_feature_extraction.extract_engineered_features import (
     compute_dark_distance_map,
     compute_sparse_distance_map,
     fractal_dimension,
@@ -398,7 +396,7 @@ def test_extract_command(mock_process_image, temp_image_and_mask):
         mock_process_image: Mocked process_image function.
         temp_image_and_mask: Tuple with paths to test image and mask.
     """
-    from code.nuclei_segmentation.extract_engineered_features import extract
+    from code.engineered_feature_extraction.extract_engineered_features import extract
     
     image_path, mask_path = temp_image_and_mask
     output_path = image_path.parent / "features.csv"

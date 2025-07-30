@@ -132,6 +132,20 @@ def load_config(config_path=None):
         "skip_and_copy_merging": config.getboolean("using_previous_results", "skip_and_copy_merging", fallback=False),
         "skip_and_copy_postprocessing": config.getboolean("using_previous_results", "skip_and_copy_postprocessing", fallback=False),
         "skip_and_copy_visualization": config.getboolean("using_previous_results", "skip_and_copy_visualization", fallback=False),
+
+        # Feature extraction parameters for comprehensive nuclear analysis.
+        "shape_features": config.getboolean("feature_extraction", "shape_features", fallback=True),
+        "size_features": config.getboolean("feature_extraction", "size_features", fallback=True),
+        "neighborhood_features": config.getboolean("feature_extraction", "neighborhood_features", fallback=True),
+        "texture_features": config.getboolean("feature_extraction", "texture_features", fallback=True),
+        "neighborhood_radius": config.getfloat("feature_extraction", "neighborhood_radius", fallback=50.0),
+        "feature_extraction_workers": config.getint("feature_extraction", "feature_extraction_workers", fallback=-1),
+        "min_nuclear_area": config.getfloat("feature_extraction", "min_nuclear_area", fallback=10.0),
+        "max_nuclear_area": config.getfloat("feature_extraction", "max_nuclear_area", fallback=2000.0),
+        "enable_violin_plots": config.getboolean("feature_extraction", "enable_violin_plots", fallback=True),
+        "timepoint_color_coding": config.getboolean("feature_extraction", "timepoint_color_coding", fallback=True),
+        "features_per_page": config.getint("feature_extraction", "features_per_page", fallback=9),
+        "enable_statistical_testing": config.getboolean("feature_extraction", "enable_statistical_testing", fallback=True),
     }
 
     # Cellpose-specific settings optimized for adaptive diameter detection.

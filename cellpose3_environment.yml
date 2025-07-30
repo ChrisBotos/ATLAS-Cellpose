@@ -14,6 +14,7 @@ dependencies:
 
   # ───────── Visualization and Image Processing ─────────
   - matplotlib                  # Plotting and figures.
+  - seaborn                     # Statistical data visualization for publication-quality plots.
   - scikit-image                # Image processing toolkit.
   - pillow                      # Imaging primitives.
   - imageio                     # Simple image IO helpers.
@@ -41,6 +42,9 @@ dependencies:
     - "transformers"               # Transformer models for potential NLP tasks in bioinformatics.
     - "pyarrow"                    # Columnar IO and Arrow memory format for large datasets.
     - "fastparquet"                # High-performance Parquet IO.
+    - "typer>=0.9.0,<1.0.0"        # Modern CLI framework for feature extraction and visualization scripts.
+    - "rich>=13.0.0"               # Rich text and beautiful formatting for typer CLI output.
+    - "statsmodels"                # Statistical models and tests for feature analysis.
 
 ################################################################################
 ## CELLPOSE3 ENVIRONMENT SETUP FOR I/R KIDNEY INJURY ANALYSIS.
@@ -164,7 +168,8 @@ export PIP_CACHE_DIR=/exports/humgen/cbotos/.cache/pip
 
 # Example to reinstall critical packages without caching if a retry is needed.
 # pip install --no-cache-dir \
-#   "cellpose==3.0.10" opencv-python-headless imagecodecs pandas joblib pytest
+#   "cellpose==3.0.10" opencv-python-headless imagecodecs pandas joblib pytest \
+#   "typer>=0.9.0,<1.0.0" "rich>=13.0.0" statsmodels
 
 ################################################################################
 ## SECTION E — Sanity tests.
@@ -178,6 +183,7 @@ print("Prefix:", sys.prefix)
 print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
 
 import torch, torchvision, cellpose, skimage, cv2, pandas, joblib, pytest
+import matplotlib, seaborn
 print("torch:", torch.__version__, "cuda_avail:", torch.cuda.is_available())
 print("torchvision:", torchvision.__version__)
 print("cellpose:", cellpose.__version__)
@@ -186,6 +192,14 @@ print("opencv:", cv2.__version__)
 print("pandas:", pandas.__version__)
 print("joblib:", joblib.__version__)
 print("pytest:", pytest.__version__)
+print("matplotlib:", matplotlib.__version__)
+print("seaborn:", seaborn.__version__)
+
+# Test new CLI and statistical packages for refactored feature extraction.
+import typer, rich, statsmodels
+print("typer:", typer.__version__)
+print("rich:", rich.__version__)
+print("statsmodels:", statsmodels.__version__)
 print("Cellpose path:", os.path.dirname(cellpose.__file__))
 PY
 
@@ -219,6 +233,11 @@ conda list > /exports/humgen/cbotos/conda-envs/iri310_cellpose3/conda-list-freez
 ## - NumPy: 1.26.x or compatible with the chosen PyTorch build.
 ## - scikit-image: 0.22.x.
 ## - pandas: 2.2.x.
+## - matplotlib: 3.8.x for plotting and visualization.
+## - seaborn: 0.13.x for statistical data visualization.
+## - typer: 0.9.x for modern CLI interfaces in refactored feature extraction.
+## - rich: 13.x for beautiful CLI output formatting.
+## - statsmodels: Latest stable for statistical analysis and testing.
 
 ################################################################################
 ## SECTION G — Removal of this environment if needed.

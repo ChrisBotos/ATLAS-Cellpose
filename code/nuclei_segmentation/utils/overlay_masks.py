@@ -22,7 +22,7 @@ Dependencies:
     • imagecodecs (optional, for compression)
 
 Usage:
-    python overlay_masks.py --image img/IRI_regist_cropped.tif --mask segmentation_masks.npy
+    python overlay_masks.py --image ../../../data/ss_bIRI2.tif --mask ../../../results/20250726_001612_full_ss_bIRI2_cpu-merge_cellpose3_diameter0/masks/segmentation_masks.npy
                            --out overlay.tif --tile 1024 --workers 8 --alpha 0.4 --gpu
                            --batch-size 4 --memory-limit 8192
 

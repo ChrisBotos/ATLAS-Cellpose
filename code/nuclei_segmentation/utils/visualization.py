@@ -225,15 +225,15 @@ def load_masks(mask_paths: list[Path], debug_dir: Path, logger) -> np.ndarray | 
                 plt.close()
                 logger.debug(f"Saved mask histogram to: {hist_path}")
 
-                # Visualization of segmentation.
-                if num > 0:
-                    colors = np.random.rand(masks.max() + 1, 3)
-                    mask_rgb = np.zeros((*masks.shape, 3), dtype=np.uint8)
-                    for i in range(1, masks.max() + 1):
-                        mask_rgb[masks == i] = (colors[i] * 255).astype(np.uint8)
-                    vis_path = debug_dir / f"mask_vis_{path.stem}.tif"
-                    skio.imsave(str(vis_path), mask_rgb)
-                    logger.debug(f"Saved mask visualization to: {vis_path}")
+                # # Visualization of segmentation.
+                # if num > 0:
+                #     colors = np.random.rand(masks.max() + 1, 3)
+                #     mask_rgb = np.zeros((*masks.shape, 3), dtype=np.uint8)
+                #     for i in range(1, masks.max() + 1):
+                #         mask_rgb[masks == i] = (colors[i] * 255).astype(np.uint8)
+                #     vis_path = debug_dir / f"mask_vis_{path.stem}.tif"
+                #     skio.imsave(str(vis_path), mask_rgb)
+                #     logger.debug(f"Saved mask visualization to: {vis_path}")
 
             return masks
 

@@ -61,7 +61,7 @@ dependencies:
 ## 2. Install mamba for faster dependency resolution:
 ##    conda install -n base mamba -c conda-forge
 ## 3. Create the environment:
-##    mamba env create -f environment.yml
+##    mamba env create -f cellpose4_environment.yml
 ## 4. Activate the environment:
 ##    conda activate iri310
 ## 5. Test the environment:
