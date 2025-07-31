@@ -205,8 +205,8 @@ Use the provided, validated environment configuration:
 
 ```bash
 # Clone the repository if you haven't already
-git clone https://github.com/ChrisBotos/I-R-Injury-Spatial-Multiomics-Analysis.git
-cd I-R-Injury-Spatial-Multiomics-Analysis
+git clone https://github.com/ChrisBotos/Nuclei-Segmentation-with-Cellpose.git
+cd Nuclei-Segmentation-with-Cellpose
 
 # Create the environment using the validated configuration
 mamba env create -f cellpose4_environment.yml
@@ -1457,7 +1457,7 @@ source ~/miniconda3/etc/profile.d/conda.sh
 conda activate iri310_cellpose3
 
 # Change to project directory
-cd /path/to/I-R-Injury-Spatial-Multiomics-Analysis
+cd /path/to/Nuclei-Segmentation-with-Cellpose
 
 # Run pipeline
 python code/nuclei_segmentation/run_this.py
@@ -1765,8 +1765,8 @@ We welcome contributions to improve the tissue I/R injury analysis pipeline!
 
 ```bash
 # Clone repository
-git clone https://github.com/ChrisBotos/I-R-Injury-Spatial-Multiomics-Analysis.git
-cd I-R-Injury-Spatial-Multiomics-Analysis
+git clone https://github.com/ChrisBotos/Nuclei-Segmentation-with-Cellpose.git
+cd Nuclei-Segmentation-with-Cellpose
 
 # Create development environment
 python -m venv dev_env
@@ -1850,7 +1850,7 @@ If you use this pipeline in your research, please cite:
   author={Botos, Christos and Manzato, Benedetta and Mahfouz, Ahmed},
   year={2024},
   institution={Leiden University Medical Center},
-  url={https://github.com/ChrisBotos/I-R-Injury-Spatial-Multiomics-Analysis}
+  url={https://github.com/ChrisBotos/Nuclei-Segmentation-with-Cellpose}
 }
 ```
 

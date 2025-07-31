@@ -179,7 +179,7 @@ echo "ENVIRONMENT VERIFICATION COMPLETE - STARTING PIPELINE"
 echo "============================================================"
 
 # Change to the correct directory.
-cd /mnt/c/Projects/I-R-Injury-Spatial-Multiomics-Analysis
+cd /mnt/c/Projects/Nuclei-Segmentation-with-Cellpose
 
 # Run the segmentation pipeline.
 python code/nuclei_segmentation/run_this.py

@@ -17,7 +17,7 @@ set -euo pipefail
 ###############################################################################
 
 # Repository and project configuration.
-REPO_NAME="I-R-Injury-Spatial-Multiomics-Analysis"
+REPO_NAME="Nuclei-Segmentation-with-Cellpose"
 JOB_NAME="segmentation_only_run"                  # Custom job name for predictable results.
 
 # Validate that we're in the expected directory structure.

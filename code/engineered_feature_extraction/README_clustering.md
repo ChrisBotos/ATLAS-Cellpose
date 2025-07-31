@@ -250,7 +250,7 @@ When using this clustering module in publications, please cite:
   author={Christos Botos},
   institution={Leiden University Medical Center},
   year={2024},
-  url={https://github.com/ChrisBotos/I-R-Injury-Spatial-Multiomics-Analysis}
+  url={https://github.com/ChrisBotos/Nuclei-Segmentation-with-Cellpose}
 }
 ```
 
