@@ -95,7 +95,8 @@ from rich import print as rprint
 # Add project root to path for imports.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from code.nuclei_segmentation.utils.project_setup import load_config
+# Import feature extraction configuration utilities.
+from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config
 
 # Initialize Typer app for CLI.
 app = typer.Typer(help="Extract comprehensive nuclear features for kidney I/R injury analysis.")
@@ -265,7 +266,7 @@ def fractal_dimension(binary_mask: np.ndarray) -> float:
 
 """SHAPE FEATURE EXTRACTION"""
 
-def extract_shape_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
+def extract_shape_features(region: Any, gray: np.ndarray, config_settings: Dict[str, Any]) -> Dict[str, float]:
     """
     Extract comprehensive shape-based morphological features from nuclear regions.
 
@@ -275,6 +276,7 @@ def extract_shape_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
     Args:
         region: Regionprops object containing nuclear measurements.
         gray: Grayscale image array for additional calculations.
+        config_settings: Configuration dictionary with feature control flags.
 
     Returns:
         Dictionary containing shape feature measurements.
@@ -299,11 +301,6 @@ def extract_shape_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
     # Decreases during nuclear fragmentation and membrane blebbing.
     features['solidity'] = region.solidity
 
-    # Convex area ratio: additional measure of shape regularity.
-    convex_hull = convex_hull_image(region.image)
-    convex_area = np.sum(convex_hull)
-    features['convex_area_ratio'] = area / convex_area if convex_area > 0 else np.nan
-
     # Aspect ratio: ratio of major to minor axis lengths.
     # Indicates nuclear elongation and deformation patterns.
     major = region.major_axis_length
@@ -323,12 +320,22 @@ def extract_shape_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
     # Form factor: measure of shape complexity.
     features['form_factor'] = (4 * np.pi * area) / (perimeter**2) if perimeter > 0 else np.nan
 
-    # Convexity: ratio of convex hull perimeter to actual perimeter.
-    try:
-        from skimage.measure import perimeter as measure_perimeter
-        convex_perimeter = measure_perimeter(convex_hull)
-        features['convexity'] = convex_perimeter / perimeter if perimeter > 0 else np.nan
-    except:
+    # Optional convex hull features (computationally expensive).
+    if config_settings.get('enable_convex_hull_features', True):
+        # Convex area ratio: additional measure of shape regularity.
+        convex_hull = convex_hull_image(region.image)
+        convex_area = np.sum(convex_hull)
+        features['convex_area_ratio'] = area / convex_area if convex_area > 0 else np.nan
+
+        # Convexity: ratio of convex hull perimeter to actual perimeter.
+        try:
+            from skimage.measure import perimeter as measure_perimeter
+            convex_perimeter = measure_perimeter(convex_hull)
+            features['convexity'] = convex_perimeter / perimeter if perimeter > 0 else np.nan
+        except:
+            features['convexity'] = np.nan
+    else:
+        features['convex_area_ratio'] = np.nan
         features['convexity'] = np.nan
 
     logger.debug(f"Shape features extracted: circularity={features['circularity']:.3f}, "
@@ -400,7 +407,8 @@ def extract_size_features(region: Any) -> Dict[str, float]:
 def extract_neighborhood_features(
     region: Any,
     neighbor_data: Dict[str, Any],
-    image_shape: Tuple[int, int]
+    image_shape: Tuple[int, int],
+    config_settings: Dict[str, Any]
 ) -> Dict[str, float]:
     """
     Extract spatial neighborhood features for tissue organization analysis.
@@ -412,6 +420,7 @@ def extract_neighborhood_features(
         region: Regionprops object containing nuclear measurements.
         neighbor_data: Dictionary with neighbor information (centroids, areas, etc.).
         image_shape: Shape of the original image for boundary calculations.
+        config_settings: Configuration dictionary with feature control flags.
 
     Returns:
         Dictionary containing neighborhood feature measurements.
@@ -429,8 +438,10 @@ def extract_neighborhood_features(
     # Nearest neighbor distance: measure of local cell density.
     # Increases in areas of cell loss and tissue damage.
     if centroids:
-        distances = [np.hypot(cx - x, cy - y) for y, x in centroids]
-        features['nearest_neighbor_distance'] = float(min(distances))
+        # Vectorized distance calculation for better performance.
+        centroids_array = np.array(centroids)
+        distances = np.sqrt(np.sum((centroids_array - np.array([cy, cx]))**2, axis=1))
+        features['nearest_neighbor_distance'] = float(np.min(distances))
     else:
         features['nearest_neighbor_distance'] = radius  # Use search radius as default.
 
@@ -440,8 +451,8 @@ def extract_neighborhood_features(
     search_area = np.pi * radius**2
     features['neighborhood_density'] = neighbor_count / search_area
 
-    # Spatial clustering analysis using PCA on neighbor positions.
-    if len(centroids) >= 2:
+    # Optional PCA clustering analysis (computationally expensive).
+    if config_settings.get('enable_pca_clustering', True) and len(centroids) >= 2:
         coords = np.array([[x, y] for y, x in centroids])
         pca = PCA(n_components=2).fit(coords)
         eigenvalues = pca.explained_variance_
@@ -462,10 +473,9 @@ def extract_neighborhood_features(
         features['cluster_elongation'] = 0.0
         features['cluster_polarization'] = 0.0
 
-    # Spatial autocorrelation: measure of local similarity.
-    # Calculated as correlation between nuclear area and neighbor areas.
-    if areas:
-        area_diff = [abs(region.area - a) for a in areas]
+    # Optional spatial autocorrelation (moderately expensive).
+    if config_settings.get('enable_spatial_autocorrelation', True) and areas:
+        area_diff = np.abs(np.array(areas) - region.area)
         mean_diff = np.mean(area_diff)
         features['spatial_autocorrelation'] = 1.0 / (1.0 + mean_diff / region.area) if region.area > 0 else 0.0
     else:
@@ -483,9 +493,8 @@ def extract_neighborhood_features(
     elongation_norm = min(features['cluster_elongation'] / 10.0, 1.0)  # Normalize elongation.
     features['tissue_organization_index'] = (density_norm + elongation_norm) / 2.0
 
-    # Local clustering coefficient: measure of neighborhood connectivity.
-    # Approximated using neighbor density and spatial distribution.
-    if neighbor_count > 1:
+    # Optional local clustering coefficient (expensive computation).
+    if config_settings.get('enable_clustering_coefficient', True) and neighbor_count > 1:
         expected_connections = neighbor_count * (neighbor_count - 1) / 2
         actual_density = features['neighborhood_density']
         max_density = neighbor_count / (np.pi * 10**2)  # Assume minimum 10-pixel spacing.
@@ -502,7 +511,7 @@ def extract_neighborhood_features(
 
 """TEXTURE FEATURE EXTRACTION"""
 
-def extract_texture_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
+def extract_texture_features(region: Any, gray: np.ndarray, config_settings: Dict[str, Any]) -> Dict[str, float]:
     """
     Extract comprehensive texture features for chromatin organization analysis.
 
@@ -512,6 +521,7 @@ def extract_texture_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
     Args:
         region: Regionprops object containing nuclear measurements.
         gray: Grayscale image array for texture analysis.
+        config_settings: Configuration dictionary with feature control flags.
 
     Returns:
         Dictionary containing texture feature measurements.
@@ -536,7 +546,7 @@ def extract_texture_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
         logger.warning(f"No intensity values for nucleus {region.label}.")
         return {key: np.nan for key in TEXTURE_FEATURES}
 
-    # Basic intensity statistics.
+    # Basic intensity statistics (fast and always computed).
     features['intensity_mean'] = float(vals.mean())
     features['intensity_std'] = float(vals.std())
     features['intensity_median'] = float(np.median(vals))
@@ -550,6 +560,47 @@ def extract_texture_features(region: Any, gray: np.ndarray) -> Dict[str, float]:
     hist, _ = np.histogram(vals, bins=32, density=True)
     hist = hist + 1e-10  # Avoid log(0).
     features['texture_entropy'] = float(entropy(hist))
+
+    # Optional GLCM features (very computationally expensive).
+    if config_settings.get('enable_glcm_features', False) and not config_settings.get('skip_expensive_texture', True):
+        try:
+            # Quantize intensities for GLCM computation.
+            patch_quantized = (patch * 255 / patch.max()).astype(np.uint8) if patch.max() > 0 else patch.astype(np.uint8)
+
+            # Compute GLCM with reduced complexity.
+            glcm = graycomatrix(patch_quantized, distances=[1], angles=[0], levels=64, symmetric=True, normed=True)
+
+            features['glcm_contrast'] = float(graycoprops(glcm, 'contrast')[0, 0])
+            features['glcm_dissimilarity'] = float(graycoprops(glcm, 'dissimilarity')[0, 0])
+            features['glcm_homogeneity'] = float(graycoprops(glcm, 'homogeneity')[0, 0])
+            features['glcm_energy'] = float(graycoprops(glcm, 'energy')[0, 0])
+        except Exception as e:
+            logger.debug(f"GLCM computation failed for nucleus {region.label}: {e}")
+            features['glcm_contrast'] = np.nan
+            features['glcm_dissimilarity'] = np.nan
+            features['glcm_homogeneity'] = np.nan
+            features['glcm_energy'] = np.nan
+    else:
+        # Skip expensive GLCM features.
+        features['glcm_contrast'] = np.nan
+        features['glcm_dissimilarity'] = np.nan
+        features['glcm_homogeneity'] = np.nan
+        features['glcm_energy'] = np.nan
+
+    # Optional gradient features (moderately expensive).
+    if config_settings.get('enable_gradient_features', True):
+        try:
+            gradient = sobel(patch)
+            gradient_vals = gradient[mask_patch]
+            features['gradient_magnitude_mean'] = float(gradient_vals.mean())
+            features['gradient_magnitude_std'] = float(gradient_vals.std())
+        except Exception as e:
+            logger.debug(f"Gradient computation failed for nucleus {region.label}: {e}")
+            features['gradient_magnitude_mean'] = np.nan
+            features['gradient_magnitude_std'] = np.nan
+    else:
+        features['gradient_magnitude_mean'] = np.nan
+        features['gradient_magnitude_std'] = np.nan
 
     logger.debug(f"Texture features extracted: mean_intensity={features['intensity_mean']:.2f}, "
                 f"std_intensity={features['intensity_std']:.2f}, "
@@ -594,7 +645,7 @@ def compute_comprehensive_features(
     # Extract shape features if enabled.
     if config_settings.get('shape_features', True):
         logger.debug("Extracting shape features.")
-        shape_features = extract_shape_features(region, gray)
+        shape_features = extract_shape_features(region, gray, config_settings)
         features.update(shape_features)
 
     # Extract size features if enabled.
@@ -604,20 +655,22 @@ def compute_comprehensive_features(
         features.update(size_features)
 
     # Extract neighborhood features if enabled.
-    if config_settings.get('neighborhood_features', True):
+    if config_settings.get('neighborhood_features', False):
         logger.debug("Extracting neighborhood features.")
-        neighborhood_features = extract_neighborhood_features(region, neighbor_data, image_shape)
+        neighborhood_features = extract_neighborhood_features(region, neighbor_data, image_shape, config_settings)
         features.update(neighborhood_features)
 
     # Extract texture features if enabled.
     if config_settings.get('texture_features', True):
         logger.debug("Extracting texture features.")
-        texture_features = extract_texture_features(region, gray)
+        texture_features = extract_texture_features(region, gray, config_settings)
         features.update(texture_features)
 
-    # Add fractal dimension as advanced shape feature.
-    if config_settings.get('shape_features', True):
+    # Add fractal dimension as advanced shape feature (optional).
+    if config_settings.get('shape_features', True) and config_settings.get('enable_fractal_dimension', True):
         features['fractal_dimension'] = fractal_dimension(region.image)
+    elif config_settings.get('shape_features', True):
+        features['fractal_dimension'] = np.nan
 
     logger.debug(f"Comprehensive feature extraction completed for nucleus {region.label}.")
 
@@ -628,6 +681,7 @@ def build_neighbors_list(
     props: List[Any],
     tree: cKDTree,
     radius: float,
+    config_settings: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """
     Build neighborhood information for each nuclear region.
@@ -639,6 +693,7 @@ def build_neighbors_list(
         props: List of regionprops objects.
         tree: KD-tree built from nuclear centroids.
         radius: Search radius for neighbor identification.
+        config_settings: Configuration dictionary with optimization flags.
 
     Returns:
         List of dictionaries containing neighbor information for each nucleus.
@@ -647,20 +702,57 @@ def build_neighbors_list(
 
     neighbor_data = []
 
-    for idx, region in enumerate(props):
-        # Find neighbors within radius (excluding self).
-        neighbor_indices = [i for i in tree.query_ball_point(region.centroid, radius) if i != idx]
+    # Use vectorized approach if enabled and beneficial.
+    if config_settings.get('enable_vectorized_neighborhood', True) and len(props) > 100:
+        logger.debug("Using vectorized neighborhood computation for better performance.")
 
-        # Collect neighbor information.
-        neighbor_info = {
-            'centroids': [props[i].centroid for i in neighbor_indices],
-            'areas': [props[i].area for i in neighbor_indices],
-            'eccs': [props[i].eccentricity for i in neighbor_indices],
-            'orients': [props[i].orientation for i in neighbor_indices],
-            'radius': radius,
-        }
+        # Pre-extract all properties for vectorized operations.
+        centroids = np.array([r.centroid for r in props])
+        areas = np.array([r.area for r in props])
+        eccentricities = np.array([r.eccentricity for r in props])
+        orientations = np.array([r.orientation for r in props])
 
-        neighbor_data.append(neighbor_info)
+        # Batch process neighbor queries.
+        batch_size = config_settings.get('neighborhood_batch_size', 1000)
+
+        for start_idx in range(0, len(props), batch_size):
+            end_idx = min(start_idx + batch_size, len(props))
+            batch_centroids = centroids[start_idx:end_idx]
+
+            # Query neighbors for entire batch.
+            batch_neighbors = tree.query_ball_point(batch_centroids, radius)
+
+            for i, neighbor_indices in enumerate(batch_neighbors):
+                actual_idx = start_idx + i
+                # Remove self from neighbors.
+                neighbor_indices = [idx for idx in neighbor_indices if idx != actual_idx]
+
+                # Collect neighbor information using vectorized indexing.
+                neighbor_info = {
+                    'centroids': centroids[neighbor_indices].tolist(),
+                    'areas': areas[neighbor_indices].tolist(),
+                    'eccs': eccentricities[neighbor_indices].tolist(),
+                    'orients': orientations[neighbor_indices].tolist(),
+                    'radius': radius,
+                }
+
+                neighbor_data.append(neighbor_info)
+    else:
+        # Use original approach for smaller datasets.
+        for idx, region in enumerate(props):
+            # Find neighbors within radius (excluding self).
+            neighbor_indices = [i for i in tree.query_ball_point(region.centroid, radius) if i != idx]
+
+            # Collect neighbor information.
+            neighbor_info = {
+                'centroids': [props[i].centroid for i in neighbor_indices],
+                'areas': [props[i].area for i in neighbor_indices],
+                'eccs': [props[i].eccentricity for i in neighbor_indices],
+                'orients': [props[i].orientation for i in neighbor_indices],
+                'radius': radius,
+            }
+
+            neighbor_data.append(neighbor_info)
 
     logger.debug(f"Neighbors list built. Average neighbors per nucleus: "
                 f"{np.mean([len(n['centroids']) for n in neighbor_data]):.2f}.")
@@ -748,10 +840,8 @@ def process_image_with_config(
             # Task 1: Load configuration.
             config_task = progress.add_task("[cyan]Loading configuration...", total=1)
 
-            if config_path and config_path.exists():
-                settings, _, _ = load_config(config_path)
-            else:
-                settings, _, _ = load_config()
+            # Load feature extraction configuration.
+            settings = load_feature_extraction_config(config_path)
 
             # Override settings with command-line arguments if provided.
             if neighbor_radius is not None:
@@ -761,17 +851,49 @@ def process_image_with_config(
 
             progress.update(config_task, completed=1)
 
-            # Display configuration summary.
+            # Display configuration summary with performance warnings.
             config_table = Table(title="Feature Extraction Configuration")
             config_table.add_column("Category", style="cyan")
             config_table.add_column("Enabled", style="green")
+            config_table.add_column("Performance Impact", style="yellow")
 
-            config_table.add_row("Shape Features", "✓" if settings.get('shape_features', True) else "✗")
-            config_table.add_row("Size Features", "✓" if settings.get('size_features', True) else "✗")
-            config_table.add_row("Neighborhood Features", "✓" if settings.get('neighborhood_features', True) else "✗")
-            config_table.add_row("Texture Features", "✓" if settings.get('texture_features', True) else "✗")
+            config_table.add_row("Shape Features", "✓" if settings.get('shape_features', True) else "✗", "Fast")
+            config_table.add_row("Size Features", "✓" if settings.get('size_features', True) else "✗", "Fast")
+
+            neighborhood_enabled = settings.get('neighborhood_features', True)
+            neighborhood_impact = "VERY SLOW" if neighborhood_enabled else "Skipped"
+            if neighborhood_enabled and len(props) > 10000:
+                neighborhood_impact += " (>10k nuclei!)"
+            config_table.add_row("Neighborhood Features", "✓" if neighborhood_enabled else "✗", neighborhood_impact)
+
+            texture_enabled = settings.get('texture_features', True)
+            texture_impact = "Fast"
+            if texture_enabled and settings.get('enable_glcm_features', False):
+                texture_impact = "SLOW (GLCM enabled)"
+            config_table.add_row("Texture Features", "✓" if texture_enabled else "✗", texture_impact)
 
             console.print(config_table)
+
+            # Performance warnings.
+            if neighborhood_enabled and len(props) > 5000:
+                console.print(Panel(
+                    f"[bold yellow]⚠️ PERFORMANCE WARNING[/bold yellow]\n\n"
+                    f"Neighborhood features are enabled with {len(props)} nuclei.\n"
+                    f"This may take a very long time (O(N²) complexity).\n\n"
+                    f"Consider setting 'neighborhood_features = False' in config\n"
+                    f"or reducing the neighborhood_radius for faster processing.",
+                    border_style="yellow",
+                    title="Performance Warning"
+                ))
+
+            if settings.get('enable_glcm_features', False):
+                console.print(Panel(
+                    f"[bold yellow]⚠️ GLCM FEATURES ENABLED[/bold yellow]\n\n"
+                    f"GLCM texture features are very computationally expensive.\n"
+                    f"Consider setting 'enable_glcm_features = False' for faster processing.",
+                    border_style="yellow",
+                    title="Performance Warning"
+                ))
 
             # Task 2: Load image and mask.
             load_task = progress.add_task("[cyan]Loading image and mask files...", total=2)
@@ -824,13 +946,18 @@ def process_image_with_config(
             console.print(f"[green]✓[/green] Size filtering: {original_count} → {len(props)} nuclei "
                          f"({100*len(props)/original_count:.1f}% retained)")
 
-            # Task 6: Build spatial neighborhood information.
-            neighbor_task = progress.add_task("[cyan]Building spatial neighborhood information...", total=1)
-            centroids = [r.centroid for r in props]
-            tree = cKDTree(centroids)
-            radius = settings.get('neighborhood_radius', 50.0)
-            neighbors = build_neighbors_list(props, tree, radius)
-            progress.update(neighbor_task, completed=1)
+            # Task 6: Build spatial neighborhood information (only if needed).
+            if settings.get('neighborhood_features', False):
+                neighbor_task = progress.add_task("[cyan]Building spatial neighborhood information...", total=1)
+                centroids = [r.centroid for r in props]
+                tree = cKDTree(centroids)
+                radius = settings.get('neighborhood_radius', 50.0)
+                neighbors = build_neighbors_list(props, tree, radius, settings)
+                progress.update(neighbor_task, completed=1)
+                console.print(f"[green]✓[/green] Built neighborhood information with radius {radius}")
+            else:
+                console.print(f"[yellow]⚠[/yellow] Skipping neighborhood information (neighborhood_features = False)")
+                neighbors = [{'centroids': [], 'areas': [], 'eccs': [], 'orients': [], 'radius': 0.0} for _ in props]
 
             # Task 7: Extract features with parallel processing.
             workers = settings.get('feature_extraction_workers', -1)
