@@ -18,12 +18,11 @@ Dependencies:
 
 Usage:
     python extract_engineered_features_refactored.py extract \
-        --image <path/to/image.tif> \
-        --mask <path/to/mask.npy> \
-        --output <path/to/features.csv> \
-        [--config <path/to/config.ini>] \
-        [--neighbor-radius <float>] \
-        [--jobs <int>]
+        --image ../../results/example_cropped/preprocessed/first.tif \
+        --mask ../../results/example_cropped/masks/segmentation_masks.npy \
+        --output ../../results/example_cropped/engineered_features/engineered_features.csv \
+        --config ../../configs/engineered_feature_extraction_config.ini \
+        --jobs 4
 
 Positional Arguments:
     extract    Command to extract features from segmented nuclei.
@@ -860,10 +859,8 @@ def process_image_with_config(
             config_table.add_row("Shape Features", "✓" if settings.get('shape_features', True) else "✗", "Fast")
             config_table.add_row("Size Features", "✓" if settings.get('size_features', True) else "✗", "Fast")
 
-            neighborhood_enabled = settings.get('neighborhood_features', True)
+            neighborhood_enabled = settings.get('neighborhood_features', False)  # Changed default to False for performance.
             neighborhood_impact = "VERY SLOW" if neighborhood_enabled else "Skipped"
-            if neighborhood_enabled and len(props) > 10000:
-                neighborhood_impact += " (>10k nuclei!)"
             config_table.add_row("Neighborhood Features", "✓" if neighborhood_enabled else "✗", neighborhood_impact)
 
             texture_enabled = settings.get('texture_features', True)
@@ -873,18 +870,6 @@ def process_image_with_config(
             config_table.add_row("Texture Features", "✓" if texture_enabled else "✗", texture_impact)
 
             console.print(config_table)
-
-            # Performance warnings.
-            if neighborhood_enabled and len(props) > 5000:
-                console.print(Panel(
-                    f"[bold yellow]⚠️ PERFORMANCE WARNING[/bold yellow]\n\n"
-                    f"Neighborhood features are enabled with {len(props)} nuclei.\n"
-                    f"This may take a very long time (O(N²) complexity).\n\n"
-                    f"Consider setting 'neighborhood_features = False' in config\n"
-                    f"or reducing the neighborhood_radius for faster processing.",
-                    border_style="yellow",
-                    title="Performance Warning"
-                ))
 
             if settings.get('enable_glcm_features', False):
                 console.print(Panel(

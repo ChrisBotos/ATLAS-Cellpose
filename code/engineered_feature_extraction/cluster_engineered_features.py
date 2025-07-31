@@ -17,19 +17,21 @@ Dependencies:
     • rich for progress tracking and console output.
 
 Usage:
-    python cluster_engineered_features.py cluster \
-        --features nuclear_features.csv \
-        --image tissue_dapi.tif \
-        --mask segmentation_masks.npy \
-        --clusters 15 --auto-k silhouette \
-        --outdir results/clustering --seed 42
+    python cluster_engineered_features.py \
+        --features ../../results/engineered_features/engineered_features.csv \
+        --image ../../results/example_cropped/preprocessed/first.tif \
+        --mask ../../results/example_cropped/masks/segmentation_masks.npy \
+        --clusters 4 \
+        --auto-k None \
+        --outdir ../../results/example_cropped/clustering \
+        --seed 42
 
 Arguments:
     --features         Path to CSV file with extracted nuclear features.
     --image            Path to raw microscopy image (TIFF format).
     --mask             Path to segmentation mask (.npy format).
     --clusters         Number of clusters for K-means (default: 10).
-    --auto-k           Auto K-selection method ('none', 'silhouette', 'dbi').
+    --auto-k           Auto K-selection method ('None', 'silhouette', 'dbi').
     --batch-size       Batch size for streaming processing (default: 5000).
     --outdir           Output directory for results.
     --seed             Random seed for reproducibility.
@@ -88,11 +90,11 @@ from rich.progress import Progress, TaskID
 from rich.table import Table
 
 # Import color generation utilities.
-from code.engineered_feature_extraction.utils.generate_contrast_colors import generate_color_palette, colors_to_hex_list
-from code.engineered_feature_extraction.utils.color_config import ColorConfig, load_color_config
+from utils.generate_contrast_colors import generate_color_palette, colors_to_hex_list
+from utils.color_config import ColorConfig, load_color_config
 
 # Import feature extraction configuration utilities.
-from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config
+from utils.config_loader import load_feature_extraction_config
 
 console = Console()
 
@@ -187,14 +189,14 @@ def load_nuclear_features(features_path: Path) -> pd.DataFrame:
     df = pd.read_csv(features_path)
     
     # Validate essential columns.
-    required_cols = ['Label']
+    required_cols = ['label']
     missing_cols = [col for col in required_cols if col not in df.columns]
-    
+
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
-    
+
     # Identify feature columns (exclude metadata).
-    metadata_cols = ['Label', 'Centroid_X', 'Centroid_Y']
+    metadata_cols = ['label', 'centroid_x', 'centroid_y']
     feature_cols = [col for col in df.columns if col not in metadata_cols]
     
     console.print(f"[green]✓[/green] Loaded {len(df)} nuclei with {len(feature_cols)} features")
@@ -247,10 +249,10 @@ def prepare_feature_matrix(df: pd.DataFrame) -> Tuple[np.ndarray, List[str], np.
     and prepares data for clustering while preserving nuclear labels.
     """
     # Extract nuclear labels.
-    nuclear_labels = df['Label'].values
-    
+    nuclear_labels = df['label'].values
+
     # Identify feature columns (exclude metadata).
-    metadata_cols = ['Label', 'Centroid_X', 'Centroid_Y']
+    metadata_cols = ['label', 'centroid_x', 'centroid_y']
     feature_cols = [col for col in df.columns if col not in metadata_cols]
     
     # Extract feature matrix.
@@ -622,7 +624,7 @@ def create_pca_visualization(features: np.ndarray, cluster_labels: np.ndarray,
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight',
-                facecolor='black', edgecolor='none')
+                facecolor='black', edgecolor='None')
     plt.close()
 
     console.print(f"[green]✓[/green] PCA visualization saved → {output_path}")
@@ -692,7 +694,7 @@ def analyze_feature_importance(features: np.ndarray, cluster_labels: np.ndarray,
     plt.grid(True, alpha=0.2, axis='x')
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight',
-                facecolor='black', edgecolor='none')
+                facecolor='black', edgecolor='None')
     plt.close()
 
     console.print(f"[green]✓[/green] Feature importance analysis saved → {output_path}")
@@ -795,7 +797,7 @@ Examples:
                        help='Path to configuration file (uses project defaults if not specified)')
     parser.add_argument('--clusters', type=int,
                        help='Number of clusters for K-means (overrides config)')
-    parser.add_argument('--auto-k', choices=['none', 'silhouette', 'dbi'],
+    parser.add_argument('--auto-k', choices=['None', 'silhouette', 'dbi'],
                        help='Auto K-selection method (overrides config)')
     parser.add_argument('--batch-size', type=int,
                        help='Batch size for streaming processing (overrides config)')
@@ -856,7 +858,7 @@ Examples:
         scaler = stream_scale_features(features, config['clustering_batch_size'])
 
         # Step 5: Determine optimal number of clusters.
-        if config['auto_k_method'] != 'none':
+        if config['auto_k_method'] != 'None':
             optimal_k, scores_df = choose_optimal_k(features, config['max_clusters_test'], config['auto_k_method'])
             scores_df.to_csv(output_dir / 'cluster_selection_scores.csv', index=False)
             n_clusters = optimal_k
@@ -944,7 +946,7 @@ Examples:
         summary_table.add_row("Nuclei Clustered", str(len(df)))
         summary_table.add_row("Features Used", str(len(feature_names)))
         summary_table.add_row("Number of Clusters", str(n_clusters))
-        summary_table.add_row("Clustering Method", config['auto_k_method'] if config['auto_k_method'] != 'none' else 'Fixed K')
+        summary_table.add_row("Clustering Method", config['auto_k_method'] if config['auto_k_method'] != 'None' else 'Fixed K')
         summary_table.add_row("Processing Time", f"{processing_time:.2f} seconds")
         summary_table.add_row("Output Directory", str(output_dir))
         summary_table.add_row("Color Palette", f"{len(color_palette)} distinct colors")
