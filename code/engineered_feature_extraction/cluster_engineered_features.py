@@ -105,7 +105,7 @@ from utils.config_loader import load_feature_extraction_config
 overlay_utils_path = Path(__file__).parent.parent / 'nuclei_segmentation' / 'utils'
 sys.path.insert(0, str(overlay_utils_path))
 
-import overlay_masks
+from ..nuclei_segmentation.utils import overlay_masks
 overlay = overlay_masks.overlay
 OverlayConfig = overlay_masks.OverlayConfig
 
@@ -367,15 +367,50 @@ def prepare_feature_matrix(df: pd.DataFrame) -> Tuple[np.ndarray, List[str], np.
     # Extract feature matrix.
     feature_matrix = df[feature_cols].values
     
-    # Handle missing values.
+    # Handle missing values with robust imputation.
     if np.any(np.isnan(feature_matrix)):
-        console.print("[yellow]⚠[/yellow] Found missing values, filling with column medians")
-        
+        console.print("[yellow]⚠[/yellow] Found missing values, applying robust imputation strategy")
+
+        columns_to_remove = []
+
         for i in range(feature_matrix.shape[1]):
             col_data = feature_matrix[:, i]
             if np.any(np.isnan(col_data)):
+                # Check if entire column is NaN.
+                if np.all(np.isnan(col_data)):
+                    console.print(f"[yellow]⚠[/yellow] Column '{feature_cols[i]}' contains all NaN values - will be removed")
+                    columns_to_remove.append(i)
+                    continue
+
+                # Calculate median for non-NaN values.
                 median_val = np.nanmedian(col_data)
+
+                # If median is still NaN (shouldn't happen but safety check).
+                if np.isnan(median_val):
+                    console.print(f"[yellow]⚠[/yellow] Column '{feature_cols[i]}' median is NaN - using 0.0")
+                    median_val = 0.0
+
+                # Fill NaN values with median.
                 feature_matrix[np.isnan(col_data), i] = median_val
+
+                nan_count = np.sum(np.isnan(col_data))
+                console.print(f"[blue]ℹ[/blue] Filled {nan_count} NaN values in '{feature_cols[i]}' with median {median_val:.3f}")
+
+        # Remove columns that are entirely NaN.
+        if columns_to_remove:
+            console.print(f"[yellow]⚠[/yellow] Removing {len(columns_to_remove)} columns with all NaN values")
+            feature_matrix = np.delete(feature_matrix, columns_to_remove, axis=1)
+            feature_cols = [col for i, col in enumerate(feature_cols) if i not in columns_to_remove]
+
+        # Final check for any remaining NaN values.
+        remaining_nans = np.sum(np.isnan(feature_matrix))
+        if remaining_nans > 0:
+            console.print(f"[red]✗[/red] Warning: {remaining_nans} NaN values still remain after imputation")
+            # Replace any remaining NaNs with 0.
+            feature_matrix[np.isnan(feature_matrix)] = 0.0
+            console.print("[yellow]⚠[/yellow] Replaced remaining NaN values with 0.0")
+        else:
+            console.print("[green]✓[/green] All NaN values successfully imputed")
     
     console.print(f"[green]✓[/green] Prepared feature matrix: {feature_matrix.shape}")
     
@@ -456,7 +491,7 @@ def stream_scale_features(features: np.ndarray, batch_size: int) -> StandardScal
     datasets that may not fit in memory simultaneously.
     """
     console.print("[cyan]Scaling features with streaming StandardScaler...[/cyan]")
-    
+
     scaler = StandardScaler()
     n_samples = features.shape[0]
     
@@ -493,7 +528,15 @@ def stream_cluster_features(features: np.ndarray, scaler: StandardScaler,
     processing to handle large datasets efficiently.
     """
     console.print(f"[cyan]Clustering into {n_clusters} clusters...[/cyan]")
-    
+
+    # Validate that no NaN values remain in features.
+    nan_count = np.sum(np.isnan(features))
+    if nan_count > 0:
+        console.print(f"[red]✗[/red] Error: {nan_count} NaN values found in feature matrix before clustering")
+        console.print("[yellow]⚠[/yellow] Replacing remaining NaN values with 0.0 as final fallback")
+        features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
+        console.print("[green]✓[/green] NaN values replaced with 0.0")
+
     # Initialize MiniBatchKMeans.
     kmeans = MiniBatchKMeans(n_clusters=n_clusters, random_state=seed, batch_size=batch_size)
     
@@ -508,6 +551,12 @@ def stream_cluster_features(features: np.ndarray, scaler: StandardScaler,
             
             # Scale and fit batch.
             scaled_batch = scaler.transform(batch_features)
+
+            # Validate scaled batch for NaN values.
+            if np.any(np.isnan(scaled_batch)):
+                console.print(f"[yellow]⚠[/yellow] NaN values detected in scaled batch {i//batch_size + 1}, replacing with 0.0")
+                scaled_batch = np.nan_to_num(scaled_batch, nan=0.0, posinf=0.0, neginf=0.0)
+
             kmeans.partial_fit(scaled_batch)
             
             progress.update(task, advance=batch_end - i)
@@ -548,6 +597,12 @@ def predict_cluster_labels(features: np.ndarray, scaler: StandardScaler,
             
             # Scale and predict batch.
             scaled_batch = scaler.transform(batch_features)
+
+            # Validate scaled batch for NaN values.
+            if np.any(np.isnan(scaled_batch)):
+                console.print(f"[yellow]⚠[/yellow] NaN values detected in prediction batch {i//batch_size + 1}, replacing with 0.0")
+                scaled_batch = np.nan_to_num(scaled_batch, nan=0.0, posinf=0.0, neginf=0.0)
+
             batch_labels = kmeans.predict(scaled_batch)
             
             cluster_labels[i:batch_end] = batch_labels

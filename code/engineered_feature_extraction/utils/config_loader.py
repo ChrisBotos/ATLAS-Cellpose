@@ -172,8 +172,10 @@ def load_feature_extraction_config(config_path: Optional[Union[str, Path]] = Non
         # ─── Performance Optimization Parameters ──────────────────────────────
         "enable_vectorized_neighborhood": config.getboolean("feature_extraction", "enable_vectorized_neighborhood", fallback=True),
         "neighborhood_batch_size": config.getint("feature_extraction", "neighborhood_batch_size", fallback=1000),
+        "feature_extraction_batch_size": config.getint("feature_extraction", "feature_extraction_batch_size", fallback=500),
         "enable_kdtree_caching": config.getboolean("feature_extraction", "enable_kdtree_caching", fallback=True),
         "skip_expensive_texture": config.getboolean("feature_extraction", "skip_expensive_texture", fallback=True),
+        "use_thread_pool": config.getboolean("feature_extraction", "use_thread_pool", fallback=False),
         
         # ─── Feature Extraction Input/Output Paths ──────────────────────────
         "extraction_image_path": config.get("clustering", "extraction_image_path", fallback=""),

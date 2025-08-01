@@ -16,7 +16,7 @@ responses during kidney I/R injury progression.
 
 Key Components:
     • extract_engineered_features.py: Comprehensive feature extraction with category organization.
-    • visualize_engineered_features_refactored.py: Publication-quality visualization with timepoint coding.
+    • visualize_engineered_features.py: Publication-quality visualization with timepoint coding.
     • Original legacy modules: extract_engineered_features.py, visualize_engineered_features.py.
 
 Dependencies:

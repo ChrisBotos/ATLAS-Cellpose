@@ -62,7 +62,7 @@ from code.engineered_feature_extraction.extract_engineered_features import (
     compute_sparse_distance_map
 )
 
-from code.engineered_feature_extraction.visualize_engineered_features_refactored import (
+from code.engineered_feature_extraction.visualize_engineered_features import (
     load_and_validate_data,
     identify_available_features,
     create_violin_plots_by_category,

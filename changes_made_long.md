@@ -539,7 +539,7 @@ python code/engineered_feature_extraction/extract_engineered_features.py extract
 #### Information Display
 ```bash
 python code/engineered_feature_extraction/extract_engineered_features.py info
-python code/engineered_feature_extraction/visualize_engineered_features_refactored.py info
+python code/engineered_feature_extraction/visualize_engineered_features.py info
 ```
 
 ### Future Enhancements

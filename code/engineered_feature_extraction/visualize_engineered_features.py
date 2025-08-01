@@ -4,7 +4,7 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: visualize_engineered_features_refactored.py.
+Script Name: visualize_engineered_features.py.
 Description:
     Generate publication-quality visualizations of nuclear morphological features for kidney
     ischemia-reperfusion injury analysis. Creates organized violin plots grouped by feature
@@ -16,7 +16,7 @@ Dependencies:
     • Custom utilities from nuclei_segmentation package.
 
 Usage:
-    python visualize_engineered_features_refactored.py visualize \
+    python visualize_engineered_features.py visualize \
         --features_csv <path/to/features.csv> \
         --output_dir <path/to/output_dir> \
         [--control_csv <path/to/control_features.csv>] \
@@ -624,7 +624,7 @@ def visualize(
     Includes comprehensive statistical analysis and correlation matrices.
 
     Example usage:
-        python visualize_engineered_features_refactored.py visualize \\
+        python visualize_engineered_features.py visualize \\
             --features_csv nuclear_features.csv \\
             --output_dir ./plots \\
             --control_csv control_features.csv \\

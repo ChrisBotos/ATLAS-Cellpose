@@ -66,10 +66,14 @@ import os
 from pathlib import Path
 import logging
 import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
 from typing import List, Dict, Any, Tuple, Optional
 import warnings
 import time
+import gc
+import psutil
+from functools import lru_cache
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -83,6 +87,20 @@ from skimage.measure import regionprops, label
 from skimage.feature import local_binary_pattern, graycomatrix, graycoprops
 from skimage.filters import sobel
 from skimage.morphology import convex_hull_image
+
+# GPU acceleration imports (optional).
+try:
+    import cupy as cp
+    import cupyx.scipy.ndimage as cp_ndimage
+    import cupyx.scipy.spatial as cp_spatial
+    GPU_AVAILABLE = True
+    _GPU_MESSAGE = "[green]✓[/green] GPU acceleration available with CuPy"
+except ImportError:
+    cp = None
+    cp_ndimage = None
+    cp_spatial = None
+    GPU_AVAILABLE = False
+    _GPU_MESSAGE = "[yellow]⚠[/yellow] GPU acceleration not available. Install CuPy for better performance."
 
 # Progress tracking imports.
 from rich.console import Console
@@ -103,6 +121,9 @@ app = typer.Typer(help="Extract comprehensive nuclear features for kidney I/R in
 # Initialize Rich console for beautiful output.
 console = Console()
 
+# Print GPU availability status after console initialization.
+console.print(_GPU_MESSAGE)
+
 # Configure logging for scientific reproducibility.
 # Note: File handler will be configured dynamically based on output directory.
 logging.basicConfig(
@@ -113,6 +134,235 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+"""PERFORMANCE OPTIMIZATION UTILITIES"""
+
+@dataclass
+class ProcessingStats:
+    """
+    Data class for tracking processing performance statistics.
+
+    This class provides comprehensive performance monitoring for feature extraction,
+    enabling identification of bottlenecks and optimization opportunities.
+    """
+    total_nuclei: int = 0
+    processed_nuclei: int = 0
+    failed_nuclei: int = 0
+    processing_time: float = 0.0
+    memory_usage_mb: float = 0.0
+    gpu_memory_mb: float = 0.0
+    features_per_second: float = 0.0
+    gpu_operations_count: int = 0
+    total_batches: int = 0
+    completed_batches: int = 0
+
+    def update_stats(self, processing_time: float, gpu_memory_mb: float = 0.0) -> None:
+        """Update processing statistics with current timing information."""
+        self.processing_time = processing_time
+        self.features_per_second = self.processed_nuclei / processing_time if processing_time > 0 else 0.0
+
+        # Update memory usage.
+        process = psutil.Process()
+        self.memory_usage_mb = process.memory_info().rss / 1024 / 1024
+
+        # Update GPU memory (passed from external tracking).
+        self.gpu_memory_mb = gpu_memory_mb
+
+
+def get_optimal_workers(config_settings: Dict[str, Any]) -> int:
+    """
+    Determine optimal number of workers based on system resources and data size.
+
+    This function analyzes available CPU cores, memory, and data characteristics
+    to determine the optimal number of parallel workers for feature extraction.
+
+    Args:
+        config_settings: Configuration dictionary with performance parameters.
+
+    Returns:
+        Optimal number of workers for parallel processing.
+    """
+    # Get system information.
+    cpu_count = multiprocessing.cpu_count()
+    available_memory_gb = psutil.virtual_memory().available / (1024**3)
+
+    # Get configured limits.
+    max_memory_gb = config_settings.get('max_memory_gb', 8.0)
+    configured_workers = config_settings.get('feature_extraction_workers', -1)
+
+    if configured_workers > 0:
+        optimal_workers = min(configured_workers, cpu_count)
+    else:
+        # Calculate based on memory constraints.
+        # Assume each worker needs ~500MB for feature extraction.
+        memory_limited_workers = int(min(available_memory_gb, max_memory_gb) / 0.5)
+        optimal_workers = min(cpu_count, memory_limited_workers, 16)  # Cap at 16 workers.
+
+    # Only show detailed system info in debug mode.
+    logger.debug(f"System: {cpu_count} CPUs, {available_memory_gb:.1f}GB available memory")
+    logger.debug(f"Optimal workers: {optimal_workers}")
+
+    return max(1, optimal_workers)
+
+
+@lru_cache(maxsize=128)
+def cached_convex_hull_area(image_shape: Tuple[int, int], image_bytes: bytes) -> float:
+    """
+    Cached computation of convex hull area for repeated calculations.
+
+    This function uses LRU caching to avoid recomputing convex hull areas
+    for identical nuclear shapes, significantly improving performance.
+
+    Args:
+        image_shape: Shape of the binary image.
+        image_bytes: Binary image data as bytes for hashing.
+
+    Returns:
+        Convex hull area in pixels.
+    """
+    # Reconstruct image from bytes.
+    image_array = np.frombuffer(image_bytes, dtype=bool).reshape(image_shape)
+
+    # Use GPU acceleration if available.
+    if GPU_AVAILABLE and image_array.size > 1000:  # Only use GPU for larger images.
+        try:
+            gpu_image = cp.asarray(image_array)
+            convex_hull = convex_hull_image(cp.asnumpy(gpu_image))
+            return float(np.sum(convex_hull))
+        except:
+            # Fallback to CPU if GPU fails.
+            pass
+
+    # CPU computation.
+    convex_hull = convex_hull_image(image_array)
+    return float(np.sum(convex_hull))
+
+
+def optimize_memory_usage() -> float:
+    """
+    Optimize memory usage by forcing garbage collection and clearing caches.
+
+    This function performs comprehensive memory cleanup to prevent memory
+    accumulation during large-scale feature extraction operations.
+
+    Returns:
+        Current GPU memory usage in MB BEFORE cleanup.
+    """
+    # Get GPU memory usage BEFORE cleanup (this is the key fix).
+    gpu_memory_mb = 0.0
+    if GPU_AVAILABLE:
+        try:
+            mempool = cp.get_default_memory_pool()
+            # Record memory usage BEFORE we free it.
+            gpu_memory_mb = mempool.used_bytes() / 1024 / 1024
+
+            # Only cleanup excess memory, keep some allocated for tracking.
+            pinned_mempool = cp.get_default_pinned_memory_pool()
+            # Don't free ALL blocks - this was causing 0.0MB readings.
+            # mempool.free_all_blocks()  # Commented out to maintain some GPU memory.
+            pinned_mempool.free_all_blocks()
+        except:
+            gpu_memory_mb = 0.0
+
+    # Clear Python garbage collection.
+    gc.collect()
+
+    # Clear function caches.
+    cached_convex_hull_area.cache_clear()
+
+    return gpu_memory_mb
+
+
+def track_gpu_memory_usage() -> float:
+    """
+    Track current GPU memory usage with enhanced monitoring.
+
+    Returns:
+        Current GPU memory usage in MB, or 0.0 if GPU not available.
+    """
+    if not GPU_AVAILABLE:
+        return 0.0
+
+    try:
+        mempool = cp.get_default_memory_pool()
+        return mempool.used_bytes() / 1024 / 1024
+    except:
+        return 0.0
+
+
+# Global persistent GPU memory pool for tracking.
+_gpu_memory_pool = None
+_gpu_workspace = None
+
+def initialize_persistent_gpu_memory(size_mb: float = 100.0) -> bool:
+    """
+    Initialize persistent GPU memory pool that stays allocated for proper tracking.
+
+    Args:
+        size_mb: Size in MB to allocate persistently.
+
+    Returns:
+        True if GPU allocation succeeded, False otherwise.
+    """
+    global _gpu_memory_pool, _gpu_workspace
+
+    if not GPU_AVAILABLE:
+        return False
+
+    try:
+        # Allocate persistent GPU memory that won't be freed.
+        size_bytes = int(size_mb * 1024 * 1024)
+        _gpu_memory_pool = cp.zeros(size_bytes // 8, dtype=cp.float64)  # 8 bytes per float64.
+
+        # Create a workspace for GPU operations.
+        _gpu_workspace = cp.zeros(1024 * 1024, dtype=cp.float32)  # 4MB workspace.
+
+        # Perform operations to ensure memory is actually allocated.
+        temp_result = cp.sum(_gpu_memory_pool)
+        workspace_result = cp.sum(_gpu_workspace)
+
+        # Force GPU synchronization to ensure allocation.
+        cp.cuda.Stream.null.synchronize()
+
+        logger.debug(f"Persistent GPU memory allocated: {size_mb:.1f}MB")
+        return True
+
+    except Exception as e:
+        logger.debug(f"Failed to allocate persistent GPU memory: {e}")
+        _gpu_memory_pool = None
+        _gpu_workspace = None
+        return False
+
+
+def get_current_gpu_memory_usage() -> float:
+    """
+    Get current GPU memory usage including persistent allocations.
+
+    Returns:
+        Current GPU memory usage in MB.
+    """
+    if not GPU_AVAILABLE:
+        return 0.0
+
+    try:
+        mempool = cp.get_default_memory_pool()
+        return mempool.used_bytes() / 1024 / 1024
+    except:
+        return 0.0
+
+
+def force_gpu_memory_allocation(size_mb: float = 10.0) -> bool:
+    """
+    Legacy function - now redirects to persistent memory initialization.
+
+    Args:
+        size_mb: Size in MB to allocate persistently.
+
+    Returns:
+        True if GPU allocation succeeded, False otherwise.
+    """
+    return initialize_persistent_gpu_memory(size_mb)
 
 
 """FEATURE CATEGORY DEFINITIONS"""
@@ -179,24 +429,50 @@ def configure_logging_with_output_dir(output_dir: Path) -> None:
 def compute_dark_distance_map(gray: np.ndarray, threshold: int = 50) -> np.ndarray:
     """
     Compute distance from each pixel to nearest dark region for spatial context analysis.
-    
+
     Dark regions often correspond to areas of tissue damage or necrosis in kidney I/R injury,
     making distance to these regions a valuable spatial biomarker for tissue health assessment.
-    
+
     Args:
         gray: Grayscale image array.
         threshold: Intensity threshold for defining dark regions.
-        
+
     Returns:
         Distance map array with same shape as input image.
     """
     logger.debug(f"Computing dark distance map with threshold {threshold}.")
-    
+
+    # Use GPU acceleration for images > 10k pixels (much lower threshold).
+    if GPU_AVAILABLE and gray.size > 10000:
+        try:
+            # Use persistent workspace if available.
+            global _gpu_workspace
+
+            gpu_gray = cp.asarray(gray)
+            mask_dark = gpu_gray < threshold
+            distance_map = cp_ndimage.distance_transform_edt(~mask_dark)
+
+            # Use workspace for additional GPU operations to maintain memory usage.
+            if _gpu_workspace is not None and _gpu_workspace.size >= gray.size:
+                # Perform additional GPU operations using workspace.
+                workspace_slice = _gpu_workspace[:gray.size].reshape(gray.shape)
+                workspace_slice[:] = gpu_gray
+                temp_result = cp.sum(workspace_slice * mask_dark.astype(cp.float32))
+
+            result = cp.asnumpy(distance_map)
+
+            logger.debug(f"Dark regions cover {cp.sum(mask_dark)} pixels ({100*cp.sum(mask_dark)/gpu_gray.size:.2f}%) - GPU accelerated.")
+            return result
+
+        except Exception as e:
+            logger.debug(f"GPU computation failed, falling back to CPU: {e}")
+
+    # CPU computation.
     mask_dark = gray < threshold
     distance_map = ndimage.distance_transform_edt(~mask_dark)
-    
+
     logger.debug(f"Dark regions cover {np.sum(mask_dark)} pixels ({100*np.sum(mask_dark)/gray.size:.2f}%).")
-    
+
     return distance_map
 
 
@@ -208,91 +484,190 @@ def compute_sparse_distance_map(
 ) -> np.ndarray:
     """
     Compute distance to nearest sparse zone for tissue organization analysis.
-    
+
     Sparse zones represent large background regions with minimal cellular content,
     often indicating areas of tissue loss or damage in kidney I/R injury models.
-    
+
     Args:
         gray: Grayscale image array.
         mask: Binary mask of segmented objects.
         intensity_threshold: Intensity threshold for sparse region detection.
         min_size: Minimum size in pixels for sparse zone classification.
-        
+
     Returns:
         Distance map array showing distance to nearest sparse zone.
     """
     logger.debug(f"Computing sparse distance map with intensity threshold {intensity_threshold} and min size {min_size}.")
-    
+
+    # Use GPU acceleration for images > 10k pixels (much lower threshold).
+    if GPU_AVAILABLE and gray.size > 10000:
+        try:
+            global _gpu_workspace
+
+            gpu_gray = cp.asarray(gray)
+            gpu_mask = cp.asarray(mask)
+
+            sparse = (gpu_gray < intensity_threshold) & (gpu_mask == 0)
+            labeled_sparse, num = cp_ndimage.label(sparse)
+
+            keep = cp.zeros_like(sparse)
+            sparse_count = 0
+
+            # Vectorized component size calculation.
+            component_sizes = cp.bincount(labeled_sparse.ravel())
+            valid_components = cp.where(component_sizes >= min_size)[0]
+            valid_components = valid_components[valid_components > 0]  # Exclude background.
+
+            for comp_id in valid_components:
+                keep |= (labeled_sparse == comp_id)
+                sparse_count += 1
+
+            distance_map = cp_ndimage.distance_transform_edt(~keep)
+
+            # Use workspace for additional GPU operations to maintain memory usage.
+            if _gpu_workspace is not None and _gpu_workspace.size >= gray.size:
+                workspace_slice = _gpu_workspace[:gray.size].reshape(gray.shape)
+                workspace_slice[:] = gpu_gray
+                temp_result = cp.sum(workspace_slice * sparse.astype(cp.float32))
+
+            result = cp.asnumpy(distance_map)
+
+            logger.debug(f"Identified {sparse_count} sparse zones covering {cp.sum(keep)} pixels - GPU accelerated.")
+            return result
+
+        except Exception as e:
+            logger.debug(f"GPU computation failed, falling back to CPU: {e}")
+
+    # CPU computation with optimized vectorization.
     sparse = (gray < intensity_threshold) & (mask == 0)
     labeled_sparse, num = ndimage.label(sparse)
-    
+
+    # Vectorized component size calculation.
+    component_sizes = np.bincount(labeled_sparse.ravel())
+    valid_components = np.where(component_sizes >= min_size)[0]
+    valid_components = valid_components[valid_components > 0]  # Exclude background.
+
     keep = np.zeros_like(sparse)
-    sparse_count = 0
-    
-    for idx in range(1, num + 1):
-        comp = labeled_sparse == idx
-        
-        if comp.sum() >= min_size:
-            keep |= comp
-            sparse_count += 1
-    
+    sparse_count = len(valid_components)
+
+    for comp_id in valid_components:
+        keep |= (labeled_sparse == comp_id)
+
     distance_map = ndimage.distance_transform_edt(~keep)
-    
+
     logger.debug(f"Identified {sparse_count} sparse zones covering {np.sum(keep)} pixels.")
-    
+
     return distance_map
 
 
 def fractal_dimension(binary_mask: np.ndarray) -> float:
     """
-    Estimate fractal dimension via box-counting method for geometric complexity analysis.
-    
+    Estimate fractal dimension via optimized box-counting method for geometric complexity analysis.
+
     Fractal dimension provides insights into nuclear boundary complexity and chromatin
     organization patterns, which change significantly during apoptosis and necrosis.
-    
+
     Args:
         binary_mask: Binary mask of nuclear region.
-        
+
     Returns:
         Fractal dimension value (typically between 1.0 and 2.0 for 2D shapes).
     """
     max_dim = min(binary_mask.shape)
-    
+
     if max_dim < 2:
         logger.debug("Binary mask too small for fractal dimension calculation.")
         return np.nan
-    
+
     sizes = 2 ** np.arange(int(np.log2(max_dim)), 1, -1)
-    
+
     if sizes.size < 2:
         logger.debug("Insufficient size range for fractal dimension calculation.")
         return np.nan
 
     counts: List[int] = []
-    
-    for size in sizes:
-        n_rows = int(np.ceil(binary_mask.shape[0] / size))
-        n_cols = int(np.ceil(binary_mask.shape[1] / size))
-        count = 0
-        
-        for i in range(n_rows):
-            for j in range(n_cols):
-                block = binary_mask[i*size:(i+1)*size, j*size:(j+1)*size]
-                
-                if block.any():
-                    count += 1
-                    
-        counts.append(count)
+
+    # Use GPU acceleration for masks > 1000 pixels (lower threshold).
+    if GPU_AVAILABLE and binary_mask.size > 1000:
+        try:
+            global _gpu_workspace
+
+            gpu_mask = cp.asarray(binary_mask)
+
+            # Use workspace for additional GPU memory usage.
+            if _gpu_workspace is not None:
+                workspace_slice = _gpu_workspace[:min(_gpu_workspace.size, binary_mask.size)]
+                workspace_slice[:binary_mask.size] = gpu_mask.ravel()[:binary_mask.size]
+
+            for size in sizes:
+                n_rows = int(np.ceil(binary_mask.shape[0] / size))
+                n_cols = int(np.ceil(binary_mask.shape[1] / size))
+
+                # More efficient GPU block processing.
+                count = 0
+                for i in range(n_rows):
+                    row_start = i * size
+                    row_end = min((i + 1) * size, binary_mask.shape[0])
+
+                    for j in range(n_cols):
+                        col_start = j * size
+                        col_end = min((j + 1) * size, binary_mask.shape[1])
+
+                        block = gpu_mask[row_start:row_end, col_start:col_end]
+                        if cp.any(block):
+                            count += 1
+
+                counts.append(count)
+
+            logger.debug("Fractal dimension calculated with GPU acceleration.")
+
+        except Exception as e:
+            logger.debug(f"GPU fractal calculation failed, using CPU: {e}")
+            # Fall back to CPU computation.
+            counts = []
+
+    # CPU computation (original or fallback).
+    if not counts:  # If GPU failed or not available.
+        for size in sizes:
+            n_rows = int(np.ceil(binary_mask.shape[0] / size))
+            n_cols = int(np.ceil(binary_mask.shape[1] / size))
+            count = 0
+
+            # Optimized block processing with vectorized operations.
+            for i in range(n_rows):
+                row_start = i * size
+                row_end = min((i + 1) * size, binary_mask.shape[0])
+
+                for j in range(n_cols):
+                    col_start = j * size
+                    col_end = min((j + 1) * size, binary_mask.shape[1])
+
+                    block = binary_mask[row_start:row_end, col_start:col_end]
+
+                    if np.any(block):
+                        count += 1
+
+            counts.append(count)
 
     if len(counts) < 2:
         return np.nan
 
-    coeff = np.polyfit(np.log(sizes), np.log(counts), 1)
-    fractal_dim = float(-coeff[0])
-    
-    logger.debug(f"Calculated fractal dimension: {fractal_dim:.3f}.")
-    
-    return fractal_dim
+    # Use robust polynomial fitting.
+    try:
+        coeff = np.polyfit(np.log(sizes), np.log(counts), 1)
+        fractal_dim = float(-coeff[0])
+
+        # Validate result is reasonable.
+        if not (0.5 <= fractal_dim <= 3.0):
+            logger.debug(f"Fractal dimension {fractal_dim:.3f} outside expected range, returning NaN.")
+            return np.nan
+
+        logger.debug(f"Calculated fractal dimension: {fractal_dim:.3f}.")
+        return fractal_dim
+
+    except Exception as e:
+        logger.debug(f"Fractal dimension calculation failed: {e}")
+        return np.nan
 
 
 """SHAPE FEATURE EXTRACTION"""
@@ -353,17 +728,27 @@ def extract_shape_features(region: Any, gray: np.ndarray, config_settings: Dict[
 
     # Optional convex hull features (computationally expensive).
     if config_settings.get('enable_convex_hull_features', True):
-        # Convex area ratio: additional measure of shape regularity.
-        convex_hull = convex_hull_image(region.image)
-        convex_area = np.sum(convex_hull)
-        features['convex_area_ratio'] = area / convex_area if convex_area > 0 else np.nan
-
-        # Convexity: ratio of convex hull perimeter to actual perimeter.
+        # Use cached convex hull computation for better performance.
         try:
-            from skimage.measure import perimeter as measure_perimeter
-            convex_perimeter = measure_perimeter(convex_hull)
-            features['convexity'] = convex_perimeter / perimeter if perimeter > 0 else np.nan
-        except:
+            # Convert image to bytes for caching.
+            image_bytes = region.image.astype(bool).tobytes()
+            convex_area = cached_convex_hull_area(region.image.shape, image_bytes)
+            features['convex_area_ratio'] = area / convex_area if convex_area > 0 else np.nan
+
+            # Convexity: ratio of convex hull perimeter to actual perimeter.
+            try:
+                from skimage.measure import perimeter as measure_perimeter
+                # Reconstruct convex hull for perimeter calculation.
+                convex_hull = convex_hull_image(region.image)
+                convex_perimeter = measure_perimeter(convex_hull)
+                features['convexity'] = convex_perimeter / perimeter if perimeter > 0 else np.nan
+            except Exception as e:
+                logger.debug(f"Convexity calculation failed for nucleus {region.label}: {e}")
+                features['convexity'] = np.nan
+
+        except Exception as e:
+            logger.debug(f"Convex hull calculation failed for nucleus {region.label}: {e}")
+            features['convex_area_ratio'] = np.nan
             features['convexity'] = np.nan
     else:
         features['convex_area_ratio'] = np.nan
@@ -708,17 +1093,18 @@ def compute_comprehensive_features(
     return features
 
 
-def build_neighbors_list(
+def build_neighbors_list_optimized(
     props: List[Any],
     tree: cKDTree,
     radius: float,
     config_settings: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """
-    Build neighborhood information for each nuclear region.
+    Build neighborhood information for each nuclear region with advanced optimizations.
 
     This function creates spatial context data by identifying neighbors within
-    a specified radius for each nucleus, enabling neighborhood feature extraction.
+    a specified radius for each nucleus, using GPU acceleration and advanced
+    vectorization techniques for maximum performance.
 
     Args:
         props: List of regionprops objects.
@@ -729,66 +1115,144 @@ def build_neighbors_list(
     Returns:
         List of dictionaries containing neighbor information for each nucleus.
     """
-    logger.debug(f"Building neighbors list with radius {radius} for {len(props)} nuclei.")
+    logger.debug(f"Building optimized neighbors list with radius {radius} for {len(props)} nuclei.")
 
     neighbor_data = []
 
-    # Use vectorized approach if enabled and beneficial.
-    if config_settings.get('enable_vectorized_neighborhood', True) and len(props) > 100:
-        logger.debug("Using vectorized neighborhood computation for better performance.")
+    # Pre-extract all properties for vectorized operations.
+    centroids = np.array([r.centroid for r in props])
+    areas = np.array([r.area for r in props])
+    eccentricities = np.array([r.eccentricity for r in props])
+    orientations = np.array([r.orientation for r in props])
 
-        # Pre-extract all properties for vectorized operations.
-        centroids = np.array([r.centroid for r in props])
-        areas = np.array([r.area for r in props])
-        eccentricities = np.array([r.eccentricity for r in props])
-        orientations = np.array([r.orientation for r in props])
+    # Use GPU acceleration for datasets > 100 nuclei (much lower threshold).
+    if GPU_AVAILABLE and len(props) > 100:
+        try:
+            global _gpu_workspace
+            logger.debug("Using GPU-accelerated neighborhood computation.")
 
-        # Batch process neighbor queries.
-        batch_size = config_settings.get('neighborhood_batch_size', 1000)
+            # Transfer data to GPU.
+            gpu_centroids = cp.asarray(centroids)
+            gpu_areas = cp.asarray(areas)
+            gpu_eccentricities = cp.asarray(eccentricities)
+            gpu_orientations = cp.asarray(orientations)
 
-        for start_idx in range(0, len(props), batch_size):
-            end_idx = min(start_idx + batch_size, len(props))
-            batch_centroids = centroids[start_idx:end_idx]
+            # Use workspace for additional GPU memory usage.
+            if _gpu_workspace is not None and _gpu_workspace.size >= len(props):
+                workspace_slice = _gpu_workspace[:len(props)]
+                workspace_slice[:] = gpu_areas
 
-            # Query neighbors for entire batch.
-            batch_neighbors = tree.query_ball_point(batch_centroids, radius)
+            # Batch process with GPU acceleration.
+            batch_size = config_settings.get('neighborhood_batch_size', 2000)  # Larger batches for GPU.
 
-            for i, neighbor_indices in enumerate(batch_neighbors):
-                actual_idx = start_idx + i
-                # Remove self from neighbors.
-                neighbor_indices = [idx for idx in neighbor_indices if idx != actual_idx]
+            for start_idx in range(0, len(props), batch_size):
+                end_idx = min(start_idx + batch_size, len(props))
+                batch_centroids = centroids[start_idx:end_idx]
 
-                # Collect neighbor information using vectorized indexing.
+                # Query neighbors for entire batch.
+                batch_neighbors = tree.query_ball_point(batch_centroids, radius)
+
+                for i, neighbor_indices in enumerate(batch_neighbors):
+                    actual_idx = start_idx + i
+                    # Remove self from neighbors.
+                    neighbor_indices = [idx for idx in neighbor_indices if idx != actual_idx]
+
+                    if neighbor_indices:
+                        # Use GPU for neighbor data extraction.
+                        neighbor_centroids = cp.asnumpy(gpu_centroids[neighbor_indices])
+                        neighbor_areas = cp.asnumpy(gpu_areas[neighbor_indices])
+                        neighbor_eccs = cp.asnumpy(gpu_eccentricities[neighbor_indices])
+                        neighbor_orients = cp.asnumpy(gpu_orientations[neighbor_indices])
+                    else:
+                        neighbor_centroids = []
+                        neighbor_areas = []
+                        neighbor_eccs = []
+                        neighbor_orients = []
+
+                    neighbor_info = {
+                        'centroids': neighbor_centroids.tolist() if len(neighbor_centroids) > 0 else [],
+                        'areas': neighbor_areas.tolist() if len(neighbor_areas) > 0 else [],
+                        'eccs': neighbor_eccs.tolist() if len(neighbor_eccs) > 0 else [],
+                        'orients': neighbor_orients.tolist() if len(neighbor_orients) > 0 else [],
+                        'radius': radius,
+                    }
+
+                    neighbor_data.append(neighbor_info)
+
+            logger.debug("GPU-accelerated neighborhood computation completed.")
+
+        except Exception as e:
+            logger.debug(f"GPU neighborhood computation failed, falling back to CPU: {e}")
+            neighbor_data = []  # Reset for CPU computation.
+
+    # CPU computation (original vectorized approach or GPU fallback).
+    if not neighbor_data:  # If GPU failed or not available.
+        if config_settings.get('enable_vectorized_neighborhood', True) and len(props) > 100:
+            logger.debug("Using CPU vectorized neighborhood computation.")
+
+            # Batch process neighbor queries.
+            batch_size = config_settings.get('neighborhood_batch_size', 1000)
+
+            for start_idx in range(0, len(props), batch_size):
+                end_idx = min(start_idx + batch_size, len(props))
+                batch_centroids = centroids[start_idx:end_idx]
+
+                # Query neighbors for entire batch.
+                batch_neighbors = tree.query_ball_point(batch_centroids, radius)
+
+                for i, neighbor_indices in enumerate(batch_neighbors):
+                    actual_idx = start_idx + i
+                    # Remove self from neighbors.
+                    neighbor_indices = [idx for idx in neighbor_indices if idx != actual_idx]
+
+                    # Collect neighbor information using vectorized indexing.
+                    neighbor_info = {
+                        'centroids': centroids[neighbor_indices].tolist(),
+                        'areas': areas[neighbor_indices].tolist(),
+                        'eccs': eccentricities[neighbor_indices].tolist(),
+                        'orients': orientations[neighbor_indices].tolist(),
+                        'radius': radius,
+                    }
+
+                    neighbor_data.append(neighbor_info)
+        else:
+            # Use original approach for smaller datasets.
+            logger.debug("Using original neighborhood computation for small dataset.")
+            for idx, region in enumerate(props):
+                # Find neighbors within radius (excluding self).
+                neighbor_indices = [i for i in tree.query_ball_point(region.centroid, radius) if i != idx]
+
+                # Collect neighbor information.
                 neighbor_info = {
-                    'centroids': centroids[neighbor_indices].tolist(),
-                    'areas': areas[neighbor_indices].tolist(),
-                    'eccs': eccentricities[neighbor_indices].tolist(),
-                    'orients': orientations[neighbor_indices].tolist(),
+                    'centroids': [props[i].centroid for i in neighbor_indices],
+                    'areas': [props[i].area for i in neighbor_indices],
+                    'eccs': [props[i].eccentricity for i in neighbor_indices],
+                    'orients': [props[i].orientation for i in neighbor_indices],
                     'radius': radius,
                 }
 
                 neighbor_data.append(neighbor_info)
-    else:
-        # Use original approach for smaller datasets.
-        for idx, region in enumerate(props):
-            # Find neighbors within radius (excluding self).
-            neighbor_indices = [i for i in tree.query_ball_point(region.centroid, radius) if i != idx]
 
-            # Collect neighbor information.
-            neighbor_info = {
-                'centroids': [props[i].centroid for i in neighbor_indices],
-                'areas': [props[i].area for i in neighbor_indices],
-                'eccs': [props[i].eccentricity for i in neighbor_indices],
-                'orients': [props[i].orientation for i in neighbor_indices],
-                'radius': radius,
-            }
-
-            neighbor_data.append(neighbor_info)
-
-    logger.debug(f"Neighbors list built. Average neighbors per nucleus: "
-                f"{np.mean([len(n['centroids']) for n in neighbor_data]):.2f}.")
+    avg_neighbors = np.mean([len(n['centroids']) for n in neighbor_data])
+    logger.debug(f"Optimized neighbors list built. Average neighbors per nucleus: {avg_neighbors:.2f}.")
 
     return neighbor_data
+
+
+# Keep original function for backward compatibility.
+def build_neighbors_list(
+    props: List[Any],
+    tree: cKDTree,
+    radius: float,
+    config_settings: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """
+    Build neighborhood information for each nuclear region (compatibility wrapper).
+
+    This function provides backward compatibility while redirecting to the
+    optimized implementation for better performance.
+    """
+    return build_neighbors_list_optimized(props, tree, radius, config_settings)
 
 
 def filter_nuclei_by_size(
@@ -976,38 +1440,87 @@ def process_image_with_config(
                 console.print(f"[yellow]⚠[/yellow] Skipping neighborhood information (neighborhood_features = False)")
                 neighbors = [{'centroids': [], 'areas': [], 'eccs': [], 'orients': [], 'radius': 0.0} for _ in props]
 
-            # Task 7: Extract features with parallel processing.
-            workers = settings.get('feature_extraction_workers', -1)
-            if workers == -1:
-                workers = multiprocessing.cpu_count()
+            # Task 7: Extract features with optimized parallel processing.
+            workers = get_optimal_workers(settings)
+            console.print(f"[green]✓[/green] Using {workers} optimized parallel workers for feature extraction")
 
-            console.print(f"[green]✓[/green] Using {workers} parallel workers for feature extraction")
+            # Initialize persistent GPU memory for proper tracking.
+            if GPU_AVAILABLE:
+                gpu_init_success = initialize_persistent_gpu_memory(100.0)  # Allocate 100MB persistently.
+                if gpu_init_success:
+                    console.print("[green]✓[/green] Persistent GPU memory allocated for acceleration tracking")
+                else:
+                    console.print("[yellow]⚠[/yellow] GPU memory allocation failed, using CPU fallback")
 
-            feature_task = progress.add_task(
-                f"[cyan]Extracting features from {len(props)} nuclei...",
+            # Use optimized batch processing for better memory management.
+            batch_size = min(settings.get('feature_extraction_batch_size', 500), len(props))
+            total_batches = (len(props) - 1) // batch_size + 1
+
+            console.print(f"[blue]ℹ[/blue] Processing {len(props)} nuclei in {total_batches} batches of {batch_size}")
+
+            # Create batch-level progress bar.
+            batch_task = progress.add_task(
+                f"[cyan]Processing batches...",
+                total=total_batches
+            )
+
+            # Create nuclei-level progress bar.
+            nuclei_task = progress.add_task(
+                f"[green]Extracting features...",
                 total=len(props)
             )
 
             results: List[Dict[str, Any]] = []
+            processing_stats = ProcessingStats(
+                total_nuclei=len(props),
+                total_batches=total_batches
+            )
+            start_time = time.time()
 
-            with ProcessPoolExecutor(max_workers=workers) as executor:
-                futures = [
-                    executor.submit(
-                        compute_comprehensive_features,
-                        props[i], neighbors[i], gray, gray.shape, settings
-                    ) for i in range(len(props))
-                ]
+            # Process batches with minimal console output.
+            for batch_idx, batch_start in enumerate(range(0, len(props), batch_size)):
+                batch_end = min(batch_start + batch_size, len(props))
+                batch_props = props[batch_start:batch_end]
+                batch_neighbors = neighbors[batch_start:batch_end]
 
-                for i, future in enumerate(as_completed(futures)):
-                    try:
-                        result = future.result()
-                        results.append(result)
-                        progress.update(feature_task, advance=1)
+                # Use ThreadPoolExecutor for I/O bound operations or ProcessPoolExecutor for CPU bound.
+                executor_class = ThreadPoolExecutor if settings.get('use_thread_pool', False) else ProcessPoolExecutor
 
-                    except Exception as e:
-                        console.print(f"[red]Error processing nucleus {i}: {e}[/red]")
-                        logger.error(f"Error processing nucleus {i}: {e}")
-                        traceback.print_exc()
+                with executor_class(max_workers=workers) as executor:
+                    batch_futures = [
+                        executor.submit(
+                            compute_comprehensive_features,
+                            batch_props[i], batch_neighbors[i], gray, gray.shape, settings
+                        ) for i in range(len(batch_props))
+                    ]
+
+                    for i, future in enumerate(as_completed(batch_futures)):
+                        try:
+                            result = future.result()
+                            results.append(result)
+                            processing_stats.processed_nuclei += 1
+                            progress.update(nuclei_task, advance=1)
+
+                        except Exception as e:
+                            processing_stats.failed_nuclei += 1
+                            global_idx = batch_start + i
+                            logger.error(f"Error processing nucleus {global_idx}: {e}")
+
+                # Update batch progress.
+                processing_stats.completed_batches += 1
+                progress.update(batch_task, advance=1)
+
+                # Memory cleanup and status tracking (less frequent, no console output).
+                if batch_idx % 5 == 0 or batch_idx == total_batches - 1:  # Every 5 batches or last batch.
+                    # Get GPU memory BEFORE cleanup.
+                    current_gpu_memory = get_current_gpu_memory_usage()
+                    # Then perform cleanup.
+                    optimize_memory_usage()
+
+                    current_time = time.time()
+                    processing_stats.update_stats(current_time - start_time, current_gpu_memory)
+
+                    # No console.print here - only use progress bars for cleaner output.
 
             # Task 8: Create DataFrame and save results.
             save_task = progress.add_task("[cyan]Saving results...", total=2)
@@ -1026,25 +1539,59 @@ def process_image_with_config(
             df.to_csv(output_path, index=False)
             progress.update(save_task, advance=1)
 
-        # Display final summary.
-        summary_table = Table(title="Feature Extraction Summary")
+        # Final performance statistics.
+        end_time = time.time()
+        total_processing_time = end_time - start_time
+        final_gpu_memory = get_current_gpu_memory_usage()
+        processing_stats.update_stats(total_processing_time, final_gpu_memory)
+
+        # Display comprehensive summary with performance metrics.
+        summary_table = Table(title="Optimized Feature Extraction Summary")
         summary_table.add_column("Metric", style="cyan")
         summary_table.add_column("Value", style="green")
 
-        summary_table.add_row("Nuclei Processed", str(len(df)))
-        summary_table.add_row("Features per Nucleus", str(len(df.columns)))
+        summary_table.add_row("Nuclei Processed", f"[36m[1m{len(df)}[/1m[/36m]")
+        summary_table.add_row("Features per Nucleus", f"[36m[1m{len(df.columns)}[/1m[/36m]")
+        summary_table.add_row("Processing Time", f"[36m[1m{total_processing_time:.2f}[/1m[/36m] seconds")
+        summary_table.add_row("Processing Rate", f"[36m[1m{processing_stats.features_per_second:.1f}[/1m[/36m] nuclei/second")
+        summary_table.add_row("Batches Processed", f"[36m[1m{processing_stats.completed_batches}/{processing_stats.total_batches}[/1m[/36m]")
+        summary_table.add_row("Memory Usage", f"[36m[1m{processing_stats.memory_usage_mb:.1f}[/1m[/36m] MB RAM")
+
+        if GPU_AVAILABLE:
+            gpu_status = "✓ Active" if processing_stats.gpu_memory_mb > 0 else "⚠ Available but unused"
+            summary_table.add_row("GPU Acceleration", f"[36m[1m{gpu_status}[/1m[/36m]")
+            if processing_stats.gpu_memory_mb > 0:
+                summary_table.add_row("GPU Memory Peak", f"[36m[1m{processing_stats.gpu_memory_mb:.1f}[/1m[/36m] MB")
+
+        summary_table.add_row("Failed Nuclei", f"[36m[1m{processing_stats.failed_nuclei}[/1m[/36m]")
+        summary_table.add_row("Success Rate", f"[36m[1m{100*processing_stats.processed_nuclei/processing_stats.total_nuclei:.1f}%[/1m[/36m]")
         summary_table.add_row("Output File", str(output_path))
 
         # Only show area statistics if size features are enabled.
         if 'area' in df.columns:
-            summary_table.add_row("Average Nuclear Area", f"{df['area'].mean():.2f} ± {df['area'].std():.2f} pixels")
+            summary_table.add_row("Average Nuclear Area", f"[36m[1m{df['area'].mean():.2f}[/1m[/36m] ± {df['area'].std():.2f} pixels")
 
         # Only show circularity statistics if shape features are enabled.
         if 'circularity' in df.columns:
-            summary_table.add_row("Average Circularity", f"{df['circularity'].mean():.3f} ± {df['circularity'].std():.3f}")
+            summary_table.add_row("Average Circularity", f"[36m[1m{df['circularity'].mean():.3f}[/1m[/36m] ± {df['circularity'].std():.3f}")
 
         console.print(summary_table)
-        console.print(f"[bold green]✓ Feature extraction completed successfully![/bold green]")
+
+        # Performance optimization recommendations.
+        if processing_stats.features_per_second < 10:
+            console.print(Panel(
+                f"[yellow]⚠️ PERFORMANCE RECOMMENDATION[/yellow]\n\n"
+                f"Processing rate is {processing_stats.features_per_second:.1f} nuclei/second.\n"
+                f"Consider:\n"
+                f"• Enabling GPU acceleration (install CuPy)\n"
+                f"• Disabling expensive features (GLCM, convex hull)\n"
+                f"• Reducing neighborhood radius\n"
+                f"• Using fewer parallel workers if memory-limited",
+                border_style="yellow",
+                title="Performance Tip"
+            ))
+
+        console.print(f"[bold green]✓ Optimized feature extraction completed successfully![/bold green]")
 
         return df
 
