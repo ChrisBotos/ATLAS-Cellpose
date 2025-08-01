@@ -175,6 +175,17 @@ def load_feature_extraction_config(config_path: Optional[Union[str, Path]] = Non
         "enable_kdtree_caching": config.getboolean("feature_extraction", "enable_kdtree_caching", fallback=True),
         "skip_expensive_texture": config.getboolean("feature_extraction", "skip_expensive_texture", fallback=True),
         
+        # ─── Feature Extraction Input/Output Paths ──────────────────────────
+        "extraction_image_path": config.get("clustering", "extraction_image_path", fallback=""),
+        "extraction_mask_path": config.get("clustering", "extraction_mask_path", fallback=""),
+        "extraction_output_dir": config.get("clustering", "extraction_output_dir", fallback=""),
+
+        # ─── Clustering Input File Paths ─────────────────────────────────────
+        "features_csv_path": config.get("clustering", "features_csv_path", fallback=""),
+        "image_path": config.get("clustering", "image_path", fallback=""),
+        "mask_path": config.get("clustering", "mask_path", fallback=""),
+        "clustering_output_dir": config.get("clustering", "clustering_output_dir", fallback=""),
+
         # ─── Clustering Parameters ───────────────────────────────────────────
         "default_clusters": config.getint("clustering", "default_clusters", fallback=12),
         "auto_k_method": config.get("clustering", "auto_k_method", fallback="silhouette"),

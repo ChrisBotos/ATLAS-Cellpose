@@ -528,7 +528,7 @@ Successfully resolved import path issues caused by directory restructuring and i
 
 #### Feature Extraction with Progress
 ```bash
-python code/engineered_feature_extraction/extract_engineered_features_refactored.py extract \
+python code/engineered_feature_extraction/extract_engineered_features.py extract \
     --image tissue_dapi.tif \
     --mask segmentation_masks.npy \
     --output nuclear_features.csv \
@@ -538,7 +538,7 @@ python code/engineered_feature_extraction/extract_engineered_features_refactored
 
 #### Information Display
 ```bash
-python code/engineered_feature_extraction/extract_engineered_features_refactored.py info
+python code/engineered_feature_extraction/extract_engineered_features.py info
 python code/engineered_feature_extraction/visualize_engineered_features_refactored.py info
 ```
 

@@ -195,9 +195,10 @@ for tissue_file in tissue_files:
 ```
 
 ### Integration with Feature Extraction
+
 ```python
 # Complete pipeline from segmentation to clustering
-from code.engineered_feature_extraction.extract_engineered_features_refactored import process_image_with_config
+from code.engineered_feature_extraction.extract_engineered_features import process_image_with_config
 from code.engineered_feature_extraction.cluster_engineered_features import main as cluster_main
 from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config
 
@@ -205,7 +206,8 @@ from code.engineered_feature_extraction.utils.config_loader import load_feature_
 config = load_feature_extraction_config('configs/engineered_feature_extraction_config.ini')
 
 # Extract features
-features_df = process_image_with_config(image_path, mask_path, features_path, config_path='configs/engineered_feature_extraction_config.ini')
+features_df = process_image_with_config(image_path, mask_path, features_path,
+                                        config_path='configs/engineered_feature_extraction_config.ini')
 
 # Cluster features
 cluster_main()  # Uses dedicated configuration system automatically

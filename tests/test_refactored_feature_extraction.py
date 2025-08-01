@@ -49,7 +49,7 @@ from skimage.measure import regionprops
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 
 # Import the refactored modules to be tested.
-from code.engineered_feature_extraction.extract_engineered_features_refactored import (
+from code.engineered_feature_extraction.extract_engineered_features import (
     extract_shape_features,
     extract_size_features,
     extract_neighborhood_features,

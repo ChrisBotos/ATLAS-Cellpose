@@ -94,10 +94,10 @@ class OverlayConfig:
     hardware setups and image sizes.
     """
     # Core processing parameters.
-    tile_size: int = 1024                    # Tile edge length in pixels.
-    batch_size: int = 4                      # Number of tiles processed simultaneously.
+    tile_size: int = 2048                    # Tile edge length in pixels.
+    batch_size: int = 6                      # Number of tiles processed simultaneously.
     workers: Union[int, str] = "auto"        # Number of worker processes.
-    alpha: float = 0.4                       # Overlay transparency [0,1].
+    alpha: float = 1                       # Overlay transparency [0,1].
     seed: int = 42                           # RNG seed for reproducible colors.
 
     # Memory management parameters.

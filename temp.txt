@@ -1,0 +1,3 @@
+Use console.print() with rich formatting: [cyan]Loading data...[/cyan], [green]✓[/green] Success, [red]✗[/red] Error, [yellow]⚠[/yellow] Warning, [blue]ℹ[/blue] Info, with [1m bold [/1m and [3m italic [/3m text for emphasis.
+Create progress bars with Progress() context manager and task tracking: progress.add_task("Processing...", total=count), progress.update(task, advance=1) for real-time feedback.
+Structure output with rich tables using Table(), add_column(), add_row() and console.print(table) for organized data presentation, plus use [36m[1m colored numbers [/1m[/36m for highlighting important values.

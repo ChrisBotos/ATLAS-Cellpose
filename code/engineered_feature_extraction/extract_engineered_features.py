@@ -4,12 +4,13 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: extract_engineered_features_refactored.py.
+Script Name: extract_engineered_features.py.
 Description:
-    Extract comprehensive nuclear morphological features from segmented DAPI-stained tissue sections
-    for quantitative analysis of kidney ischemia-reperfusion injury. Features are organized into
-    four distinct categories: shape, size, neighborhood, and texture features, each providing
-    unique insights into nuclear morphology changes during tissue injury and repair processes.
+    Simplified config-driven extraction of comprehensive nuclear morphological features from segmented
+    DAPI-stained tissue sections. Implements a streamlined interface that loads all parameters from a
+    configuration file, ensuring complete reproducibility and parameter traceability. Features are
+    organized into four distinct categories: shape, size, neighborhood, and texture features for
+    quantitative analysis of kidney ischemia-reperfusion injury.
 
 Dependencies:
     • Python >= 3.10.
@@ -17,34 +18,31 @@ Dependencies:
     • Custom utilities from nuclei_segmentation package.
 
 Usage:
-    python extract_engineered_features_refactored.py extract \
-        --image ../../results/example_cropped/preprocessed/first.tif \
-        --mask ../../results/example_cropped/masks/segmentation_masks.npy \
-        --output ../../results/example_cropped/engineered_features/engineered_features.csv \
-        --config ../../configs/engineered_feature_extraction_config.ini \
-        --jobs 4
+    python extract_engineered_features.py extract \
+        --config ../../configs/engineered_feature_extraction_config.ini
 
-Positional Arguments:
-    extract    Command to extract features from segmented nuclei.
+Arguments:
+    --config            Path to configuration file containing all extraction parameters.
 
-Optional Arguments:
-    --image             Path to input TIFF image file containing DAPI-stained tissue.
-    --mask              Path to segmentation mask (.npy or image format) with labeled nuclei.
-    --output            Path to output CSV file for extracted nuclear features.
-    --config            Path to configuration file (default: uses project config).
-    --neighbor-radius   Radius in pixels for neighborhood analysis (default: from config).
-    --jobs              Number of parallel workers (-1 for auto, default: from config).
+Configuration File Requirements:
+    The configuration file must contain all necessary parameters including:
+    • Input file paths (image, mask)
+    • Output directory path
+    • Feature extraction settings (categories, workers, radius)
+    • Performance optimization parameters
 
-Inputs:
-    • TIFF image file containing DAPI-stained kidney tissue sections.
-    • Segmentation mask file (.npy format) with uniquely labeled nuclear regions.
-    • Configuration file specifying feature extraction parameters.
+Inputs (specified in config file):
+    • extraction_image_path    Path to DAPI-stained kidney tissue image.
+    • extraction_mask_path     Path to segmentation mask with labeled nuclei.
 
 Outputs:
-    • CSV file containing comprehensive nuclear features organized by category.
+    • extract_engineered_features_config_used.ini    Copied configuration for audit trail.
+    • engineered_features.csv                        Comprehensive nuclear features by category.
     • Debug logs showing feature extraction progress and statistics.
 
 Key Features:
+    • Simplified config-driven interface with complete parameter traceability.
+    • Automatic configuration file copying for reproducibility audit trail.
     • Configurable feature categories: shape, size, neighborhood, and texture features.
     • Shape features: circularity, eccentricity, solidity, convex hull properties, compactness.
     • Size features: area, perimeter, equivalent diameter, axis lengths, bounding box dimensions.
@@ -54,6 +52,8 @@ Key Features:
     • Scientific context: optimized for kidney I/R injury analysis and nuclear morphology changes.
 
 Notes:
+    • All parameters loaded from configuration file - no hardcoded values.
+    • Configuration file automatically copied to output directory for audit purposes.
     • Features are specifically selected for analyzing apoptosis, necrosis, and tissue repair.
     • Fractal dimension calculated via box-counting method for geometric complexity analysis.
     • Sparse zones identified as large low-intensity background regions for spatial context.
@@ -104,12 +104,12 @@ app = typer.Typer(help="Extract comprehensive nuclear features for kidney I/R in
 console = Console()
 
 # Configure logging for scientific reproducibility.
+# Note: File handler will be configured dynamically based on output directory.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('feature_extraction.log')
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -141,8 +141,40 @@ TEXTURE_FEATURES = [
     'glcm_homogeneity', 'glcm_energy', 'gradient_magnitude_mean', 'gradient_magnitude_std'
 ]
 
+#TODO add something like this somewhere
+# copied_config_path = output_dir / "extract_engineered_features_config_used.ini"
+# shutil.copy2(config_path, copied_config_path)
 
 """UTILITY FUNCTIONS"""
+
+def configure_logging_with_output_dir(output_dir: Path) -> None:
+    """
+    Configure logging to save log files in the specified output directory.
+
+    This function sets up a file handler for the logger to save logs in the output
+    directory alongside the extracted features, ensuring all analysis artifacts
+    are kept together for scientific reproducibility.
+
+    Args:
+        output_dir: Path to the output directory where logs should be saved.
+    """
+    # Remove any existing file handlers to avoid duplicate logging.
+    for handler in logger.handlers[:]:
+        if isinstance(handler, logging.FileHandler):
+            logger.removeHandler(handler)
+            handler.close()
+
+    # Create log file path in output directory.
+    log_file_path = output_dir / 'feature_extraction.log'
+
+    # Add file handler to save logs in output directory.
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+
+    logger.info(f"Logging configured to save in: {log_file_path}")
+
 
 def compute_dark_distance_map(gray: np.ndarray, threshold: int = 50) -> np.ndarray:
     """
@@ -642,13 +674,13 @@ def compute_comprehensive_features(
     }
 
     # Extract shape features if enabled.
-    if config_settings.get('shape_features', True):
+    if config_settings.get('shape_features', False):
         logger.debug("Extracting shape features.")
         shape_features = extract_shape_features(region, gray, config_settings)
         features.update(shape_features)
 
     # Extract size features if enabled.
-    if config_settings.get('size_features', True):
+    if config_settings.get('size_features', False):
         logger.debug("Extracting size features.")
         size_features = extract_size_features(region)
         features.update(size_features)
@@ -660,15 +692,15 @@ def compute_comprehensive_features(
         features.update(neighborhood_features)
 
     # Extract texture features if enabled.
-    if config_settings.get('texture_features', True):
+    if config_settings.get('texture_features', False):
         logger.debug("Extracting texture features.")
         texture_features = extract_texture_features(region, gray, config_settings)
         features.update(texture_features)
 
-    # Add fractal dimension as advanced shape feature (optional).
-    if config_settings.get('shape_features', True) and config_settings.get('enable_fractal_dimension', True):
+    # Add fractal dimension as advanced shape feature (only if shape features are enabled).
+    if config_settings.get('shape_features', False) and config_settings.get('enable_fractal_dimension', True):
         features['fractal_dimension'] = fractal_dimension(region.image)
-    elif config_settings.get('shape_features', True):
+    elif config_settings.get('shape_features', False):
         features['fractal_dimension'] = np.nan
 
     logger.debug(f"Comprehensive feature extraction completed for nucleus {region.label}.")
@@ -1002,8 +1034,12 @@ def process_image_with_config(
         summary_table.add_row("Nuclei Processed", str(len(df)))
         summary_table.add_row("Features per Nucleus", str(len(df.columns)))
         summary_table.add_row("Output File", str(output_path))
-        summary_table.add_row("Average Nuclear Area", f"{df['area'].mean():.2f} ± {df['area'].std():.2f} pixels")
 
+        # Only show area statistics if size features are enabled.
+        if 'area' in df.columns:
+            summary_table.add_row("Average Nuclear Area", f"{df['area'].mean():.2f} ± {df['area'].std():.2f} pixels")
+
+        # Only show circularity statistics if shape features are enabled.
         if 'circularity' in df.columns:
             summary_table.add_row("Average Circularity", f"{df['circularity'].mean():.3f} ± {df['circularity'].std():.3f}")
 
@@ -1019,45 +1055,179 @@ def process_image_with_config(
         raise
 
 
+"""CONFIGURATION MANAGEMENT"""
+
+
+def load_and_copy_config(config_path: Path) -> Tuple[Dict, Path]:
+    """
+    Load configuration file and copy it to output directory for audit purposes.
+
+    Args:
+        config_path: Path to the source configuration file.
+
+    Returns:
+        Tuple of (config_dict, output_dir_path).
+
+    This function implements the config-driven workflow: load config → determine output dir
+    → copy config to output → use copied config for all operations to ensure complete
+    parameter traceability.
+    """
+    console.print(f"[cyan]Loading configuration from: [bold]{config_path}[/bold][/cyan]")
+
+    # Validate config file exists.
+    if not config_path.exists():
+        console.print(f"[red]✗[/red] Configuration file not found: {config_path}")
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+    # Load configuration first to get output directory.
+    try:
+        config = load_feature_extraction_config(config_path)
+        console.print(f"[green]✓[/green] Loaded [cyan][bold]{len(config)}[/bold][/cyan] parameters from configuration")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to load configuration: {e}")
+        raise RuntimeError(f"Failed to load configuration from {config_path}: {e}")
+
+    # Get output directory from config.
+    output_dir = Path(config.get('extraction_output_dir', 'results/engineered_features'))
+
+    # Create output directory if it doesn't exist.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[green]✓[/green] Created output directory: [bold]{output_dir}[/bold]")
+
+    # Copy config file to output directory for audit purposes.
+    copied_config_path = output_dir / 'extract_engineered_features_config_used.ini'
+    import shutil
+    shutil.copy2(config_path, copied_config_path)
+    console.print(f"[green]✓[/green] Configuration copied to: [bold]{copied_config_path}[/bold]")
+
+    return config, output_dir
+
+
+def validate_extraction_config_parameters(config: Dict) -> None:
+    """
+    Validate that all required configuration parameters are present.
+
+    Args:
+        config: Configuration dictionary loaded from file.
+
+    Raises:
+        ValueError: If required parameters are missing or invalid.
+
+    This function ensures the configuration file contains all necessary parameters
+    for feature extraction, providing clear error messages for missing values.
+    """
+    console.print("[cyan]Validating configuration parameters...[/cyan]")
+
+    # Required input file paths.
+    required_paths = {
+        'extraction_image_path': 'Path to DAPI-stained tissue image',
+        'extraction_mask_path': 'Path to segmentation mask file',
+        'extraction_output_dir': 'Output directory for extraction results'
+    }
+
+    missing_paths = []
+    for param, description in required_paths.items():
+        if param not in config or not config[param]:
+            missing_paths.append(f"  • {param}: {description}")
+
+    if missing_paths:
+        console.print(f"[red]✗[/red] Missing required input/output paths in configuration:")
+        for missing in missing_paths:
+            console.print(f"[red]{missing}[/red]")
+        raise ValueError("Configuration file missing required input/output paths")
+
+    console.print("[green]✓[/green] All required configuration parameters validated")
+
+
+def get_extraction_file_paths_from_config(config: Dict) -> Tuple[Path, Path]:
+    """
+    Extract and validate file paths from configuration.
+
+    Args:
+        config: Configuration dictionary.
+
+    Returns:
+        Tuple of (image_path, mask_path).
+
+    Raises:
+        FileNotFoundError: If any required files don't exist.
+
+    This function extracts file paths from the configuration and validates
+    that all required input files exist before starting the extraction.
+    """
+    console.print("[cyan]Extracting file paths from configuration...[/cyan]")
+
+    # Extract paths from config.
+    image_path = Path(config['extraction_image_path'])
+    mask_path = Path(config['extraction_mask_path'])
+
+    # Validate files exist.
+    missing_files = []
+    if not image_path.exists():
+        missing_files.append(f"Image file: {image_path}")
+    if not mask_path.exists():
+        missing_files.append(f"Mask file: {mask_path}")
+
+    if missing_files:
+        console.print(f"[red]✗[/red] Missing required input files:")
+        for missing in missing_files:
+            console.print(f"[red]  • {missing}[/red]")
+        raise FileNotFoundError("Required input files not found")
+
+    console.print(f"[green]✓[/green] All input files validated:")
+    console.print(f"  • [blue]Image[/blue]: {image_path}")
+    console.print(f"  • [blue]Mask[/blue]: {mask_path}")
+
+    return image_path, mask_path
+
+
 """CLI INTERFACE"""
 
 @app.command()
 def extract(
-    image: Path = typer.Option(..., exists=True, help="Input TIFF image file containing DAPI-stained tissue."),
-    mask: Path = typer.Option(..., exists=True, help="Segmentation mask file (.npy or image format) with labeled nuclei."),
-    output: Path = typer.Option(Path('nuclear_features.csv'), help="Output CSV file for extracted nuclear features."),
-    config: Optional[Path] = typer.Option(None, exists=True, help="Configuration file path (default: uses project config)."),
-    neighbor_radius: Optional[float] = typer.Option(None, help="Neighborhood analysis radius in pixels (default: from config)."),
-    jobs: Optional[int] = typer.Option(None, help="Number of parallel workers (-1 for auto, default: from config)."),
+    config: Path = typer.Option(..., exists=True, help="Configuration file containing all extraction parameters."),
 ) -> None:
     """
-    Extract comprehensive nuclear morphological features for kidney I/R injury analysis.
+    Simplified config-driven extraction of comprehensive nuclear morphological features.
 
-    This command processes DAPI-stained tissue images and segmentation masks to extract
-    four categories of nuclear features: shape, size, neighborhood, and texture features.
-    Features are specifically selected for analyzing tissue injury and repair processes.
+    This command implements a streamlined interface that loads all parameters from a
+    configuration file, ensuring complete reproducibility and parameter traceability.
+    Extracts four categories of nuclear features: shape, size, neighborhood, and texture.
 
     Example usage:
-        python extract_engineered_features_refactored.py extract \\
-            --image tissue_dapi.tif \\
-            --mask segmentation_masks.npy \\
-            --output nuclear_features.csv \\
-            --neighbor-radius 50.0 \\
-            --jobs 4
+        python extract_engineered_features.py extract \\
+            --config ../../configs/engineered_feature_extraction_config.ini
     """
-    console.print("\n[bold blue]🧬 NUCLEAR FEATURE EXTRACTION FOR KIDNEY I/R INJURY ANALYSIS 🧬[/bold blue]\n")
+    console.print("\n[bold blue]🧬 CONFIG-DRIVEN NUCLEAR FEATURE EXTRACTION 🧬[/bold blue]\n")
 
     try:
-        # Process image and extract features.
         start_time = time.time()
 
+        # Step 1: Load configuration and copy to output directory.
+        config, output_dir = load_and_copy_config(config)
+
+        # Configure logging to save in output directory.
+        configure_logging_with_output_dir(output_dir)
+
+        # Step 2: Validate all required configuration parameters.
+        validate_extraction_config_parameters(config)
+
+        # Step 3: Extract and validate input file paths from configuration.
+        image_path, mask_path = get_extraction_file_paths_from_config(config)
+
+        console.print(f"[green]✓[/green] Configuration-driven setup completed")
+        console.print(f"[blue]ℹ[/blue] Results will be saved to: [bold]{output_dir}[/bold]")
+
+        # Step 4: Process image and extract features using config parameters.
+        output_path = output_dir / 'engineered_features.csv'
+
         df = process_image_with_config(
-            image_path=image,
-            mask_path=mask,
-            output_path=output,
-            config_path=config,
-            neighbor_radius=neighbor_radius,
-            jobs=jobs
+            image_path=image_path,
+            mask_path=mask_path,
+            output_path=output_path,
+            config_path=output_dir / 'extract_engineered_features_config_used.ini',
+            neighbor_radius=None,  # Use config values
+            jobs=None  # Use config values
         )
 
         end_time = time.time()
@@ -1072,12 +1242,13 @@ def extract(
 
             # Final results panel.
             results_panel = Panel(
-                f"[bold green]✅ FEATURE EXTRACTION COMPLETED SUCCESSFULLY[/bold green]\n\n"
+                f"[bold green]✅ CONFIG-DRIVEN FEATURE EXTRACTION COMPLETED[/bold green]\n\n"
                 f"[cyan]📊 Results Summary:[/cyan]\n"
                 f"• Total nuclei analyzed: [bold]{len(df)}[/bold]\n"
                 f"• Features per nucleus: [bold]{len(df.columns)}[/bold]\n"
                 f"• Processing time: [bold]{processing_time:.2f} seconds[/bold]\n"
-                f"• Output file: [bold]{output}[/bold]\n\n"
+                f"• Output directory: [bold]{output_dir}[/bold]\n"
+                f"• Config audit: [bold]extract_engineered_features_config_used.ini[/bold]\n\n"
                 f"[cyan]🔬 Feature Categories:[/cyan]\n"
                 f"• Shape features: [bold]{len(shape_cols)}[/bold]\n"
                 f"• Size features: [bold]{len(size_cols)}[/bold]\n"
@@ -1092,6 +1263,7 @@ def extract(
             console.print(Panel(
                 "[bold red]❌ No features were extracted.[/bold red]\n\n"
                 "Please check:\n"
+                "• Configuration file contains correct input paths\n"
                 "• Input files exist and are readable\n"
                 "• Mask contains labeled nuclei\n"
                 "• Configuration parameters are correct\n"
@@ -1102,9 +1274,9 @@ def extract(
 
     except Exception as e:
         console.print(Panel(
-            f"[bold red]💥 Feature extraction failed:[/bold red]\n\n"
+            f"[bold red]💥 Config-driven feature extraction failed:[/bold red]\n\n"
             f"[red]{str(e)}[/red]\n\n"
-            f"Check the log file for detailed error information.",
+            f"Check the configuration file and ensure all required parameters are present.",
             border_style="red",
             title="❌ Error"
         ))

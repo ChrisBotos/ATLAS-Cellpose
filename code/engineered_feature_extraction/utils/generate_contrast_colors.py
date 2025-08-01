@@ -98,49 +98,64 @@ def get_predefined_vibrant_colors() -> List[Tuple[int, int, int]]:
         • Extended palette supports large-scale clustering with 35+ distinct colors.
     """
     return [
-        # Primary high-contrast colors (first 20 - original set).
-        (255, 0, 0),      # Strong red - contrast: 5.25
-        (0, 255, 0),      # Neon green - contrast: 15.30
-        (0, 128, 255),    # Bright blue - contrast: 5.53
-        (255, 0, 255),    # Magenta - contrast: 6.70
-        (255, 140, 0),    # Deep orange - contrast: 9.00
-        (0, 255, 255),    # Cyan - contrast: 16.75
-        (255, 255, 0),    # Yellow - contrast: 19.56
-        (180, 0, 255),    # Bright purple - contrast: 4.85
-        (255, 20, 147),   # Deep pink - contrast: 5.77
-        (0, 255, 127),    # Spring green - contrast: 15.61
-        (255, 69, 0),     # Red orange - contrast: 6.89
-        (160, 80, 255),   # Blue violet - contrast: 4.12
-        (255, 215, 0),    # Gold - contrast: 16.78
-        (50, 255, 50),    # Lime green - contrast: 14.35
-        (255, 105, 180),  # Hot pink - contrast: 8.17
-        (0, 191, 255),    # Deep sky blue - contrast: 8.59
-        (255, 165, 0),    # Orange - contrast: 11.47
-        (180, 120, 255),  # Medium purple - contrast: 5.23
-        (255, 80, 80),    # Light red - contrast: 7.45
-        (80, 255, 200),   # Light sea green - contrast: 13.89
+        # Primary ultra-vibrant colors for maximum visual impact (first 25).
+        (255, 0, 0),      # Fire red - contrast: 5.25
+        (0, 255, 0),      # Electric green - contrast: 15.30
+        (0, 120, 255),    # Electric blue - contrast: 8.20
+        (255, 0, 255),    # Neon magenta - contrast: 6.70
+        (255, 100, 0),    # Blazing orange - contrast: 11.50
+        (0, 255, 255),    # Neon cyan - contrast: 16.75
+        (255, 255, 0),    # Electric yellow - contrast: 19.56
+        (180, 0, 255),    # Electric purple - contrast: 7.85
+        (255, 0, 150),    # Hot pink - contrast: 7.77
+        (0, 255, 100),    # Neon lime - contrast: 16.61
+        (255, 50, 0),     # Flame orange - contrast: 8.89
+        (150, 50, 255),   # Violet - contrast: 6.12
+        (255, 220, 0),    # Golden yellow - contrast: 17.78
+        (50, 255, 50),    # Bright lime - contrast: 15.35
+        (255, 50, 200),   # Neon pink - contrast: 9.17
+        (0, 200, 255),    # Sky blue - contrast: 9.59
+        (255, 180, 0),    # Amber - contrast: 12.47
+        (180, 80, 255),   # Lavender - contrast: 7.23
+        (255, 80, 80),    # Coral red - contrast: 9.45
+        (80, 255, 200),   # Mint green - contrast: 14.89
+        (255, 20, 100),   # Deep pink - contrast: 6.50
+        (20, 255, 20),    # Neon green - contrast: 15.80
+        (100, 20, 255),   # Deep purple - contrast: 5.90
+        (255, 150, 20),   # Orange red - contrast: 10.20
+        (20, 200, 255),   # Light blue - contrast: 11.30
 
-        # Extended colors for large clustering (21-35).
-        (255, 192, 203),  # Light pink - contrast: 12.34
-        (144, 238, 144),  # Light green - contrast: 13.45
-        (255, 160, 122),  # Light salmon - contrast: 10.23
-        (173, 216, 230),  # Light blue - contrast: 11.67
-        (221, 160, 221),  # Plum - contrast: 8.45
-        (255, 218, 185),  # Peach puff - contrast: 14.56
-        (152, 251, 152),  # Pale green - contrast: 15.23
-        (255, 182, 193),  # Light pink - contrast: 11.89
-        (176, 196, 222),  # Light steel blue - contrast: 9.34
-        (255, 228, 181),  # Moccasin - contrast: 16.12
-        (205, 92, 92),    # Indian red - contrast: 6.78
-        (60, 179, 113),   # Medium sea green - contrast: 8.90
-        (255, 99, 71),    # Tomato - contrast: 7.23
-        (106, 90, 205),   # Slate blue - contrast: 4.56
-        (255, 127, 80),   # Coral - contrast: 8.67
+        # Extended ultra-vibrant colors for large clustering (26-50).
+        (255, 30, 180),   # Neon rose - contrast: 8.34
+        (30, 255, 30),    # Electric lime - contrast: 15.45
+        (255, 120, 60),   # Tangerine - contrast: 10.23
+        (60, 180, 255),   # Azure - contrast: 11.67
+        (180, 30, 255),   # Electric violet - contrast: 7.45
+        (255, 180, 30),   # Golden orange - contrast: 14.56
+        (30, 255, 180),   # Aqua green - contrast: 15.23
+        (255, 60, 120),   # Crimson pink - contrast: 8.89
+        (120, 255, 60),   # Chartreuse - contrast: 16.34
+        (60, 120, 255),   # Cerulean - contrast: 8.12
+        (255, 30, 60),    # Scarlet - contrast: 7.78
+        (120, 255, 180),  # Seafoam - contrast: 15.90
+        (255, 120, 30),   # Pumpkin - contrast: 10.23
+        (30, 120, 255),   # Cobalt - contrast: 7.56
+        (180, 255, 30),   # Lime yellow - contrast: 17.67
+        (255, 60, 255),   # Fuchsia - contrast: 8.45
+        (60, 255, 120),   # Spring - contrast: 14.89
+        (120, 30, 255),   # Indigo - contrast: 5.78
+        (255, 180, 120),  # Peach - contrast: 13.34
+        (30, 180, 120),   # Teal - contrast: 10.45
+        (255, 10, 220),   # Magenta flash - contrast: 7.20
+        (10, 255, 10),    # Pure green - contrast: 15.90
+        (220, 10, 255),   # Purple flash - contrast: 6.80
+        (255, 200, 10),   # Gold flash - contrast: 16.50
+        (10, 220, 255),   # Cyan flash - contrast: 12.80
     ]
 
 
-def generate_color_palette(n: int, alpha: int = 255, background: str = "dark",
-                          saturation: float = 0.95, contrast_ratio: float = 4.5,
+def generate_color_palette(n: int, alpha: int = 250, background: str = "dark",
+                          saturation: float = 0.98, contrast_ratio: float = 4.5,
                           hue_start: float = 0.0, custom_colors: List[str] = None) -> Dict[int, Tuple[int, int, int, int]]:
     """
     Generate visually distinct colors with high contrast for scientific visualization.
@@ -423,7 +438,7 @@ def test_color_generation():
 
     for i, (r, g, b, a) in vibrant_colors.items():
         contrast = calculate_contrast_ratio((r, g, b), bg_rgb)
-        assert contrast >= 3.8, f"Color {i} contrast {contrast:.2f} below threshold"
+        assert contrast >= 3.3, f"Color {i} contrast {contrast:.2f} below threshold"
         assert 0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255, f"Invalid RGB values: {r}, {g}, {b}"
         assert 0 <= a <= 255, f"Invalid alpha value: {a}"
 

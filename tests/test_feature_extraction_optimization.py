@@ -54,7 +54,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../"
 
 # Import feature extraction utilities.
 from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config
-from code.engineered_feature_extraction.extract_engineered_features_refactored import (
+from code.engineered_feature_extraction.extract_engineered_features import (
     extract_shape_features,
     extract_neighborhood_features,
     extract_texture_features,

@@ -1346,13 +1346,67 @@ python code/engineered_feature_extraction/cluster_engineered_features.py \
 - **Cluster Assignments**: CSV with nuclear labels and cluster memberships
 - **Statistical Analysis**: Mean and standard deviation for each feature per cluster
 - **Feature Importance**: Random Forest-based ranking of discriminative features
-- **Visualizations**: PCA plots and cluster overlay images
+- **Advanced Overlays**: Memory-efficient cluster visualizations for gigantic images
+- **PCA Visualizations**: Dimensionality reduction plots showing cluster separation
 
 **🔬 Scientific Applications**
 - **Cell Type Classification**: Identify different nuclear morphologies (e.g., epithelial vs. immune cells)
 - **Injury Assessment**: Distinguish healthy vs. damaged nuclear populations
 - **Spatial Analysis**: Map cluster distributions across tissue regions
 - **Temporal Studies**: Track morphological changes across time points
+
+#### Advanced Memory-Efficient Overlay System
+
+The clustering pipeline now integrates with the advanced overlay utilities for processing gigantic images:
+
+**🚀 Key Capabilities**
+- **Tile-Based Processing**: Handles images of any size without memory limitations
+- **GPU Acceleration**: Optional CUDA/OpenCL acceleration for faster processing
+- **Parallel Processing**: Multi-worker tile processing for optimal performance
+- **Automatic Fallback**: Graceful degradation to simple overlay when needed
+
+**⚙️ Configuration Options**
+```ini
+# Advanced overlay parameters in config file
+overlay_tile_size = 1024              # Tile size for processing
+overlay_workers = auto                # Number of parallel workers
+overlay_alpha = 0.4                   # Transparency level
+overlay_gpu = True                    # Enable GPU acceleration
+overlay_memory_limit_mb = 8192        # GPU memory limit
+```
+
+**💾 Memory Efficiency**
+- **Streaming Processing**: Only loads one tile at a time into memory
+- **Memory Monitoring**: Automatic batch size adjustment based on available memory
+- **BigTIFF Support**: Handles output files larger than 4GB
+- **Cleanup Management**: Automatic temporary file cleanup with retry logic
+
+#### Enhanced Vibrant Color System
+
+The clustering pipeline now features an enhanced color system designed for maximum visual impact and scientific clarity:
+
+**🎨 Enhanced Vibrant Color Palette**
+- **50+ Predefined Colors**: Fire red, electric green, electric blue, neon magenta, blazing orange
+- **Maximum Saturation**: 98% saturation for vivid, eye-catching colors
+- **Ultra-High Opacity**: 250/255 alpha for dominant cluster visibility
+- **Scientific Standards**: All colors meet WCAG contrast requirements (≥4.5)
+
+**🔬 Enhanced Color Configuration Options**
+```ini
+# Ultra-vibrant color parameters for maximum visibility
+color_alpha = 250                     # Ultra-high opacity (98% opaque)
+color_saturation = 0.98               # Maximum saturation for vibrancy
+overlay_alpha = 0.85                  # Dominant overlay visibility (85%)
+color_background = dark               # Optimized for dark backgrounds
+```
+
+**🌈 Enhanced Predefined Color Examples (50+ Colors)**
+- **Fire Red**: RGB(255, 0, 0) - Maximum contrast for primary clusters
+- **Electric Green**: RGB(0, 255, 0) - Ultra-bright for secondary clusters
+- **Electric Blue**: RGB(0, 120, 255) - Enhanced blue for tertiary clusters
+- **Neon Magenta**: RGB(255, 0, 255) - Vibrant purple for quaternary clusters
+- **Blazing Orange**: RGB(255, 100, 0) - Intense orange for additional clusters
+- **Plus 45+ More**: Neon cyan, electric yellow, hot pink, neon lime, flame orange, violet, golden yellow, bright lime, neon pink, sky blue, amber, lavender, coral red, mint green, and many more ultra-vibrant colors
 
 #### Column Name Convention
 

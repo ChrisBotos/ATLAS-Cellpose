@@ -53,7 +53,7 @@ def load_config(config_path=None):
     output_dir = dirs["results"] / f"{timestamp}_{name}"
     output_dir.mkdir(exist_ok=True)
 
-    copied_config_path = output_dir / "config_used.ini"
+    copied_config_path = output_dir / "nuclei_segmentation_config_used.ini"
     shutil.copy2(config_path, copied_config_path)
 
     config = configparser.ConfigParser()

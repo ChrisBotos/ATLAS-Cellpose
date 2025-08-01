@@ -51,15 +51,25 @@ This document provides a numbered list of all major changes made to the I/R Inju
 36. **Performance and User Experience Enhancement** - Visual feedback and time estimates
 37. **Technical Improvements** - Clean import structure and comprehensive error handling
 
+## August 1, 2025 - Feature Extraction Logging and Configuration Fixes
+
+38. **Log File Location Fix** - Log files now save to output directory instead of script directory
+39. **Feature Extraction Logic Fix** - Disabled features are now properly skipped (shape/size/neighborhood/texture)
+40. **Configuration Path Fix** - Updated relative paths to work correctly from project root
+41. **Fractal Dimension Logic Fix** - Only computed when shape features are enabled
+42. **Summary Table Fix** - Only shows statistics for enabled feature categories
+43. **Logging Configuration Enhancement** - Dynamic file handler setup based on output directory
+
 ## Summary Statistics
 
-- **Total Changes**: 37 major improvements
+- **Total Changes**: 43 major improvements
 - **Scripts Created**: 8 new scripts and configuration files
 - **Scripts Refactored**: 6 major script rewrites
 - **Documentation Updates**: 5 comprehensive documentation improvements
 - **Environment Enhancements**: 4 environment and deployment improvements
 - **Testing Improvements**: 3 comprehensive test suite updates
 - **Performance Optimizations**: 11 performance and user experience enhancements
+- **Bug Fixes**: 6 critical fixes for logging and feature extraction
 
 ## Key Achievements
 
@@ -69,3 +79,4 @@ This document provides a numbered list of all major changes made to the I/R Inju
 - **Modern CLI Interface**: Typer-based commands with Rich progress tracking
 - **Comprehensive Testing**: 15 tests with extensive coverage
 - **Scientific Documentation**: Bioinformatician-focused documentation throughout
+- **Robust Configuration System**: Proper logging and feature extraction with configuration validation

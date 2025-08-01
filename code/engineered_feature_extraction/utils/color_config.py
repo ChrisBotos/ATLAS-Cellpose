@@ -63,8 +63,8 @@ class ColorConfig:
     """
     # Core color generation parameters.
     background: str = "dark"                    # Background type: "light" or "dark".
-    alpha: int = 255                           # Alpha transparency (0-255, 255=opaque).
-    saturation: float = 0.95                   # Color saturation (0.0-1.0, higher=more vivid).
+    alpha: int = 250                           # Alpha transparency (0-255, 250=nearly opaque).
+    saturation: float = 0.98                   # Color saturation (0.0-1.0, higher=more vivid).
     contrast_ratio: float = 4.5                # Minimum WCAG contrast ratio.
     hue_start: float = 0.0                     # Starting hue offset (0.0-1.0).
     
@@ -273,30 +273,72 @@ def save_color_config(config: ColorConfig, config_path: Union[str, Path]) -> Non
 def create_example_config() -> ColorConfig:
     """
     Create example configuration with custom colors for demonstration.
-    
+
     Returns:
         ColorConfig with example custom color palette.
-        
+
     This function provides a template for users to understand how to
     configure custom color palettes for their specific needs.
     """
     example_colors = [
-        "#FF0000",  # Strong red
-        "#00FF00",  # Neon green
-        "#0080FF",  # Bright blue
-        "#FF00FF",  # Magenta
-        "#FF8C00",  # Deep orange
-        "#00FFFF",  # Cyan
-        "#FFFF00",  # Yellow
-        "#8000FF",  # Purple
+        "#FF0000",  # Fire red
+        "#00FF00",  # Electric green
+        "#0064FF",  # Electric blue
+        "#FF00FF",  # Neon magenta
+        "#FF8000",  # Blazing orange
+        "#00FFFF",  # Neon cyan
+        "#FFFF00",  # Electric yellow
+        "#8000FF",  # Electric purple
     ]
-    
+
     return ColorConfig(
         background="dark",
-        alpha=200,
-        saturation=0.95,
+        alpha=240,
+        saturation=0.98,
         contrast_ratio=5.0,
         custom_colors=example_colors
+    )
+
+
+def create_neon_config() -> ColorConfig:
+    """
+    Create configuration with ultra-vibrant neon colors for maximum visual impact.
+
+    Returns:
+        ColorConfig with neon color palette optimized for cluster visualization.
+
+    This configuration uses the most saturated, high-contrast colors available
+    for scientific visualization where maximum cluster distinction is required.
+    """
+    neon_colors = [
+        "#FF0000",  # Fire red
+        "#00FF00",  # Electric green
+        "#0064FF",  # Electric blue
+        "#FF00FF",  # Neon magenta
+        "#FF8000",  # Blazing orange
+        "#00FFFF",  # Neon cyan
+        "#FFFF00",  # Electric yellow
+        "#8000FF",  # Electric purple
+        "#FF0080",  # Hot pink
+        "#00FF80",  # Neon lime
+        "#FF4000",  # Flame orange
+        "#8040FF",  # Violet
+        "#FFC800",  # Golden yellow
+        "#40FF40",  # Bright lime
+        "#FF40C0",  # Neon pink
+        "#00C0FF",  # Sky blue
+        "#FFA000",  # Amber
+        "#A060FF",  # Lavender
+        "#FF6060",  # Coral red
+        "#60FFC0",  # Mint green
+    ]
+
+    return ColorConfig(
+        background="dark",
+        alpha=250,           # Nearly opaque for maximum visibility
+        saturation=1.0,      # Maximum saturation for neon effect
+        contrast_ratio=5.5,  # Higher contrast for better distinction
+        custom_colors=neon_colors
     )
 
 

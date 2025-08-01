@@ -15,7 +15,7 @@ shape, size, neighborhood, and texture features, each providing unique insights 
 responses during kidney I/R injury progression.
 
 Key Components:
-    • extract_engineered_features_refactored.py: Comprehensive feature extraction with category organization.
+    • extract_engineered_features.py: Comprehensive feature extraction with category organization.
     • visualize_engineered_features_refactored.py: Publication-quality visualization with timepoint coding.
     • Original legacy modules: extract_engineered_features.py, visualize_engineered_features.py.
 

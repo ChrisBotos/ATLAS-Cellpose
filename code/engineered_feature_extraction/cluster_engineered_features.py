@@ -5,74 +5,76 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: cluster_engineered_features.py
 Description:
-    Memory-optimized clustering of engineered nuclear features with MiniBatchKMeans and streaming scaling.
-    Supports comprehensive morphological, intensity, texture, and neighborhood features extracted from
-    DAPI-stained kidney tissue sections. Optimized for I/R injury analysis with publication-quality
-    visualizations and scientific color palettes.
+    Simplified config-driven clustering of engineered nuclear features with GPU-accelerated overlay generation.
+    Implements a streamlined interface that loads all parameters from a configuration file, ensuring complete
+    reproducibility and parameter traceability. Features memory-efficient processing, vibrant color palettes,
+    and advanced overlay utilities for publication-quality scientific visualizations of kidney I/R injury analysis.
 
 Dependencies:
     • Python >= 3.10.
     • numpy, pandas, scikit-learn, joblib, matplotlib, PIL, seaborn, scipy.
-    • typer for modern CLI interface.
+    • argparse for simplified CLI interface.
     • rich for progress tracking and console output.
+    • Advanced overlay utilities with GPU acceleration support.
 
 Usage:
     python cluster_engineered_features.py \
-        --features ../../results/engineered_features/engineered_features.csv \
-        --image ../../results/example_cropped/preprocessed/first.tif \
-        --mask ../../results/example_cropped/masks/segmentation_masks.npy \
-        --clusters 4 \
-        --auto-k None \
-        --outdir ../../results/example_cropped/clustering \
-        --seed 42
+        --config ../../configs/engineered_feature_extraction_config.ini
 
 Arguments:
-    --features         Path to CSV file with extracted nuclear features.
-    --image            Path to raw microscopy image (TIFF format).
-    --mask             Path to segmentation mask (.npy format).
-    --clusters         Number of clusters for K-means (default: 10).
-    --auto-k           Auto K-selection method ('None', 'silhouette', 'dbi').
-    --batch-size       Batch size for streaming processing (default: 5000).
-    --outdir           Output directory for results.
-    --seed             Random seed for reproducibility.
-    --region           Crop region for overlay: xmin xmax ymin ymax (fractions).
+    --config           Path to configuration file containing all clustering parameters.
 
-Inputs:
-    • nuclear_features.csv    Comprehensive nuclear feature matrix.
-    • tissue_dapi.tif         Original DAPI-stained tissue image.
-    • segmentation_masks.npy  Nuclear segmentation masks.
+Configuration File Requirements:
+    The configuration file must contain all necessary parameters including:
+    • Input file paths (features CSV, image, mask)
+    • Output directory path for clustering results
+    • Clustering parameters (number of clusters, methods, seeds)
+    • Visualization settings (file names, overlay options)
+    • Color and overlay settings (alpha, saturation, GPU options)
+
+Inputs (specified in config file):
+    • features_csv_path    Path to comprehensive nuclear feature matrix.
+    • image_path          Path to original DAPI-stained tissue image.
+    • mask_path           Path to nuclear segmentation masks.
 
 Outputs:
-    • nuclear_clusters.csv         Cluster assignments per nucleus.
-    • kmeans_model.joblib          Trained MiniBatchKMeans model.
-    • scaler.joblib                StandardScaler for feature normalization.
-    • cluster_overlay.tif          Overlay of clusters on tissue image.
-    • pca_clusters.png             PCA scatter plot with cluster colors.
-    • feature_importance.png       Feature importance for clustering.
-    • cluster_statistics.csv       Statistical summary per cluster.
+    • engineered_feature_clustering_config_used.ini    Copied configuration for audit trail.
+    • nuclear_clusters.csv                             Cluster assignments per nucleus.
+    • kmeans_model.joblib                              Trained clustering model.
+    • scaler.joblib                                    StandardScaler for feature normalization.
+    • cluster_overlay.tif                              GPU-accelerated cluster overlay on tissue.
+    • pca_clusters.png                                 PCA scatter plot with cluster colors.
+    • feature_importance.png                           Feature importance for clustering.
+    • cluster_statistics.csv                           Statistical summary per cluster.
 
 Key Features:
-    • Handles comprehensive nuclear feature sets (50+ features).
-    • Memory-efficient streaming processing for large datasets.
-    • Enhanced color palette with 35+ distinct colors for large cluster numbers.
-    • Publication-quality visualizations with scientific formatting.
+    • Simplified config-driven interface with complete parameter traceability.
+    • Automatic configuration file copying for reproducibility audit trail.
+    • GPU-accelerated overlay generation with memory-efficient tile processing.
+    • Enhanced vibrant color palette with 50+ neon-like colors for maximum visual impact.
+    • Memory-efficient streaming processing for datasets of any size.
+    • Publication-quality visualizations with scientific formatting and high contrast.
     • Feature importance analysis for biological interpretation.
-    • Comprehensive statistical analysis per cluster.
-    • Optimized for kidney I/R injury research contexts.
+    • Comprehensive statistical analysis and cluster validation.
+    • Optimized for kidney I/R injury research with scientific color standards.
 
 Notes:
-    • Features should include morphological, intensity, texture, and neighborhood categories.
-    • Color palette optimized for microscopy visualization with high contrast ratios.
-    • Supports both automatic and manual cluster number selection.
-    • Memory usage scales efficiently with dataset size through streaming processing.
+    • All parameters loaded from configuration file - no hardcoded values.
+    • Configuration file automatically copied to output directory for audit purposes.
+    • Supports comprehensive nuclear feature sets (morphological, intensity, texture, neighborhood).
+    • Color palette optimized for scientific visualization with WCAG contrast compliance.
+    • GPU acceleration provides significant speedup for large image overlay generation.
+    • Memory usage scales efficiently through streaming and tile-based processing.
 """
 import traceback
+import tempfile
 import argparse
 import logging
 import sys
 import time
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
+from sklearn.ensemble import RandomForestClassifier
 import numpy as np
 import pandas as pd
 from PIL import Image
@@ -82,12 +84,15 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score, davies_bouldin_score
 import joblib
-import seaborn as sns
 import matplotlib.pyplot as plt
 import random
 from rich.console import Console
 from rich.progress import Progress, TaskID
 from rich.table import Table
+import shutil
+
+# Initialize console for output.
+console = Console()
 
 # Import color generation utilities.
 from utils.generate_contrast_colors import generate_color_palette, colors_to_hex_list
@@ -96,60 +101,164 @@ from utils.color_config import ColorConfig, load_color_config
 # Import feature extraction configuration utilities.
 from utils.config_loader import load_feature_extraction_config
 
-console = Console()
+# Import overlay utilities for memory-efficient large image processing.
+overlay_utils_path = Path(__file__).parent.parent / 'nuclei_segmentation' / 'utils'
+sys.path.insert(0, str(overlay_utils_path))
+
+import overlay_masks
+overlay = overlay_masks.overlay
+OverlayConfig = overlay_masks.OverlayConfig
+
+
+"""CONFIGURATION MANAGEMENT"""
+
+
+def load_and_copy_config(config_path: Path) -> Tuple[Dict, Path]:
+    """
+    Load configuration file and copy it to output directory for audit purposes.
+
+    Args:
+        config_path: Path to the source configuration file.
+
+    Returns:
+        Tuple of (config_dict, output_dir_path).
+
+    This function implements the config-driven workflow: load config → determine output dir
+    → copy config to output → use copied config for all operations to ensure complete
+    parameter traceability.
+    """
+    console.print(f"[cyan]Loading configuration from: [bold]{config_path}[/bold][/cyan]")
+
+    # Validate config file exists.
+    if not config_path.exists():
+        console.print(f"[red]✗[/red] Configuration file not found: {config_path}")
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+    # Load configuration first to get output directory.
+    try:
+        config = load_feature_extraction_config(config_path)
+        console.print(f"[green]✓[/green] Loaded [cyan][bold]{len(config)}[/bold][/cyan] parameters from configuration")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to load configuration: {e}")
+        raise RuntimeError(f"Failed to load configuration from {config_path}: {e}")
+
+    # Get output directory from config.
+    output_dir = Path(config.get('clustering_output_dir', 'results/clustering_analysis'))
+
+    # Create output directory if it doesn't exist.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    console.print(f"[green]✓[/green] Created output directory: [bold]{output_dir}[/bold]")
+
+    # Copy config file to output directory for audit purposes.
+    copied_config_path = output_dir / 'engineered_feature_clustering_config_used.ini'
+    shutil.copy2(config_path, copied_config_path)
+    console.print(f"[green]✓[/green] Configuration copied to: [bold]{copied_config_path}[/bold]")
+
+    return config, output_dir
+
+
+def validate_config_parameters(config: Dict) -> None:
+    """
+    Validate that all required configuration parameters are present.
+
+    Args:
+        config: Configuration dictionary loaded from file.
+
+    Raises:
+        ValueError: If required parameters are missing or invalid.
+
+    This function ensures the configuration file contains all necessary parameters
+    for clustering analysis, providing clear error messages for missing values.
+    """
+    console.print("[cyan]Validating configuration parameters...[/cyan]")
+
+    # Required input file paths.
+    required_paths = {
+        'features_csv_path': 'Path to engineered features CSV file',
+        'image_path': 'Path to original tissue image',
+        'mask_path': 'Path to segmentation mask file',
+        'clustering_output_dir': 'Output directory for clustering results'
+    }
+
+    missing_paths = []
+    for param, description in required_paths.items():
+        if param not in config or not config[param]:
+            missing_paths.append(f"  • {param}: {description}")
+
+    if missing_paths:
+        console.print(f"[red]✗[/red] Missing required input file paths in configuration:")
+        for missing in missing_paths:
+            console.print(f"[red]{missing}[/red]")
+        raise ValueError("Configuration file missing required input file paths")
+
+    # Required clustering parameters.
+    required_params = {
+        'default_clusters': 'Number of clusters for analysis',
+        'clustering_seed': 'Random seed for reproducibility',
+        'clustering_batch_size': 'Batch size for processing'
+    }
+
+    missing_params = []
+    for param, description in required_params.items():
+        if param not in config:
+            missing_params.append(f"  • {param}: {description}")
+
+    if missing_params:
+        console.print(f"[red]✗[/red] Missing required clustering parameters in configuration:")
+        for missing in missing_params:
+            console.print(f"[red]{missing}[/red]")
+        raise ValueError("Configuration file missing required clustering parameters")
+
+    console.print("[green]✓[/green] All required configuration parameters validated")
+
+
+def get_file_paths_from_config(config: Dict) -> Tuple[Path, Path, Path]:
+    """
+    Extract and validate file paths from configuration.
+
+    Args:
+        config: Configuration dictionary.
+
+    Returns:
+        Tuple of (features_path, image_path, mask_path).
+
+    Raises:
+        FileNotFoundError: If any required files don't exist.
+
+    This function extracts file paths from the configuration and validates
+    that all required input files exist before starting the analysis.
+    """
+    console.print("[cyan]Extracting file paths from configuration...[/cyan]")
+
+    # Extract paths from config.
+    features_path = Path(config['features_csv_path'])
+    image_path = Path(config['image_path'])
+    mask_path = Path(config['mask_path'])
+
+    # Validate files exist.
+    missing_files = []
+    if not features_path.exists():
+        missing_files.append(f"Features CSV: {features_path}")
+    if not image_path.exists():
+        missing_files.append(f"Image file: {image_path}")
+    if not mask_path.exists():
+        missing_files.append(f"Mask file: {mask_path}")
+
+    if missing_files:
+        console.print(f"[red]✗[/red] Missing required input files:")
+        for missing in missing_files:
+            console.print(f"[red]  • {missing}[/red]")
+        raise FileNotFoundError("Required input files not found")
+
+    console.print(f"[green]✓[/green] All input files validated:")
+    console.print(f"  • [blue]Features[/blue]: {features_path}")
+    console.print(f"  • [blue]Image[/blue]: {image_path}")
+    console.print(f"  • [blue]Mask[/blue]: {mask_path}")
+
+    return features_path, image_path, mask_path
 
 
 """UTILITY FUNCTIONS"""
-
-
-def load_clustering_config(config_path: Optional[Path] = None) -> Dict:
-    """
-    Load clustering configuration from engineered feature extraction config file.
-
-    Args:
-        config_path: Optional path to configuration file.
-
-    Returns:
-        Dictionary with clustering configuration parameters.
-
-    This function loads clustering parameters from the dedicated feature extraction
-    configuration system, providing comprehensive defaults when configuration is not available.
-    """
-    try:
-        # Load configuration using the dedicated feature extraction config loader.
-        config = load_feature_extraction_config(config_path)
-        console.print(f"[green]✓[/green] Loaded feature extraction config with {len(config)} parameters")
-        return config
-    except Exception as e:
-        console.print(f"[yellow]⚠[/yellow] Failed to load config: {e}, using defaults")
-
-        # Return minimal default clustering configuration as fallback.
-        default_config = {
-            'enable_clustering': True,
-            'default_clusters': 12,
-            'auto_k_method': 'silhouette',
-            'max_clusters_test': 25,
-            'clustering_batch_size': 5000,
-            'clustering_seed': 42,
-            'generate_cluster_overlay': True,
-            'generate_pca_plot': True,
-            'generate_feature_importance': True,
-            'overlay_crop_region': (0.1, 0.9, 0.1, 0.9),
-            'overlay_downsample_factor': 1,
-            'color_background': 'dark',
-            'color_alpha': 200,
-            'color_saturation': 0.95,
-            'color_contrast_ratio': 4.5,
-            'color_hue_start': 0.0,
-            'custom_colors': [],
-            'clustering_output_subdir': 'clustering_analysis',
-            'save_cluster_statistics': True,
-            'save_clustering_model': True,
-            'pca_sample_size': 5000
-        }
-
-        console.print("[blue]ℹ[/blue] Using minimal default clustering configuration")
-        return default_config
 
 
 def configure_logging():
@@ -452,12 +561,75 @@ def predict_cluster_labels(features: np.ndarray, scaler: StandardScaler,
 """VISUALIZATION FUNCTIONS"""
 
 
-def create_cluster_overlay(image_path: Path, mask_path: Path, nuclear_labels: np.ndarray,
-                          cluster_labels: np.ndarray, color_palette: Dict[int, Tuple[int, int, int, int]],
-                          output_path: Path, region: Optional[Tuple[float, float, float, float]] = None,
-                          downsample: int = 1) -> None:
+def create_cluster_mask(mask_path: Path, nuclear_labels: np.ndarray,
+                       cluster_labels: np.ndarray, output_path: Path) -> Path:
     """
-    Create overlay visualization of clusters on tissue image.
+    Create a cluster mask by mapping nuclear labels to cluster assignments.
+
+    Args:
+        mask_path: Path to original segmentation mask with nuclear labels.
+        nuclear_labels: Array of nuclear labels from feature extraction.
+        cluster_labels: Array of cluster assignments for each nucleus.
+        output_path: Path where to save the cluster mask.
+
+    Returns:
+        Path to the generated cluster mask file.
+
+    This function creates a new mask where each pixel value represents the cluster
+    assignment of the corresponding nucleus. This enables memory-efficient overlay
+    generation for very large images using the existing overlay utilities.
+    """
+    console.print("[cyan]Creating cluster mask for memory-efficient overlay...[/cyan]")
+
+    # Load original segmentation mask.
+    original_mask = np.load(mask_path, mmap_mode='r')
+
+    # Create lookup table for nuclear label to cluster mapping.
+    max_nuclear_label = int(original_mask.max())
+    cluster_lut = np.zeros(max_nuclear_label + 1, dtype=np.int32)
+
+    # Populate lookup table.
+    for nuclear_label, cluster_id in zip(nuclear_labels, cluster_labels):
+        if 0 <= nuclear_label <= max_nuclear_label:
+            cluster_lut[int(nuclear_label)] = int(cluster_id) + 1  # +1 to avoid background
+
+    # Apply lookup table to create cluster mask.
+    # For memory efficiency, process in chunks if the mask is very large.
+    cluster_mask_shape = original_mask.shape
+    cluster_mask = np.zeros(cluster_mask_shape, dtype=np.int32)
+
+    # Process in chunks to handle very large masks.
+    chunk_size = 10000  # Process 10k rows at a time.
+
+    with Progress() as progress:
+        task = progress.add_task("Creating cluster mask...", total=cluster_mask_shape[0])
+
+        for start_row in range(0, cluster_mask_shape[0], chunk_size):
+            end_row = min(start_row + chunk_size, cluster_mask_shape[0])
+
+            # Load chunk of original mask.
+            mask_chunk = original_mask[start_row:end_row]
+
+            # Apply cluster mapping.
+            cluster_mask[start_row:end_row] = cluster_lut[mask_chunk]
+
+            progress.update(task, advance=end_row - start_row)
+
+    # Save cluster mask.
+    np.save(output_path, cluster_mask)
+
+    console.print(f"[green]✓[/green] Cluster mask saved → {output_path}")
+
+    return output_path
+
+
+def create_cluster_overlay_advanced(image_path: Path, mask_path: Path, nuclear_labels: np.ndarray,
+                                  cluster_labels: np.ndarray, color_palette: Dict[int, Tuple[int, int, int, int]],
+                                  output_path: Path, tile_size: int = 1024, workers: str = "auto",
+                                  alpha: float = 0.4, gpu: bool = True,
+                                  memory_limit_mb: int = 8192) -> None:
+    """
+    Create memory-efficient overlay visualization of clusters on tissue image.
 
     Args:
         image_path: Path to original tissue image.
@@ -466,74 +638,67 @@ def create_cluster_overlay(image_path: Path, mask_path: Path, nuclear_labels: np
         cluster_labels: Array of cluster assignments.
         color_palette: Dictionary mapping cluster to RGBA color.
         output_path: Path for output overlay image.
-        region: Optional crop region as (xmin, xmax, ymin, ymax) fractions.
-        downsample: Downsampling factor for memory efficiency.
+        tile_size: Tile size for memory-efficient processing.
+        workers: Number of worker processes ("auto" or integer).
+        alpha: Alpha blending factor for overlay transparency.
+        gpu: Enable GPU acceleration if available.
+        memory_limit_mb: GPU memory limit in MB.
 
-    This function creates a publication-quality overlay showing cluster
-    assignments mapped onto the original tissue morphology for biological interpretation.
+    This function creates a publication-quality overlay showing cluster assignments
+    mapped onto the original tissue morphology using memory-efficient tile-based
+    processing that can handle gigantic images without memory issues.
     """
-    console.print("[cyan]Creating cluster overlay visualization...[/cyan]")
 
-    # Load base image.
-    base_image = Image.open(image_path).convert('RGBA')
-    w, h = base_image.size
+    console.print("[cyan]Creating advanced cluster overlay visualization...[/cyan]")
 
-    # Apply region cropping if specified.
-    if region:
-        xmin, xmax, ymin, ymax = region
-        x0 = max(0, int(w * xmin))
-        x1 = min(w, int(w * xmax))
-        y0 = max(0, int(h * ymin))
-        y1 = min(h, int(h * ymax))
-        base_image = base_image.crop((x0, y0, x1, y1))
-        w, h = base_image.size
+    try:
+        # Create temporary cluster mask.
+        with tempfile.NamedTemporaryFile(suffix='_cluster_mask.npy', delete=False) as tmp_file:
+            cluster_mask_path = Path(tmp_file.name)
 
-    # Load segmentation mask.
-    mask = np.load(mask_path, mmap_mode='r')
+        # Generate cluster mask from nuclear labels and cluster assignments.
+        create_cluster_mask(mask_path, nuclear_labels, cluster_labels, cluster_mask_path)
 
-    if region:
-        mask = mask[y0:y1, x0:x1]
+        # Create overlay configuration with cluster-specific color mapping.
+        config = OverlayConfig(
+            tile_size=tile_size,
+            workers=workers,
+            alpha=alpha,
+            seed=42,  # Use fixed seed for reproducible colors.
+            enable_gpu=gpu,
+            memory_limit_mb=memory_limit_mb,
+            batch_size=4  # Conservative batch size for stability.
+        )
 
-    # Apply downsampling if specified.
-    if downsample > 1:
-        mask = mask[::downsample, ::downsample]
-        base_image = base_image.resize((mask.shape[1], mask.shape[0]), Image.BILINEAR)
+        # Use the advanced overlay function for memory-efficient processing.
+        overlay(
+            image_path=image_path,
+            mask_path=cluster_mask_path,
+            output_path=output_path,
+            config=config
+        )
 
-    # Create lookup table for cluster colors.
-    max_label = int(mask.max())
-    lut = np.zeros(max_label + 1, dtype=np.int32)
+        # Count colored pixels for validation.
+        cluster_mask = np.load(cluster_mask_path, mmap_mode='r')
+        colored_pixels = np.sum(cluster_mask > 0)
+        unique_clusters = len(np.unique(cluster_mask[cluster_mask > 0]))
 
-    for nuclear_label, cluster_id in zip(nuclear_labels, cluster_labels):
-        if 0 <= nuclear_label <= max_label:
-            lut[int(nuclear_label)] = int(cluster_id) + 1  # +1 to avoid background
+        console.print(f"[green]✓[/green] Advanced overlay saved: {colored_pixels} colored pixels, {unique_clusters} clusters → {output_path}")
 
-    # Map mask to cluster indices.
-    cluster_map = lut[mask]
-
-    # Create RGBA color array.
-    n_clusters = len(color_palette)
-    rgba_array = np.zeros((n_clusters + 1, 4), dtype=np.uint8)  # +1 for background
-
-    # Populate color array.
-    for cluster_id, (r, g, b, a) in color_palette.items():
-        array_idx = cluster_id + 1  # Map to 1-based indexing
-        if array_idx < len(rgba_array):
-            rgba_array[array_idx] = [r, g, b, a]
-
-    # Create overlay image.
-    overlay_data = rgba_array[cluster_map]
-    overlay = Image.fromarray(overlay_data, mode='RGBA')
-
-    # Composite overlay onto base image.
-    composite = Image.alpha_composite(base_image, overlay)
-    composite.save(output_path)
-
-    # Count colored pixels for validation.
-    colored_pixels = np.sum(cluster_map > 0)
-    unique_clusters = len(np.unique(cluster_map[cluster_map > 0]))
-
-    console.print(f"[green]✓[/green] Overlay saved: {colored_pixels} colored pixels, {unique_clusters} clusters → {output_path}")
-
+    finally:
+        # Clean up temporary cluster mask with retry logic.
+        if 'cluster_mask_path' in locals() and cluster_mask_path.exists():
+            try:
+                cluster_mask_path.unlink()
+            except PermissionError:
+                # File might still be in use by memory mapping, try again after a short delay.
+                import time
+                time.sleep(0.5)
+                try:
+                    cluster_mask_path.unlink()
+                except PermissionError:
+                    console.print(f"[yellow]⚠[/yellow] Could not delete temporary file: {cluster_mask_path}")
+                    console.print("[yellow]⚠[/yellow] File will be cleaned up automatically by the system.")
 
 def create_pca_visualization(features: np.ndarray, cluster_labels: np.ndarray,
                            feature_names: List[str], color_palette: Dict[int, Tuple[int, int, int, int]],
@@ -653,8 +818,6 @@ def analyze_feature_importance(features: np.ndarray, cluster_labels: np.ndarray,
     """
     console.print("[cyan]Analyzing feature importance for clustering...[/cyan]")
 
-    from sklearn.ensemble import RandomForestClassifier
-
     # Train random forest to predict clusters.
     rf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
     rf.fit(features, cluster_labels)
@@ -762,55 +925,23 @@ def main():
     data loading, preprocessing, clustering, and visualization generation.
     """
     parser = argparse.ArgumentParser(
-        description='Memory-efficient clustering of engineered nuclear features.',
+        description='Config-driven clustering of engineered nuclear features.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # Basic clustering with 10 clusters
-    python cluster_engineered_features.py --features nuclear_features.csv \\
-        --image tissue_dapi.tif --mask segmentation_masks.npy \\
-        --outdir results/clustering
+    # Basic clustering using configuration file
+    python cluster_engineered_features.py \\
+        --config ../../configs/engineered_feature_extraction_config.ini
 
-    # Auto-select optimal K using silhouette analysis
-    python cluster_engineered_features.py --features nuclear_features.csv \\
-        --image tissue_dapi.tif --mask segmentation_masks.npy \\
-        --clusters 20 --auto-k silhouette --outdir results/clustering
-
-    # Cluster with custom region and seed
-    python cluster_engineered_features.py --features nuclear_features.csv \\
-        --image tissue_dapi.tif --mask segmentation_masks.npy \\
-        --clusters 15 --seed 42 --region 0.1 0.9 0.1 0.9 \\
-        --outdir results/clustering
+    # Clustering with custom configuration file
+    python cluster_engineered_features.py \\
+        --config /path/to/custom_config.ini
         """
     )
 
-    # Required arguments.
-    parser.add_argument('--features', type=Path, required=True,
-                       help='Path to CSV file with extracted nuclear features')
-    parser.add_argument('--image', type=Path, required=True,
-                       help='Path to raw microscopy image (TIFF format)')
-    parser.add_argument('--mask', type=Path, required=True,
-                       help='Path to segmentation mask (.npy format)')
-
-    # Configuration and clustering parameters.
-    parser.add_argument('--config', type=Path,
-                       help='Path to configuration file (uses project defaults if not specified)')
-    parser.add_argument('--clusters', type=int,
-                       help='Number of clusters for K-means (overrides config)')
-    parser.add_argument('--auto-k', choices=['None', 'silhouette', 'dbi'],
-                       help='Auto K-selection method (overrides config)')
-    parser.add_argument('--batch-size', type=int,
-                       help='Batch size for streaming processing (overrides config)')
-
-    # Output and visualization.
-    parser.add_argument('--outdir', type=Path,
-                       help='Output directory for results (overrides config)')
-    parser.add_argument('--seed', type=int,
-                       help='Random seed for reproducibility (overrides config)')
-    parser.add_argument('--region', type=float, nargs=4, metavar=('XMIN', 'XMAX', 'YMIN', 'YMAX'),
-                       help='Crop region for overlay as fractions (overrides config)')
-    parser.add_argument('--downsample', type=int,
-                       help='Downsampling factor for overlay (overrides config)')
+    # Required arguments - simplified config-driven interface.
+    parser.add_argument('--config', type=Path, required=True,
+                       help='Path to configuration file containing all clustering parameters')
 
     # Parse arguments.
     args = parser.parse_args()
@@ -823,41 +954,31 @@ Examples:
     try:
         start_time = time.time()
 
-        # Step 1: Load clustering configuration.
-        config = load_clustering_config(args.config)
+        # Step 1: Load configuration and copy to output directory.
+        config, output_dir = load_and_copy_config(args.config)
 
-        # Override config with command-line arguments if provided.
-        if args.clusters is not None:
-            config['default_clusters'] = args.clusters
-        if args.auto_k is not None:
-            config['auto_k_method'] = args.auto_k
-        if args.batch_size is not None:
-            config['clustering_batch_size'] = args.batch_size
-        if args.seed is not None:
-            config['clustering_seed'] = args.seed
-        if args.region is not None:
-            config['overlay_crop_region'] = tuple(args.region)
-        if args.downsample is not None:
-            config['overlay_downsample_factor'] = args.downsample
-        if args.outdir is not None:
-            output_dir = args.outdir
-        else:
-            output_dir = Path('results') / config['clustering_output_subdir']
+        # Step 2: Validate all required configuration parameters.
+        validate_config_parameters(config)
 
-        # Set global seed and create output directory.
+        # Step 3: Extract and validate input file paths from configuration.
+        features_path, image_path, mask_path = get_file_paths_from_config(config)
+
+        # Step 4: Set global seed for reproducibility.
         set_global_seed(config['clustering_seed'])
-        output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Step 2: Load nuclear features.
-        df = load_nuclear_features(args.features)
+        console.print(f"[green]✓[/green] Configuration-driven setup completed")
+        console.print(f"[blue]ℹ[/blue] Results will be saved to: [bold]{output_dir}[/bold]")
 
-        # Step 3: Prepare feature matrix.
+        # Step 5: Load nuclear features from config-specified path.
+        df = load_nuclear_features(features_path)
+
+        # Step 7: Prepare feature matrix.
         features, feature_names, nuclear_labels = prepare_feature_matrix(df)
 
-        # Step 4: Scale features.
+        # Step 8: Scale features.
         scaler = stream_scale_features(features, config['clustering_batch_size'])
 
-        # Step 5: Determine optimal number of clusters.
+        # Step 9: Determine optimal number of clusters.
         if config['auto_k_method'] != 'None':
             optimal_k, scores_df = choose_optimal_k(features, config['max_clusters_test'], config['auto_k_method'])
             scores_df.to_csv(output_dir / 'cluster_selection_scores.csv', index=False)
@@ -865,13 +986,13 @@ Examples:
         else:
             n_clusters = config['default_clusters']
 
-        # Step 6: Perform clustering.
+        # Step 10: Perform clustering.
         kmeans = stream_cluster_features(features, scaler, n_clusters, config['clustering_batch_size'], config['clustering_seed'])
 
-        # Step 7: Predict cluster labels.
+        # Step 11: Predict cluster labels.
         cluster_labels = predict_cluster_labels(features, scaler, kmeans, config['clustering_batch_size'])
 
-        # Step 8: Generate enhanced color palette using configuration.
+        # Step 12: Generate enhanced color palette using configuration.
         console.print(f"[cyan]Generating enhanced color palette for {n_clusters} clusters...[/cyan]")
 
         color_palette = generate_color_palette(
@@ -886,7 +1007,7 @@ Examples:
 
         console.print(f"[green]✓[/green] Generated {len(color_palette)} distinct colors")
 
-        # Step 9: Save results.
+        # Step 13: Save results.
         console.print("[cyan]Saving clustering results...[/cyan]")
 
         # Save cluster assignments.
@@ -899,16 +1020,19 @@ Examples:
             joblib.dump(kmeans, output_dir / 'kmeans_model.joblib')
             joblib.dump(scaler, output_dir / 'scaler.joblib')
 
-        # Step 10: Create visualizations based on configuration.
+        # Step 14: Create visualizations based on configuration.
         console.print("[cyan]Creating visualizations...[/cyan]")
 
         # Generate cluster overlay if configured.
         if config['generate_cluster_overlay']:
-            create_cluster_overlay(
-                args.image, args.mask, nuclear_labels, cluster_labels,
+            create_cluster_overlay_advanced(
+                image_path, mask_path, nuclear_labels, cluster_labels,
                 color_palette, output_dir / 'cluster_overlay.tif',
-                region=config['overlay_crop_region'],
-                downsample=config['overlay_downsample_factor']
+                tile_size=config.get('overlay_tile_size', 1024),
+                workers=config.get('overlay_workers', 'auto'),
+                alpha=config.get('overlay_alpha', 0.85),
+                gpu=config.get('overlay_gpu', True),
+                memory_limit_mb=config.get('overlay_memory_limit_mb', 8192)
             )
 
         # Generate PCA visualization if configured.
@@ -935,7 +1059,7 @@ Examples:
             stats_df = compute_cluster_statistics(df, cluster_labels, feature_names)
             stats_df.to_csv(output_dir / 'cluster_statistics.csv', index=False)
 
-        # Step 11: Display final summary.
+        # Step 15: Display final summary.
         end_time = time.time()
         processing_time = end_time - start_time
 
