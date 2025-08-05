@@ -96,36 +96,15 @@ enable_progress_tracking = True
 ```bash
 # Cluster nuclear features with default settings
 python cluster_engineered_features.py \
-    --features nuclear_features.csv \
-    --image tissue_dapi.tif \
-    --mask segmentation_masks.npy \
-    --outdir results/clustering
-```
-
-### Advanced Configuration
-```bash
-# Use dedicated feature extraction configuration file
-python cluster_engineered_features.py \
-    --config configs/engineered_feature_extraction_config.ini \
-    --features nuclear_features.csv \
-    --image tissue_dapi.tif \
-    --mask segmentation_masks.npy \
-    --clusters 20 \
-    --auto-k silhouette \
-    --outdir results/clustering_analysis
+    --config configs/engineered_feature_extraction_config.ini
 ```
 
 ### Custom Region Analysis
 ```bash
 # Analyze specific tissue region with custom parameters
 python cluster_engineered_features.py \
-    --features nuclear_features.csv \
-    --image tissue_dapi.tif \
-    --mask segmentation_masks.npy \
-    --clusters 15 \
-    --region 0.2 0.8 0.2 0.8 \
-    --downsample 2 \
-    --seed 42
+    --config configs/engineered_feature_extraction_config.ini \
+    --overlay_crop_region 0.2, 0.4, 0.3, 0.7
 ```
 
 ### Demonstration Workflow

@@ -67,7 +67,6 @@ def load_config(config_path=None):
         "upscale_factor": config.getint("general", "upscale_factor", fallback=1),
         "crop_image": config.getboolean("general", "crop_image", fallback=False),
         "enhance_contrast": config.getboolean("general", "enhance_contrast", fallback=False),
-        "generate_overlay": config.getboolean("general", "generate_overlay", fallback=True),
         "crop_box": get_tuple(config, "general", "crop_box", default=(0, 1, 0, 1)),
         "debug_mode": config.getboolean("debug", "debug_mode", fallback=False),
 
@@ -75,15 +74,11 @@ def load_config(config_path=None):
         "min_gamma": config.getfloat("gamma_correction", "min_gamma", fallback=1.9),
         "max_gamma": config.getfloat("gamma_correction", "max_gamma", fallback=2.2),
 
-
         "use_edge_detection": config.getboolean("edge_detection", "use_edge_detection", fallback=False),
-        "apply_watershed": config.getboolean("watershed", "apply_watershed", fallback=False),
         "clahe_cliplimit": config.getfloat("clahe", "cliplimit", fallback=5.0),
         "clahe_tile_grid_size": get_tuple(config, "clahe", "tile_grid_size", default=(16, 16), cast=int),
         "canny_threshold1": config.getint("edge_detection", "canny_threshold1", fallback=50),
         "canny_threshold2": config.getint("edge_detection", "canny_threshold2", fallback=150),
-        "area_threshold_for_watershed": config.getint("watershed", "area_threshold", fallback=1000),
-        "local_maxima_footprint": get_tuple(config, "watershed", "local_maxima_footprint", default=(3, 3), cast=int),
 
         "use_tiling": config.getboolean("tiling", "use_tiling", fallback=True),
         # Note: merge_overlap_threshold removed in new 3-step algorithm
@@ -91,39 +86,8 @@ def load_config(config_path=None):
         "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.1),
         "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),
         "qc_overlays": config.getboolean("tiling", "qc_overlays", fallback=True),
-        "qc_downsample_factor": config.getint("tiling", "qc_downsample_factor", fallback=4),
         "qc_merge_use_full_image": config.getboolean("tiling", "qc_merge_use_full_image", fallback=True),
-        "memmap_dtype": config.get("tiling", "memmap_dtype", fallback="uint32"),
-
-        # GPU batched processing parameters for handling large images with thousands of tiles.
-        "gpu_batch_size": config.getint("tiling", "gpu_batch_size", fallback=1),
-        "gpu_memory_limit_gb": config.getfloat("tiling", "gpu_memory_limit_gb", fallback=8.0),
-
-        # Enhanced GPU memory management parameters for optimized tile merging.
-        "gpu_memory_safety_factor": config.getfloat("tiling", "gpu_memory_safety_factor", fallback=1.5),
-        "gpu_spatial_strategy": config.get("tiling", "gpu_spatial_strategy", fallback="adaptive"),
-        "gpu_adaptive_batching": config.getboolean("tiling", "gpu_adaptive_batching", fallback=True),
-        "gpu_aggressive_cleanup": config.getboolean("tiling", "gpu_aggressive_cleanup", fallback=True),
-
-        # Timeout and retry parameters to prevent infinite loops.
-        "gpu_max_retries": config.getint("tiling", "gpu_max_retries", fallback=3),
-        "gpu_timeout_seconds": config.getint("tiling", "gpu_timeout_seconds", fallback=300),
-
-        # Memory-aware clustering parameters to prevent problematic array allocations.
-        "max_cluster_memory_gb": config.getfloat("tiling", "max_cluster_memory_gb", fallback=2.0),
-        "max_cluster_dimension": config.getint("tiling", "max_cluster_dimension", fallback=4096),
-        "enable_progress_tracking": config.getboolean("tiling", "enable_progress_tracking", fallback=True),
-
-        # Adaptive cluster subdivision parameters to prevent massive GPU memory allocations.
-        "max_cluster_gpu_memory_gb": config.getfloat("tiling", "max_cluster_gpu_memory_gb", fallback=4.0),
-        "cluster_subdivision_strategy": config.get("tiling", "cluster_subdivision_strategy", fallback="spatial_quadtree"),
-        "max_subdivision_depth": config.getint("tiling", "max_subdivision_depth", fallback=6),
-        "min_cluster_size_after_subdivision": config.getint("tiling", "min_cluster_size_after_subdivision", fallback=2),
-
-        # uint32 ID management parameters to prevent overflow errors.
-        "uint32_id_management": config.get("tiling", "uint32_id_management", fallback="hybrid"),
-        "uint32_conservative_limit": config.getint("tiling", "uint32_conservative_limit", fallback=2000000000),
-        "uint32_segment_size": config.getint("tiling", "uint32_segment_size", fallback=100000000),
+        "merge_batch_size": config.getint("tiling", "merge_batch_size", fallback=4),
 
         "use_previous_results": config.getboolean("using_previous_results", "use_previous_results", fallback=False),
         "previous_results_dir": resolve_path(config.get("using_previous_results", "previous_results_dir", fallback=""), dirs["results"]),
@@ -132,20 +96,6 @@ def load_config(config_path=None):
         "skip_and_copy_merging": config.getboolean("using_previous_results", "skip_and_copy_merging", fallback=False),
         "skip_and_copy_postprocessing": config.getboolean("using_previous_results", "skip_and_copy_postprocessing", fallback=False),
         "skip_and_copy_visualization": config.getboolean("using_previous_results", "skip_and_copy_visualization", fallback=False),
-
-        # Feature extraction parameters for comprehensive nuclear analysis.
-        "shape_features": config.getboolean("feature_extraction", "shape_features", fallback=True),
-        "size_features": config.getboolean("feature_extraction", "size_features", fallback=True),
-        "neighborhood_features": config.getboolean("feature_extraction", "neighborhood_features", fallback=True),
-        "texture_features": config.getboolean("feature_extraction", "texture_features", fallback=True),
-        "neighborhood_radius": config.getfloat("feature_extraction", "neighborhood_radius", fallback=50.0),
-        "feature_extraction_workers": config.getint("feature_extraction", "feature_extraction_workers", fallback=-1),
-        "min_nuclear_area": config.getfloat("feature_extraction", "min_nuclear_area", fallback=10.0),
-        "max_nuclear_area": config.getfloat("feature_extraction", "max_nuclear_area", fallback=2000.0),
-        "enable_violin_plots": config.getboolean("feature_extraction", "enable_violin_plots", fallback=True),
-        "timepoint_color_coding": config.getboolean("feature_extraction", "timepoint_color_coding", fallback=True),
-        "features_per_page": config.getint("feature_extraction", "features_per_page", fallback=9),
-        "enable_statistical_testing": config.getboolean("feature_extraction", "enable_statistical_testing", fallback=True),
     }
 
     # Cellpose-specific settings optimized for adaptive diameter detection.
@@ -157,16 +107,8 @@ def load_config(config_path=None):
         "flow_threshold": config.getfloat("cellpose", "flow_threshold", fallback=0.4),
         "cellprob_threshold": config.getfloat("cellpose", "cellprob_threshold", fallback=-9.0),
         "resample": config.getboolean("cellpose", "resample", fallback=True),  # Deprecated in v4.0.1+ but kept for compatibility.
-        "stitch_threshold": config.getfloat("cellpose", "stitch_threshold", fallback=0.4),
         "channels": get_tuple(config, "cellpose", "channels", default=(0, 0), cast=int),
         "batch_size": choose_batch_size(settings.get("tile_side_length")**2),
-
-        # Parallel processing parameters for improved performance.
-        "enable_parallel_processing": config.getboolean("cellpose", "enable_parallel_processing", fallback=True),
-        "parallel_batch_size": config.getint("cellpose", "parallel_batch_size", fallback=4),
-        "parallel_max_workers": config.getint("cellpose", "parallel_max_workers", fallback=2),
-        "parallel_memory_limit_gb": config.getfloat("cellpose", "parallel_memory_limit_gb", fallback=6.0),
-        "parallel_timeout_seconds": config.getint("cellpose", "parallel_timeout_seconds", fallback=300),
     }
 
     # settings['output_dir'] = str(settings['job_name'] + '_' + settings['output_dir'])
@@ -231,16 +173,4 @@ def choose_batch_size(tile_pixels, bytes_per_pixel=1, target_mem=150_000_000):
     return max(1, usable // per_tile)
 
 
-def get_default_settings():
-    """
-    Get default settings for nuclei segmentation pipeline.
-    """
-    return {
-        # ... existing settings ...
-        
-        # Two-phase merging configuration.
-        "merge_batch_size": config.getint("tiling", "merge_batch_size", fallback=4),
-        "use_two_phase_merge": config.getboolean("tiling", "use_two_phase_merge", fallback=True),
-        "gpu_max_retries": 3,
-        "gpu_timeout_seconds": 300,
-    }
+

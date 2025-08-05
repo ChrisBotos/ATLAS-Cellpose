@@ -243,7 +243,6 @@ def load_feature_extraction_config(config_path: Optional[Union[str, Path]] = Non
         "enable_memory_monitoring": config.getboolean("performance", "enable_memory_monitoring", fallback=True),
         "enable_parallel_processing": config.getboolean("performance", "enable_parallel_processing", fallback=True),
         "temp_directory": config.get("performance", "temp_directory", fallback="temp"),
-        "enable_progress_tracking": config.getboolean("performance", "enable_progress_tracking", fallback=True),
         "log_level": config.get("performance", "log_level", fallback="INFO"),
     }
     
