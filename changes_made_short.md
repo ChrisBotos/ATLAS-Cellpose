@@ -49,6 +49,15 @@ This document provides a numbered list of all major changes made to the I/R Inju
 ## August 1, 2025 - Clustering NaN Handling Fixes
 
 33. **Robust NaN Imputation** - Enhanced median imputation with all-NaN column removal and fallback strategies
+
+## August 5, 2025 - CLAHE Parameter Testing Tool
+
+34. **CLAHE Parameter Testing Script** - Created `temp.py` for systematic contrast enhancement optimization
+35. **63 Parameter Combinations** - 9 clip limits × 7 grid sizes for comprehensive CLAHE testing
+36. **Rich Console Output** - Progress tracking with colored output and progress bars
+37. **Systematic File Naming** - `clahe_clip{X.X}_grid{N}x{N}.tif` convention for easy comparison
+38. **README CLAHE Section** - Added parameter selection guidelines and usage instructions
+39. **Technical Improvements** - Fixed Rich markup syntax and removed deprecated parameters
 34. **Zero-Variance Column Handling** - Detection and noise addition to prevent StandardScaler division by zero
 35. **Multi-Level NaN Validation** - Validation before clustering, during batch processing, and final fallback
 36. **Enhanced Error Reporting** - Detailed console output identifying problematic columns and imputation statistics
@@ -70,6 +79,28 @@ This document provides a numbered list of all major changes made to the I/R Inju
 46. **Cleaned Project Setup** - Removed unused parameter loading from project_setup.py
 47. **Simplified Configuration** - Only parameters that actually affect pipeline behavior remain
 48. **Improved Maintainability** - No more confusion about which parameters are used vs loaded but ignored
+49. **Updated README Documentation** - Comprehensive update of configuration guide and usage examples
+50. **Corrected Parameter Examples** - Fixed all configuration examples to match actual working parameters
+51. **Added Feature Extraction Config** - Documented the separate feature extraction configuration file
+52. **Removed Outdated Sections** - Eliminated references to removed GPU batching and memory management parameters
+
+## August 5, 2025 - Algorithm Naming Correction: 3-step → 4-step
+
+53. **Renamed Core Functions** - `merge_tiles_cpu_4step` → `merge_tiles_cpu_4step`, `merge_patch_gpu_4step` → `merge_patch_gpu_4step`
+54. **Updated All Import Statements** - Fixed imports across all modules to use new 4-step function names
+55. **Renamed Test Files** - `test_4step_merge.py` → `test_4step_merge.py`, `test_gpu_merge_4step_integration.py` → `test_gpu_merge_4step_integration.py`
+56. **Updated Documentation** - All comments, docstrings, and algorithm descriptions now correctly reference 4-step algorithm
+57. **Fixed README Algorithm Description** - Updated README to accurately describe the implemented 4-step priority-based algorithm
+58. **Corrected Algorithm Steps** - README now shows: Priority Selection → Border Deletion → Cross-boundary Preservation → Cleanup
+59. **Maintained Code Consistency** - No functional changes, only naming corrections to match actual implementation
+
+## August 5, 2025 - Removed Buggy Overlay Wrapper
+
+60. **Deleted overlay_full_image.py** - Removed redundant wrapper that produced poor quality overlays with dark backgrounds
+61. **Fixed Pipeline Import** - Updated pipeline.py to import and use overlay() function directly from overlay_masks.py
+62. **Improved Overlay Quality** - Pipeline now uses proper semitransparent overlays on original image instead of masks on dark background
+63. **Simplified Code Architecture** - Eliminated unnecessary wrapper layer, users now get consistent high-quality overlays
+64. **Fixed RGB Conversion Bug** - The removed _array_mode() function had a bug where grayscale images weren't properly converted to RGB before blending
 44. **Performance Optimization Recommendations** - Data-driven suggestions for computational bottleneck resolution
 45. **Scientific Reproducibility** - Complete timing documentation for method validation and comparison
 46. **Computational Profiling** - Identification of most expensive parameters for targeted optimization
@@ -143,3 +174,15 @@ This document provides a numbered list of all major changes made to the I/R Inju
 - **Comprehensive Testing**: 15 tests with extensive coverage
 - **Scientific Documentation**: Bioinformatician-focused documentation throughout
 - **Robust Configuration System**: Proper logging and feature extraction with configuration validation
+
+## August 5, 2025 - README.md Comprehensive Professional Update
+
+86. **Streamlined Content** - Reduced README from ~2000 lines to ~365 lines (82% reduction) while maintaining essential information
+87. **Professional Tone** - Removed excessive emojis and promotional language, adopting a more scientific and professional style
+88. **Fixed Environment References** - Corrected references to actual `cellpose3_environment.yml` instead of non-existent `cellpose4_environment.yml`
+89. **Updated Script Names** - Fixed all file and script references to match actual codebase structure
+90. **Simplified Installation** - Condensed installation section from 200+ lines to ~85 lines with essential information only
+91. **Concise Configuration** - Streamlined configuration guide to focus on key parameters rather than exhaustive examples
+92. **Removed Redundancy** - Eliminated overly detailed merge algorithm explanations and redundant performance sections
+93. **Improved Structure** - Better organization with focused table of contents and logical section flow
+94. **Technical Accuracy** - Corrected environment activation commands and configuration file examples to reflect actual usage

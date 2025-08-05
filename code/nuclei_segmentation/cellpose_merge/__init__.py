@@ -5,6 +5,6 @@ Re-exports
 ----------
 Main merging functions for tile processing and overlap resolution.
 """
-from .rules import merge_tiles_cpu_3step
-from .gpu_merge import merge_patch_gpu_3step
+from .rules import merge_tiles_cpu_4step
+from .gpu_merge import merge_patch_gpu_4step
 from .two_phase_merge import _merge_two_tiles

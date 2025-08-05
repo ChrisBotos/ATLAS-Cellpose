@@ -2,14 +2,14 @@
 Author: Christos Botos.
 Script Name: gpu_merge.py.
 Description:
-    GPU implementation of the overlap‑patch merge.  The API mirrors ``merge_tiles_cpu_3step``
+    GPU implementation of the overlap‑patch merge.  The API mirrors ``merge_tiles_cpu_4step``
     so that we can test them side‑by‑side.  The heavy lifting lives in
     ``GPUDSU`` – a vectorised, deterministic union‑find using PyTorch tensors.
 """
 
 from __future__ import annotations
 
-from .rules import merge_tiles_cpu_3step
+from .rules import merge_tiles_cpu_4step
 
 from typing import Dict, List, Tuple
 
@@ -18,7 +18,7 @@ import torch
 from torch import Tensor
 
 __all__ = [
-    "merge_patch_gpu_3step",
+    "merge_patch_gpu_4step",
 ]
 
 
@@ -52,20 +52,21 @@ class GPUDSU:
         self.rank[ra[mask & (rank_a == rank_b)]] += 1
 
 
-def merge_patch_gpu_3step(
+def merge_patch_gpu_4step(
     patch: np.ndarray,
     tile1_border_nuclei: set = None,
     tile2_border_nuclei: set = None,
 ) -> Tuple[np.ndarray, Dict[int, int]]:
     """
-    GPU implementation of the new 3-step merge algorithm.
+    GPU implementation of the new 4-step merge algorithm.
 
-    This function implements the simplified 3-step merging rule on GPU:
+    This function implements the comprehensive 4-step merging rule on GPU:
     1. Priority Selection: Tile with most nuclei gets priority, if they are equal the first one is chosen.
     2. Border Deletion: Delete all priority tile masks that touch the border of the
        priority tile, while preserving all non-priority masks that touch the priority
        tile border.
-    3. Cleanup: Remove remaining non-priority nuclei in overlap region.
+    3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap.
+    4. Cleanup: Remove remaining non-priority nuclei in overlap region.
 
     Parameters
     ----------
@@ -81,10 +82,10 @@ def merge_patch_gpu_3step(
     """
     import logging
 
-    # TODO: Implement proper GPU 3-step merge algorithm.
+    # TODO: Implement proper GPU 4-step merge algorithm.
     # For now, this function is a placeholder that should not be called directly.
     # The actual merging is handled by the two-phase merge system using CPU implementation.
 
-    logging.warning("merge_patch_gpu_3step called directly - this function is not yet implemented")
+    logging.warning("merge_patch_gpu_4step called directly - this function is not yet implemented")
     logging.warning("Use the two-phase merge system instead, which handles CPU/GPU fallback properly")
-    raise NotImplementedError("GPU 3-step merge is not yet implemented")
+    raise NotImplementedError("GPU 4-step merge is not yet implemented")

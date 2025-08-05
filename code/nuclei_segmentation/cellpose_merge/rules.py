@@ -5,18 +5,18 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: rules.py.
 Description:
-    Reference NumPy implementation of the new 3-step merge algorithm for kidney
-    I/R injury tissue analysis. This simplified approach replaces the previous
-    4-step method with a more efficient and scientifically intuitive priority-based
-    merging strategy.
+    Reference NumPy implementation of the new 4-step merge algorithm for kidney
+    I/R injury tissue analysis. This approach provides an efficient and scientifically
+    intuitive priority-based merging strategy.
 
-    The new 3-step merging rule:
+    The new 4-step merging rule:
     1. Priority Selection: When two overlapping tiles are detected, the tile with
        the most nuclei gets priority.
     2. Border Deletion: Delete all priority tile masks that touch the border of the
        priority tile, while preserving all non-priority masks that touch the priority
        tile border.
-    3. Cleanup: Delete all remaining non-priority masks in the overlapping region
+    3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap.
+    4. Cleanup: Delete all remaining non-priority masks in the overlapping region
        (except the preserved border-touching ones).
 
 Dependencies:
@@ -25,7 +25,7 @@ Dependencies:
     • logging for scientific workflow tracking.
 
 Key Features:
-    • Simplified 3-step algorithm for better performance and clarity.
+    • Comprehensive 4-step algorithm for optimal performance and clarity.
     • Priority-based approach ensures better nucleus preservation.
     • Memory-efficient processing with reduced intermediate data structures.
     • Comprehensive error handling for bioinformatics workflows.
@@ -48,7 +48,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 __all__ = [
-    "merge_tiles_cpu_3step",
+    "merge_tiles_cpu_4step",
 ]
 
 
@@ -227,16 +227,16 @@ def _find_border_touching_nuclei(
     return boundary_touching_nuclei, overlap_region_nuclei
 
 
-def merge_tiles_cpu_3step(
+def merge_tiles_cpu_4step(
     tile1_path: Union[str, Path],
     tile2_path: Union[str, Path],
     overlap_length: int,
     tile_relationship: str,
 ) -> Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]:
     """
-    Enhanced 3-step merging function that properly utilizes internal boundary detection.
+    Enhanced 4-step merging function that properly utilizes internal boundary detection.
 
-    This function implements the complete 3-step merging algorithm using the enhanced
+    This function implements the complete 4-step merging algorithm using the enhanced
     _find_border_touching_nuclei function to properly identify nuclei extending into
     overlap regions. Critical for accurate kidney I/R injury spatial analysis.
 
@@ -263,7 +263,7 @@ def merge_tiles_cpu_3step(
 
     Notes
     -----
-    The 3-step algorithm:
+    The 4-step algorithm:
     1. Priority Selection: Tile with most nuclei gets priority
     2. Border Deletion: Remove priority tile nuclei touching tile borders
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
@@ -294,7 +294,7 @@ def merge_tiles_cpu_3step(
     if overlap_length <= 0:
         raise ValueError(f"overlap_length must be positive, got {overlap_length}")
 
-    logging.info(f"Enhanced 3-step merge: {tile1_path.name} and {tile2_path.name}")
+    logging.info(f"Enhanced 4-step merge: {tile1_path.name} and {tile2_path.name}")
     logging.info(f"Relationship: {tile_relationship}, overlap: {overlap_length} pixels")
 
     # Step 1: Load complete tile masks.
@@ -381,7 +381,7 @@ def merge_tiles_cpu_3step(
     logging.debug(f"Non-priority boundary nuclei IDs: {non_priority_boundary_nuclei}")
     logging.debug(f"Non-priority overlap region nuclei IDs: {non_priority_overlap_nuclei}")
 
-    # Step 5: Apply 3-step merging rules.
+    # Step 5: Apply 4-step merging rules.
     # Create working copies of the tile masks.
     updated_tile1_mask = tile1_mask.copy()
     updated_tile2_mask = tile2_mask.copy()

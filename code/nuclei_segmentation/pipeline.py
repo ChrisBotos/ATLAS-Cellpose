@@ -48,7 +48,7 @@ from utils.preprocessing import preprocess_image
 from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
 from utils.visualization import small_segmentation_overlay
-from utils.overlay_full_image import full_image_overlay
+from utils.overlay_masks import overlay
 
 from cellpose_merge.merge_tiles import merge_masks_streaming
 
@@ -260,11 +260,14 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
         )
 
         # Generate full-image overlay for comprehensive visualization.
-        full_image_overlay(
-            Path(output_dir) / "visualizations",
-            logger,
-            img_path=image_path,
+        overlay_output_path = Path(output_dir) / "visualizations" / "full_image_overlay.tif"
+        Path(output_dir / "visualizations").mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Creating high-quality overlay: {image_path} × {mask_path}")
+        overlay(
+            image_path=image_path,
             mask_path=mask_path,
+            output_path=overlay_output_path,
         )
 
         logger.info("Overlay generation completed successfully")
