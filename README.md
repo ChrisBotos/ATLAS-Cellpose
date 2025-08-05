@@ -146,12 +146,6 @@ conda activate iri310_cellpose3
 python code/nuclei_segmentation/run_this.py
 ```
 
-**WSL/Windows users:**
-```bash
-# Full command with environment activation
-wsl bash -c "source ~/miniconda3/etc/profile.d/conda.sh && conda activate iri310_cellpose3 && python code/nuclei_segmentation/run_this.py"
-```
-
 ### Environment Testing
 
 After setting up the environment, validate it works correctly:
