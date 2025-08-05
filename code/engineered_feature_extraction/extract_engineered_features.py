@@ -74,6 +74,7 @@ import gc
 import psutil
 from functools import lru_cache
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -163,11 +164,228 @@ class ProcessingStats:
         self.features_per_second = self.processed_nuclei / processing_time if processing_time > 0 else 0.0
 
         # Update memory usage.
+        import psutil
         process = psutil.Process()
         self.memory_usage_mb = process.memory_info().rss / 1024 / 1024
 
         # Update GPU memory (passed from external tracking).
         self.gpu_memory_mb = gpu_memory_mb
+
+
+@dataclass
+class ParameterTiming:
+    """
+    Data class for tracking individual parameter computation times.
+
+    This class provides detailed timing information for each feature parameter,
+    enabling identification of computational bottlenecks and optimization opportunities.
+    """
+    parameter_name: str
+    total_time: float = 0.0
+    call_count: int = 0
+    min_time: float = float('inf')
+    max_time: float = 0.0
+    avg_time: float = 0.0
+    category: str = ""
+
+    def add_timing(self, time_taken: float):
+        """Add a new timing measurement for this parameter."""
+        self.total_time += time_taken
+        self.call_count += 1
+        self.min_time = min(self.min_time, time_taken)
+        self.max_time = max(self.max_time, time_taken)
+        self.avg_time = self.total_time / self.call_count
+
+
+# Global dictionary to track parameter timings.
+_parameter_timings: Dict[str, ParameterTiming] = {}
+
+
+def time_parameter(parameter_name: str, category: str = ""):
+    """
+    Decorator to time individual parameter calculations.
+
+    Args:
+        parameter_name: Name of the parameter being timed.
+        category: Feature category (shape, size, neighborhood, texture).
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            start_time = time.time()
+            try:
+                result = func(*args, **kwargs)
+                end_time = time.time()
+                time_taken = end_time - start_time
+
+                # Record timing.
+                if parameter_name not in _parameter_timings:
+                    _parameter_timings[parameter_name] = ParameterTiming(parameter_name, category=category)
+
+                _parameter_timings[parameter_name].add_timing(time_taken)
+
+                return result
+            except Exception as e:
+                # Still record timing even if computation fails.
+                end_time = time.time()
+                time_taken = end_time - start_time
+
+                if parameter_name not in _parameter_timings:
+                    _parameter_timings[parameter_name] = ParameterTiming(parameter_name, category=category)
+
+                _parameter_timings[parameter_name].add_timing(time_taken)
+                raise e
+        return wrapper
+    return decorator
+
+
+def reset_parameter_timings():
+    """Reset all parameter timing statistics."""
+    global _parameter_timings
+    _parameter_timings = {}
+
+
+def get_parameter_timing_summary() -> Dict[str, Dict[str, Any]]:
+    """
+    Get comprehensive summary of parameter timing statistics.
+
+    Returns:
+        Dictionary with timing statistics for each parameter.
+    """
+    summary = {}
+
+    for param_name, timing in _parameter_timings.items():
+        summary[param_name] = {
+            'category': timing.category,
+            'total_time_seconds': timing.total_time,
+            'call_count': timing.call_count,
+            'avg_time_ms': timing.avg_time * 1000,
+            'min_time_ms': timing.min_time * 1000 if timing.min_time != float('inf') else 0.0,
+            'max_time_ms': timing.max_time * 1000,
+            'total_time_percentage': 0.0  # Will be calculated later.
+        }
+
+    # Calculate percentages.
+    total_time = sum(timing.total_time for timing in _parameter_timings.values())
+    if total_time > 0:
+        for param_name in summary:
+            summary[param_name]['total_time_percentage'] = (summary[param_name]['total_time_seconds'] / total_time) * 100
+
+    return summary
+
+
+def save_parameter_timing_diagnostic(output_dir: Path, total_nuclei: int, image_info: Dict[str, Any]):
+    """
+    Save comprehensive parameter timing diagnostic report to text file.
+
+    Args:
+        output_dir: Directory to save the diagnostic report.
+        total_nuclei: Total number of nuclei processed.
+        image_info: Dictionary with image information (shape, tiles, etc.).
+    """
+    diagnostic_path = output_dir / "parameter_timing_diagnostic.txt"
+
+    # Get timing summary.
+    timing_summary = get_parameter_timing_summary()
+
+    # Sort parameters by total time (descending).
+    sorted_params = sorted(timing_summary.items(), key=lambda x: x[1]['total_time_seconds'], reverse=True)
+
+    # Calculate total processing time.
+    total_time = sum(data['total_time_seconds'] for _, data in timing_summary.items())
+
+    # Group by category.
+    categories = {}
+    for param_name, data in timing_summary.items():
+        category = data['category'] or 'Other'
+        if category not in categories:
+            categories[category] = []
+        categories[category].append((param_name, data))
+
+    # Sort categories by total time.
+    for category in categories:
+        categories[category].sort(key=lambda x: x[1]['total_time_seconds'], reverse=True)
+
+    with open(diagnostic_path, 'w') as f:
+        f.write("="*80 + "\n")
+        f.write("NUCLEAR FEATURE EXTRACTION - PARAMETER TIMING DIAGNOSTIC REPORT\n")
+        f.write("="*80 + "\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Total nuclei processed: {total_nuclei:,}\n")
+        f.write(f"Image dimensions: {image_info.get('shape', 'Unknown')}\n")
+        f.write(f"Total processing time: {total_time:.2f} seconds ({total_time/60:.1f} minutes)\n")
+        f.write(f"Average time per nucleus: {total_time/total_nuclei*1000:.2f} ms\n")
+        f.write(f"Total parameters computed: {len(timing_summary)}\n")
+        f.write("\n")
+
+        # Overall summary.
+        f.write("OVERALL PERFORMANCE SUMMARY\n")
+        f.write("-"*40 + "\n")
+        f.write(f"{'Parameter':<30} {'Total(s)':<10} {'Avg(ms)':<10} {'Calls':<8} {'%':<6}\n")
+        f.write("-"*64 + "\n")
+
+        for param_name, data in sorted_params[:10]:  # Top 10 most expensive.
+            f.write(f"{param_name:<30} {data['total_time_seconds']:<10.3f} "
+                   f"{data['avg_time_ms']:<10.2f} {data['call_count']:<8} "
+                   f"{data['total_time_percentage']:<6.1f}\n")
+
+        f.write("\n")
+
+        # Category breakdown.
+        f.write("BREAKDOWN BY FEATURE CATEGORY\n")
+        f.write("-"*40 + "\n")
+
+        for category, params in categories.items():
+            category_total = sum(data['total_time_seconds'] for _, data in params)
+            category_percentage = (category_total / total_time) * 100 if total_time > 0 else 0
+
+            f.write(f"\n{category.upper()} FEATURES - {category_total:.2f}s ({category_percentage:.1f}%)\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"{'Parameter':<35} {'Total(s)':<10} {'Avg(ms)':<10} {'Min(ms)':<10} {'Max(ms)':<10}\n")
+            f.write("-" * 85 + "\n")
+
+            for param_name, data in params:
+                f.write(f"{param_name:<35} {data['total_time_seconds']:<10.3f} "
+                       f"{data['avg_time_ms']:<10.2f} {data['min_time_ms']:<10.2f} "
+                       f"{data['max_time_ms']:<10.2f}\n")
+
+        # Detailed statistics.
+        f.write("\n\nDETAILED PARAMETER STATISTICS\n")
+        f.write("="*80 + "\n")
+
+        for param_name, data in sorted_params:
+            f.write(f"\nParameter: {param_name}\n")
+            f.write(f"  Category: {data['category']}\n")
+            f.write(f"  Total computation time: {data['total_time_seconds']:.3f} seconds\n")
+            f.write(f"  Number of calls: {data['call_count']:,}\n")
+            f.write(f"  Average time per call: {data['avg_time_ms']:.2f} ms\n")
+            f.write(f"  Minimum time per call: {data['min_time_ms']:.2f} ms\n")
+            f.write(f"  Maximum time per call: {data['max_time_ms']:.2f} ms\n")
+            f.write(f"  Percentage of total time: {data['total_time_percentage']:.2f}%\n")
+            f.write(f"  Time per nucleus: {data['total_time_seconds']/total_nuclei*1000:.3f} ms\n")
+
+        # Performance recommendations.
+        f.write("\n\nPERFORMANCE RECOMMENDATIONS\n")
+        f.write("="*50 + "\n")
+
+        # Find most expensive parameters.
+        expensive_params = [param for param, data in sorted_params[:5]]
+
+        f.write("Most computationally expensive parameters:\n")
+        for i, (param_name, data) in enumerate(sorted_params[:5], 1):
+            f.write(f"  {i}. {param_name} ({data['total_time_percentage']:.1f}% of total time)\n")
+
+        f.write("\nOptimization suggestions:\n")
+        f.write("  • Consider disabling expensive parameters if not needed for analysis\n")
+        f.write("  • Use GPU acceleration for texture and neighborhood features\n")
+        f.write("  • Increase batch size for better parallel processing efficiency\n")
+        f.write("  • Consider feature selection to focus on most informative parameters\n")
+
+        f.write("\n" + "="*80 + "\n")
+        f.write("End of diagnostic report\n")
+        f.write("="*80 + "\n")
+
+    console.print(f"[green]✓[/green] Parameter timing diagnostic saved to: {diagnostic_path}")
+    return diagnostic_path
 
 
 def get_optimal_workers(config_settings: Dict[str, Any]) -> int:
@@ -415,7 +633,7 @@ def configure_logging_with_output_dir(output_dir: Path) -> None:
             handler.close()
 
     # Create log file path in output directory.
-    log_file_path = output_dir / 'feature_extraction.log'
+    log_file_path = output_dir / ".." / "logs" / "engineered_features_extraction.log"
 
     # Add file handler to save logs in output directory.
     file_handler = logging.FileHandler(log_file_path)
@@ -560,6 +778,7 @@ def compute_sparse_distance_map(
     return distance_map
 
 
+@time_parameter("fractal_dimension", "shape")
 def fractal_dimension(binary_mask: np.ndarray) -> float:
     """
     Estimate fractal dimension via optimized box-counting method for geometric complexity analysis.
@@ -691,65 +910,120 @@ def extract_shape_features(region: Any, gray: np.ndarray, config_settings: Dict[
 
     features = {}
 
-    # Basic geometric measurements.
-    area = region.area
-    perimeter = region.perimeter or np.nan
+    # Basic geometric measurements (timed individually).
+    @time_parameter("area_extraction", "shape")
+    def compute_area():
+        return region.area
+
+    @time_parameter("perimeter_extraction", "shape")
+    def compute_perimeter():
+        return region.perimeter or np.nan
+
+    area = compute_area()
+    perimeter = compute_perimeter()
 
     # Circularity: measure of how close the shape is to a perfect circle.
     # Decreases during nuclear fragmentation and irregular deformation.
-    features['circularity'] = (4 * np.pi * area / perimeter**2) if perimeter else np.nan
+    @time_parameter("circularity", "shape")
+    def compute_circularity():
+        return (4 * np.pi * area / perimeter**2) if perimeter else np.nan
+
+    features['circularity'] = compute_circularity()
 
     # Eccentricity: measure of nuclear elongation (0 = circle, 1 = line).
     # Increases during cellular stress and directional migration.
-    features['eccentricity'] = region.eccentricity
+    @time_parameter("eccentricity", "shape")
+    def compute_eccentricity():
+        return region.eccentricity
+
+    features['eccentricity'] = compute_eccentricity()
 
     # Solidity: ratio of nuclear area to convex hull area.
     # Decreases during nuclear fragmentation and membrane blebbing.
-    features['solidity'] = region.solidity
+    @time_parameter("solidity", "shape")
+    def compute_solidity():
+        return region.solidity
+
+    features['solidity'] = compute_solidity()
 
     # Aspect ratio: ratio of major to minor axis lengths.
     # Indicates nuclear elongation and deformation patterns.
-    major = region.major_axis_length
-    minor = region.minor_axis_length
-    features['aspect_ratio'] = major / minor if minor > 0 else np.nan
+    @time_parameter("major_axis_length", "shape")
+    def compute_major_axis():
+        return region.major_axis_length
+
+    @time_parameter("minor_axis_length", "shape")
+    def compute_minor_axis():
+        return region.minor_axis_length
+
+    major = compute_major_axis()
+    minor = compute_minor_axis()
+
+    @time_parameter("aspect_ratio", "shape")
+    def compute_aspect_ratio():
+        return major / minor if minor > 0 else np.nan
+
+    features['aspect_ratio'] = compute_aspect_ratio()
 
     # Compactness: measure of shape regularity.
     # Lower values indicate more irregular, fragmented shapes.
-    features['compactness'] = (perimeter**2) / (4 * np.pi * area) if area > 0 else np.nan
+    @time_parameter("compactness", "shape")
+    def compute_compactness():
+        return (perimeter**2) / (4 * np.pi * area) if area > 0 else np.nan
+
+    features['compactness'] = compute_compactness()
 
     # Elongation: normalized measure of shape stretching.
-    features['elongation'] = (major - minor) / (major + minor) if (major + minor) > 0 else np.nan
+    @time_parameter("elongation", "shape")
+    def compute_elongation():
+        return (major - minor) / (major + minor) if (major + minor) > 0 else np.nan
+
+    features['elongation'] = compute_elongation()
 
     # Roundness: alternative circularity measure.
-    features['roundness'] = (4 * area) / (np.pi * major**2) if major > 0 else np.nan
+    @time_parameter("roundness", "shape")
+    def compute_roundness():
+        return (4 * area) / (np.pi * major**2) if major > 0 else np.nan
+
+    features['roundness'] = compute_roundness()
 
     # Form factor: measure of shape complexity.
-    features['form_factor'] = (4 * np.pi * area) / (perimeter**2) if perimeter > 0 else np.nan
+    @time_parameter("form_factor", "shape")
+    def compute_form_factor():
+        return (4 * np.pi * area) / (perimeter**2) if perimeter > 0 else np.nan
+
+    features['form_factor'] = compute_form_factor()
 
     # Optional convex hull features (computationally expensive).
     if config_settings.get('enable_convex_hull_features', True):
         # Use cached convex hull computation for better performance.
-        try:
-            # Convert image to bytes for caching.
-            image_bytes = region.image.astype(bool).tobytes()
-            convex_area = cached_convex_hull_area(region.image.shape, image_bytes)
-            features['convex_area_ratio'] = area / convex_area if convex_area > 0 else np.nan
+        @time_parameter("convex_hull_area", "shape")
+        def compute_convex_hull_area():
+            try:
+                # Convert image to bytes for caching.
+                image_bytes = region.image.astype(bool).tobytes()
+                convex_area = cached_convex_hull_area(region.image.shape, image_bytes)
+                return area / convex_area if convex_area > 0 else np.nan
+            except Exception as e:
+                logger.debug(f"Convex hull calculation failed for nucleus {region.label}: {e}")
+                return np.nan
 
-            # Convexity: ratio of convex hull perimeter to actual perimeter.
+        features['convex_area_ratio'] = compute_convex_hull_area()
+
+        # Convexity: ratio of convex hull perimeter to actual perimeter.
+        @time_parameter("convexity", "shape")
+        def compute_convexity():
             try:
                 from skimage.measure import perimeter as measure_perimeter
                 # Reconstruct convex hull for perimeter calculation.
                 convex_hull = convex_hull_image(region.image)
                 convex_perimeter = measure_perimeter(convex_hull)
-                features['convexity'] = convex_perimeter / perimeter if perimeter > 0 else np.nan
+                return convex_perimeter / perimeter if perimeter > 0 else np.nan
             except Exception as e:
                 logger.debug(f"Convexity calculation failed for nucleus {region.label}: {e}")
-                features['convexity'] = np.nan
+                return np.nan
 
-        except Exception as e:
-            logger.debug(f"Convex hull calculation failed for nucleus {region.label}: {e}")
-            features['convex_area_ratio'] = np.nan
-            features['convexity'] = np.nan
+        features['convexity'] = compute_convexity()
     else:
         features['convex_area_ratio'] = np.nan
         features['convexity'] = np.nan
@@ -779,37 +1053,72 @@ def extract_size_features(region: Any) -> Dict[str, float]:
 
     features = {}
 
-    # Primary size measurements.
-    features['area'] = region.area
-    features['perimeter'] = region.perimeter or np.nan
+    # Primary size measurements (timed individually).
+    @time_parameter("area", "size")
+    def compute_area():
+        return region.area
+
+    @time_parameter("perimeter", "size")
+    def compute_perimeter():
+        return region.perimeter or np.nan
+
+    features['area'] = compute_area()
+    features['perimeter'] = compute_perimeter()
 
     # Equivalent diameter: diameter of circle with same area.
     # Useful for normalizing size measurements across different shapes.
-    features['equivalent_diameter'] = np.sqrt(4 * region.area / np.pi)
+    @time_parameter("equivalent_diameter", "size")
+    def compute_equivalent_diameter():
+        return np.sqrt(4 * region.area / np.pi)
+
+    features['equivalent_diameter'] = compute_equivalent_diameter()
 
     # Axis length measurements for shape characterization.
-    features['major_axis_length'] = region.major_axis_length
-    features['minor_axis_length'] = region.minor_axis_length
+    @time_parameter("major_axis_length", "size")
+    def compute_major_axis():
+        return region.major_axis_length
+
+    @time_parameter("minor_axis_length", "size")
+    def compute_minor_axis():
+        return region.minor_axis_length
+
+    features['major_axis_length'] = compute_major_axis()
+    features['minor_axis_length'] = compute_minor_axis()
 
     # Bounding box dimensions for spatial extent analysis.
-    minr, minc, maxr, maxc = region.bbox
-    features['bounding_box_width'] = maxc - minc
-    features['bounding_box_height'] = maxr - minr
-    features['bounding_box_area'] = (maxc - minc) * (maxr - minr)
+    @time_parameter("bounding_box_dimensions", "size")
+    def compute_bounding_box():
+        minr, minc, maxr, maxc = region.bbox
+        return {
+            'width': maxc - minc,
+            'height': maxr - minr,
+            'area': (maxc - minc) * (maxr - minr)
+        }
+
+    bbox_dims = compute_bounding_box()
+    features['bounding_box_width'] = bbox_dims['width']
+    features['bounding_box_height'] = bbox_dims['height']
+    features['bounding_box_area'] = bbox_dims['area']
 
     # Feret diameters: maximum and minimum distances between boundary points.
     # Provides additional shape characterization beyond axis lengths.
-    try:
-        features['feret_diameter_max'] = getattr(region, 'feret_diameter_max', np.nan)
-        # Calculate minimum Feret diameter if not available.
-        if hasattr(region, 'feret_diameter_min'):
-            features['feret_diameter_min'] = region.feret_diameter_min
-        else:
-            # Approximate minimum Feret diameter as minor axis length.
-            features['feret_diameter_min'] = region.minor_axis_length
-    except:
-        features['feret_diameter_max'] = np.nan
-        features['feret_diameter_min'] = np.nan
+    @time_parameter("feret_diameters", "size")
+    def compute_feret_diameters():
+        try:
+            feret_max = getattr(region, 'feret_diameter_max', np.nan)
+            # Calculate minimum Feret diameter if not available.
+            if hasattr(region, 'feret_diameter_min'):
+                feret_min = region.feret_diameter_min
+            else:
+                # Approximate minimum Feret diameter as minor axis length.
+                feret_min = region.minor_axis_length
+            return feret_max, feret_min
+        except:
+            return np.nan, np.nan
+
+    feret_max, feret_min = compute_feret_diameters()
+    features['feret_diameter_max'] = feret_max
+    features['feret_diameter_min'] = feret_min
 
     logger.debug(f"Size features extracted: area={features['area']:.1f}, "
                 f"equivalent_diameter={features['equivalent_diameter']:.2f}, "
@@ -962,40 +1271,73 @@ def extract_texture_features(region: Any, gray: np.ndarray, config_settings: Dic
         logger.warning(f"No intensity values for nucleus {region.label}.")
         return {key: np.nan for key in TEXTURE_FEATURES}
 
-    # Basic intensity statistics (fast and always computed).
-    features['intensity_mean'] = float(vals.mean())
-    features['intensity_std'] = float(vals.std())
-    features['intensity_median'] = float(np.median(vals))
+    # Basic intensity statistics (fast and always computed, timed individually).
+    @time_parameter("intensity_mean", "texture")
+    def compute_intensity_mean():
+        return float(vals.mean())
+
+    @time_parameter("intensity_std", "texture")
+    def compute_intensity_std():
+        return float(vals.std())
+
+    @time_parameter("intensity_median", "texture")
+    def compute_intensity_median():
+        return float(np.median(vals))
+
+    features['intensity_mean'] = compute_intensity_mean()
+    features['intensity_std'] = compute_intensity_std()
+    features['intensity_median'] = compute_intensity_median()
 
     # Higher-order intensity statistics.
-    features['intensity_skewness'] = float(skew(vals)) if len(vals) > 1 else np.nan
-    features['intensity_kurtosis'] = float(kurtosis(vals)) if len(vals) > 1 else np.nan
+    @time_parameter("intensity_skewness", "texture")
+    def compute_intensity_skewness():
+        return float(skew(vals)) if len(vals) > 1 else np.nan
+
+    @time_parameter("intensity_kurtosis", "texture")
+    def compute_intensity_kurtosis():
+        return float(kurtosis(vals)) if len(vals) > 1 else np.nan
+
+    features['intensity_skewness'] = compute_intensity_skewness()
+    features['intensity_kurtosis'] = compute_intensity_kurtosis()
 
     # Texture entropy: measure of intensity randomness.
     # Higher values indicate more heterogeneous chromatin patterns.
-    hist, _ = np.histogram(vals, bins=32, density=True)
-    hist = hist + 1e-10  # Avoid log(0).
-    features['texture_entropy'] = float(entropy(hist))
+    @time_parameter("texture_entropy", "texture")
+    def compute_texture_entropy():
+        hist, _ = np.histogram(vals, bins=32, density=True)
+        hist = hist + 1e-10  # Avoid log(0).
+        return float(entropy(hist))
+
+    features['texture_entropy'] = compute_texture_entropy()
 
     # Optional GLCM features (very computationally expensive).
     if config_settings.get('enable_glcm_features', False) and not config_settings.get('skip_expensive_texture', True):
-        try:
-            # Quantize intensities for GLCM computation.
-            patch_quantized = (patch * 255 / patch.max()).astype(np.uint8) if patch.max() > 0 else patch.astype(np.uint8)
+        @time_parameter("glcm_features", "texture")
+        def compute_glcm_features():
+            try:
+                # Quantize intensities for GLCM computation.
+                patch_quantized = (patch * 255 / patch.max()).astype(np.uint8) if patch.max() > 0 else patch.astype(np.uint8)
 
-            # Compute GLCM with reduced complexity.
-            glcm = graycomatrix(patch_quantized, distances=[1], angles=[0], levels=64, symmetric=True, normed=True)
+                # Compute GLCM with reduced complexity.
+                glcm = graycomatrix(patch_quantized, distances=[1], angles=[0], levels=64, symmetric=True, normed=True)
 
-            features['glcm_contrast'] = float(graycoprops(glcm, 'contrast')[0, 0])
-            features['glcm_dissimilarity'] = float(graycoprops(glcm, 'dissimilarity')[0, 0])
-            features['glcm_homogeneity'] = float(graycoprops(glcm, 'homogeneity')[0, 0])
-            features['glcm_energy'] = float(graycoprops(glcm, 'energy')[0, 0])
-        except Exception as e:
-            logger.debug(f"GLCM computation failed for nucleus {region.label}: {e}")
-            features['glcm_contrast'] = np.nan
-            features['glcm_dissimilarity'] = np.nan
-            features['glcm_homogeneity'] = np.nan
-            features['glcm_energy'] = np.nan
+                return {
+                    'glcm_contrast': float(graycoprops(glcm, 'contrast')[0, 0]),
+                    'glcm_dissimilarity': float(graycoprops(glcm, 'dissimilarity')[0, 0]),
+                    'glcm_homogeneity': float(graycoprops(glcm, 'homogeneity')[0, 0]),
+                    'glcm_energy': float(graycoprops(glcm, 'energy')[0, 0])
+                }
+            except Exception as e:
+                logger.debug(f"GLCM computation failed for nucleus {region.label}: {e}")
+                return {
+                    'glcm_contrast': np.nan,
+                    'glcm_dissimilarity': np.nan,
+                    'glcm_homogeneity': np.nan,
+                    'glcm_energy': np.nan
+                }
+
+        glcm_results = compute_glcm_features()
+        features.update(glcm_results)
     else:
         # Skip expensive GLCM features.
         features['glcm_contrast'] = np.nan
@@ -1005,15 +1347,24 @@ def extract_texture_features(region: Any, gray: np.ndarray, config_settings: Dic
 
     # Optional gradient features (moderately expensive).
     if config_settings.get('enable_gradient_features', True):
-        try:
-            gradient = sobel(patch)
-            gradient_vals = gradient[mask_patch]
-            features['gradient_magnitude_mean'] = float(gradient_vals.mean())
-            features['gradient_magnitude_std'] = float(gradient_vals.std())
-        except Exception as e:
-            logger.debug(f"Gradient computation failed for nucleus {region.label}: {e}")
-            features['gradient_magnitude_mean'] = np.nan
-            features['gradient_magnitude_std'] = np.nan
+        @time_parameter("gradient_features", "texture")
+        def compute_gradient_features():
+            try:
+                gradient = sobel(patch)
+                gradient_vals = gradient[mask_patch]
+                return {
+                    'gradient_magnitude_mean': float(gradient_vals.mean()),
+                    'gradient_magnitude_std': float(gradient_vals.std())
+                }
+            except Exception as e:
+                logger.debug(f"Gradient computation failed for nucleus {region.label}: {e}")
+                return {
+                    'gradient_magnitude_mean': np.nan,
+                    'gradient_magnitude_std': np.nan
+                }
+
+        gradient_results = compute_gradient_features()
+        features.update(gradient_results)
     else:
         features['gradient_magnitude_mean'] = np.nan
         features['gradient_magnitude_std'] = np.nan
@@ -1063,24 +1414,32 @@ def compute_comprehensive_features(
         logger.debug("Extracting shape features.")
         shape_features = extract_shape_features(region, gray, config_settings)
         features.update(shape_features)
+    else:
+        console.print(f"[yellow]⚠[/yellow] Skipping shape information (shape_features = False)")
 
     # Extract size features if enabled.
     if config_settings.get('size_features', False):
         logger.debug("Extracting size features.")
         size_features = extract_size_features(region)
         features.update(size_features)
+    else:
+        console.print(f"[yellow]⚠[/yellow] Skipping size information (size_features = False)")
 
     # Extract neighborhood features if enabled.
     if config_settings.get('neighborhood_features', False):
         logger.debug("Extracting neighborhood features.")
         neighborhood_features = extract_neighborhood_features(region, neighbor_data, image_shape, config_settings)
         features.update(neighborhood_features)
+    else:
+        console.print(f"[yellow]⚠[/yellow] Skipping neighborhood information (neighborhood_features = False)")
 
     # Extract texture features if enabled.
     if config_settings.get('texture_features', False):
         logger.debug("Extracting texture features.")
         texture_features = extract_texture_features(region, gray, config_settings)
         features.update(texture_features)
+    else:
+        console.print(f"[yellow]⚠[/yellow] Skipping texture information (texture_features = False)")
 
     # Add fractal dimension as advanced shape feature (only if shape features are enabled).
     if config_settings.get('shape_features', False) and config_settings.get('enable_fractal_dimension', True):
@@ -1312,6 +1671,9 @@ def process_image_with_config(
     Returns:
         DataFrame containing extracted nuclear features.
     """
+    # Reset parameter timing statistics for this run.
+    reset_parameter_timings()
+
     # Create beautiful header.
     console.print(Panel.fit(
         f"[bold blue]Nuclear Feature Extraction[/bold blue]\n"
@@ -1437,7 +1799,6 @@ def process_image_with_config(
                 progress.update(neighbor_task, completed=1)
                 console.print(f"[green]✓[/green] Built neighborhood information with radius {radius}")
             else:
-                console.print(f"[yellow]⚠[/yellow] Skipping neighborhood information (neighborhood_features = False)")
                 neighbors = [{'centroids': [], 'areas': [], 'eccs': [], 'orients': [], 'radius': 0.0} for _ in props]
 
             # Task 7: Extract features with optimized parallel processing.
@@ -1590,6 +1951,27 @@ def process_image_with_config(
                 border_style="yellow",
                 title="Performance Tip"
             ))
+
+        # Generate parameter timing diagnostic report.
+        try:
+            image_info = {
+                'shape': gray.shape,
+                'total_pixels': gray.size,
+                'image_path': str(image_path),
+                'mask_path': str(mask_path)
+            }
+
+            diagnostic_path = save_parameter_timing_diagnostic(
+                output_path.parent,
+                len(df),
+                image_info
+            )
+
+            console.print(f"[blue]ℹ[/blue] Parameter timing diagnostic saved to: {diagnostic_path.name}")
+
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow] Could not save parameter timing diagnostic: {e}")
+            logger.warning(f"Failed to save parameter timing diagnostic: {e}")
 
         console.print(f"[bold green]✓ Optimized feature extraction completed successfully![/bold green]")
 
