@@ -3,7 +3,7 @@ Author: Christos Botos.
 Affiliation: Leiden University Medical Center
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: rules.py.
+Script Name: cpu_merge.py.
 Description:
     Reference NumPy implementation of the new 4-step merge algorithm for kidney
     I/R injury tissue analysis. This approach provides an efficient and scientifically

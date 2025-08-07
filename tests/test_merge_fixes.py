@@ -94,7 +94,7 @@ def test_cpu_merge():
     logger.info("Testing CPU merge implementation")
     
     try:
-        from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
+        from code.nuclei_segmentation.cellpose_merge.cpu_merge import merge_tiles_cpu_4step
         
         # Create a simple test case with 2 overlapping tiles.
         patch = np.zeros((2, 50, 50), dtype=np.uint32)

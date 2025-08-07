@@ -42,6 +42,14 @@ This document provides a numbered list of all major changes made to the I/R Inju
 27. **Removed Verbose Console Output** - Eliminated "Batch X/Y" messages, keeping only progress bars
 28. **Enhanced GPU Function Usage** - Lowered GPU thresholds from 100k to 1k-10k pixels for better utilization
 29. **Proper Memory Measurement** - Track GPU memory BEFORE cleanup instead of after (was always 0.0MB)
+
+## August 5, 2025 - Cellpose Merge Pipeline Cleanup
+
+30. **Removed Unused Files** - Deleted `planner.py` and `io.py` containing unused async batching and tile loader code
+31. **Updated Documentation** - Fixed outdated references and updated README to reflect two-phase merging
+32. **Simplified Architecture** - Streamlined merge pipeline: `merge_tiles.py` → `two_phase_merge.py` → `cpu_merge.py`/`gpu_merge.py`
+33. **Preserved Functionality** - Maintained all essential features while removing ~200 lines of dead code
+34. **Verified Testing** - Confirmed all imports and core merge functionality remain intact
 30. **Persistent GPU Workspace** - 4MB GPU workspace for sustained memory usage during operations
 31. **Comprehensive GPU Testing** - Validation suite confirming 75-100MB GPU memory usage
 32. **GPU Optimization Documentation** - Detailed technical guide for GPU fixes and improvements

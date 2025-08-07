@@ -17,8 +17,7 @@ Key Features:
     • Streams both the intermediary per‑tile masks *and* the final merged mask
       to disk so that gigantic slides do not exhaust RAM.
     • Saves each labelled tile as ``<y0>_<x0>.npz`` where *y0* and *x0* are the
-      slice offsets – the format expected by
-      ``cellpose_merge.io.make_tile_loader``.
+      slice offsets – the standard format for tile mask files.
     • Propagates all quality‑control options (``qc``, ``qc_dir``) directly to
       the merge layer.
 

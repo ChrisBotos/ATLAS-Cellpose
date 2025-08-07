@@ -13,7 +13,7 @@ Description:
 Dependencies:
     • Python ≥ 3.10.
     • pytest, numpy.
-    • cellpose_merge.rules module.
+    • cellpose_merge.cpu_merge module.
 
 Usage:
     python -m pytest tests/test_step2_border_deletion_validation.py -v -s
@@ -54,7 +54,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from code.nuclei_segmentation.cellpose_merge.rules import (
+from code.nuclei_segmentation.cellpose_merge.cpu_merge import (
     merge_tiles_cpu_4step,
     _find_border_touching_nuclei,
     _find_nuclei_touching_priority_border

@@ -22,7 +22,7 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 
 - **Cellpose3 Integration**: Optimized nuclear segmentation with adaptive diameter detection
 - **Tiled Processing**: Memory-efficient handling of large tissue sections
-- **Advanced Merging**: Four-step algorithm for resolving tile overlaps while preserving cross-boundary nuclei
+- **Two-Phase Merging**: Systematic four-step algorithm for resolving tile overlaps while preserving cross-boundary nuclei
 - **CLAHE Parameter Testing**: Systematic contrast enhancement optimization with 63 parameter combinations
 - **Quality Control**: Comprehensive visualization and validation tools
 - **Performance Optimization**: GPU acceleration and intelligent memory management

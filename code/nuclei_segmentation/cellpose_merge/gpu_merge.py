@@ -9,7 +9,7 @@ Description:
 
 from __future__ import annotations
 
-from .rules import merge_tiles_cpu_4step
+from .cpu_merge import merge_tiles_cpu_4step
 
 from typing import Dict, List, Tuple
 

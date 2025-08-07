@@ -5,7 +5,7 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: test_rules_4step.py.
 Description:
-    Comprehensive test suite for the new 4-step CPU-based merging algorithm in rules.py.
+    Comprehensive test suite for the new 4-step CPU-based merging algorithm in cpu_merge.py.
     Tests all major functionality including overlap detection, border filtering, overlap
     analysis with circularity-based conflict resolution, and mask redistribution.
     
@@ -50,7 +50,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import the function to test.
-from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
+from code.nuclei_segmentation.cellpose_merge.cpu_merge import merge_tiles_cpu_4step
 
 
 def create_test_mask(height: int, width: int, nuclei_positions: list) -> np.ndarray:

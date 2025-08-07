@@ -24,7 +24,7 @@ Description:
 Dependencies:
     • Python ≥ 3.10.
     • numpy, torch, tqdm.
-    • cellpose_merge.rules, cellpose_merge.gpu_merge.
+    • cellpose_merge.cpu_merge, cellpose_merge.gpu_merge.
 
 Key Features:
     • Systematic two-phase overlap processing for consistent merge results.
@@ -517,10 +517,10 @@ def _merge_two_tiles(
         Updated tile1_mask, updated tile2_mask, and mapping of preserved nucleus IDs.
     """
     try:
-        from .rules import merge_tiles_cpu_4step
+        from .cpu_merge import merge_tiles_cpu_4step
     except ImportError:
         # Fallback for when running as script.
-        from rules import merge_tiles_cpu_4step
+        from cpu_merge import merge_tiles_cpu_4step
 
     # Get tile file paths using pixel coordinate naming.
     pixel_coord1 = _tile_coord_to_pixel_coord(coord1, tile_h, tile_w, overlap_length)

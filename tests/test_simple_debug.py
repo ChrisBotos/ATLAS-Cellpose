@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from code.nuclei_segmentation.cellpose_merge.rules import merge_tiles_cpu_4step
+from code.nuclei_segmentation.cellpose_merge.cpu_merge import merge_tiles_cpu_4step
 
 def create_simple_masks():
     """Create test masks that will trigger overlap detection."""
