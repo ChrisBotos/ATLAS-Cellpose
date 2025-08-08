@@ -1,50 +1,46 @@
-###############################################################################
-# requirements.txt  –  works on Python 3.11 *and* GLIBC 2.17 (CentOS 7 / manylinux2014)
-# Tested 19 Jul 2025 with pip 25.1.1 on CentOS 7
-#
-# GPU build (CUDA 12.1):
-#     pip install \
-#         --extra-index-url https://download.pytorch.org/whl/cu121 \
-#         -r requirements.txt
-#
-# CPU-only build:
-#     pip install -r requirements.txt
-###############################################################################
+# Core scientific computing packages
+numpy==1.26.4
+scipy==1.15.3
+pandas==2.3.1
 
-######## Core numerical stack #################################################
-numpy==2.2.0
-scipy==1.15.1
-pandas==2.3.0
+# Visualization and plotting
+matplotlib==3.10.5
+seaborn==0.13.2
 
-######## Arrow / Parquet ######################################################
-pyarrow==20.0.0
-fastparquet==2024.2.0
+# Machine learning and image processing
+scikit-learn==1.7.1
+scikit-image==0.25.2
 
-######## Plotting & imaging ###################################################
-matplotlib==3.10.3
-contourpy==1.1.0
-pillow==10.2.0              # last cp311-manylinux2014 wheel
+# Deep learning framework
+torch==2.5.1+cu121
+torchaudio==2.5.1+cu121
+torchvision==0.20.1+cu121
+
+# Cellpose and image processing
+cellpose==3.0.10
+opencv-python-headless==4.11.0.86
+imagecodecs==2025.3.30
 imageio==2.37.0
-scikit-image==0.23.2
-pywavelets==1.8.0
+pillow==11.3.0
 
-######## Machine-learning core ###############################################
-scikit-learn==1.7.0
-joblib==1.5.1
+# Single-cell and spatial analysis
+anndata==0.11.4
+scanpy==1.11.4
+
+# Data IO and formats
+pyarrow==21.0.0
+fastparquet==2024.11.0
+
+# CLI and utilities
+typer==0.16.0
+rich==13.9.4
 tqdm==4.67.1
 
-######## Deep-learning stack ##################################################
-#torch==2.5.1+cu121          # cp311-manylinux2014 CUDA 12.1 build
-#torchvision==0.20.1+cu121   # matches torch 2.5.x
-triton==3.1.0               # pinned per torch 2.5.x
+# Testing and development
+pytest==8.4.1
 
-######## Single-cell & AnnData ###############################################
-anndata==0.11.4
-scanpy==1.11.2
+# System monitoring
+psutil==5.9.0
 
-######## NLP / Transformers ###################################################
-transformers==4.52.4
-
-######## Dev / testing ########################################################
-pytest==8.4.0
-psutil==7.0.0
+# Statistical modeling
+statsmodels==0.14.5

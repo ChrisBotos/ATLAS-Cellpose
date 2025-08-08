@@ -45,6 +45,15 @@ This document provides a numbered list of all major changes made to the I/R Inju
 
 ## August 5, 2025 - Cellpose Merge Pipeline Cleanup
 
+## August 8, 2025 - Cellpose 3.0 Environment Setup
+
+47. **Complete Environment Creation** - Created `iri310_cellpose3` conda environment with Python 3.10.18
+48. **Package Installation** - Installed Cellpose 3.0.10 with PyTorch 2.5.1+cu121 and CUDA support
+49. **Environment Documentation** - Created comprehensive setup guides and requirements files
+50. **Automated Setup Scripts** - Windows batch and PowerShell scripts for easy environment creation
+51. **Version Pinning** - All packages pinned to specific versions for reproducibility
+52. **Environment Testing** - Verified all imports and CUDA functionality working correctly
+
 30. **Removed Unused Files** - Deleted `planner.py` and `io.py` containing unused async batching and tile loader code
 31. **Updated Documentation** - Fixed outdated references and updated README to reflect two-phase merging
 32. **Simplified Architecture** - Streamlined merge pipeline: `merge_tiles.py` → `two_phase_merge.py` → `cpu_merge.py`/`gpu_merge.py`
