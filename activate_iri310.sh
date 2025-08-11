@@ -20,7 +20,7 @@ if [[ "$CONDA_DEFAULT_ENV" == "iri310" ]]; then
     echo "- Environment path: $CONDA_PREFIX"
     echo ""
     echo "Available packages include:"
-    echo "- PyTorch 2.2.0 with CUDA 12.1 support"
+    echo "- PyTorch 2.2.0 with CUDA 11.8 support"
     echo "- Cellpose 4.0.6 for cell segmentation"
     echo "- Scanpy for single-cell analysis"
     echo "- NumPy, SciPy, Pandas for data processing"

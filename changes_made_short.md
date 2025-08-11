@@ -47,7 +47,7 @@ This document provides a numbered list of all major changes made to the I/R Inju
 
 ## August 8, 2025 - Cellpose 3.0 Environment Setup
 
-47. **Complete Environment Creation** - Created `iri310_cellpose3` conda environment with Python 3.10.18
+47. **Complete Environment Creation** - Created `venv310_cellpose3` conda environment with Python 3.10.18
 48. **Package Installation** - Installed Cellpose 3.0.10 with PyTorch 2.5.1+cu121 and CUDA support
 49. **Environment Documentation** - Created comprehensive setup guides and requirements files
 50. **Automated Setup Scripts** - Windows batch and PowerShell scripts for easy environment creation

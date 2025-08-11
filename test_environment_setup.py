@@ -11,12 +11,12 @@ Description:
     ensure the environment is properly configured for server deployment.
 
 Dependencies:
-    • Python >= 3.10 (from iri310_cellpose3 environment).
+    • Python >= 3.10 (from venv310_cellpose3 environment).
     • All packages from cellpose3_environment.yml.
 
 Usage:
     # After activating the conda environment:
-    conda activate iri310_cellpose3
+    conda activate venv310_cellpose3
     python test_environment_setup.py
 
 Arguments:
@@ -79,12 +79,12 @@ def test_python_environment():
     conda_env = os.environ.get("CONDA_DEFAULT_ENV", "unknown")
     print(f"✓ Conda environment: {conda_env}")
     
-    if "iri310_cellpose3" in python_path or conda_env == "iri310_cellpose3":
+    if "venv310_cellpose3" in python_path or conda_env == "venv310_cellpose3":
         print("✅ PASS: Running in correct conda environment")
         return True
     else:
-        print("❌ FAIL: Not running in iri310_cellpose3 environment")
-        print("   SOLUTION: conda activate iri310_cellpose3")
+        print("❌ FAIL: Not running in venv310_cellpose3 environment")
+        print("   SOLUTION: conda activate venv310_cellpose3")
         return False
 
 

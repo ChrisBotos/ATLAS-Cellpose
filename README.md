@@ -44,7 +44,7 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 
 - **Operating System**: Linux, macOS, or Windows with WSL2
 - **Python**: 3.10 (installed automatically with environment)
-- **CUDA**: ≥ 12.1 (optional, for GPU acceleration)
+- **CUDA**: = 11.8 (optional, for GPU acceleration)
 - **Memory**: ≥ 8 GB RAM (≥ 16 GB for large images)
 - **Storage**: ≥ 5 GB free space for conda environment
 
@@ -55,7 +55,7 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 mamba env create -f cellpose3_environment.yml
 
 # 2. Activate the environment
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 
 # 3. Test the installation
 python test_environment_setup.py
@@ -93,7 +93,7 @@ source ~/.bashrc
 # 2. Install mamba and create environment
 conda install -n base mamba -c conda-forge
 mamba env create -f cellpose3_environment.yml
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 
 # 3. Verify installation
 python -c "import torch, cellpose; print('Environment ready')"
@@ -110,7 +110,7 @@ python -c "import torch, cellpose; print('Environment ready')"
 
 **Manual activation:**
 ```bash
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 python code/nuclei_segmentation/run_this.py
 ```
 
@@ -119,7 +119,7 @@ python code/nuclei_segmentation/run_this.py
 Validate your environment setup:
 
 ```bash
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 python test_environment_setup.py
 ```
 
@@ -132,7 +132,7 @@ The pipeline includes a specialized tool for optimizing CLAHE (Contrast Limited 
 ### Quick CLAHE Testing
 
 ```bash
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 python temp.py
 ```
 
@@ -243,7 +243,7 @@ qc_overlays = True                  # Generate QC images
 ./run_with_proper_env.sh
 
 # Manual execution
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 python code/nuclei_segmentation/run_this.py
 ```
 
@@ -365,7 +365,7 @@ python -c "import cupy; print('GPU acceleration available')"
 ```bash
 # Ensure conda is properly initialized
 source ~/miniconda3/etc/profile.d/conda.sh
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 ```
 
 **CUDA compatibility problems:**
@@ -385,7 +385,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 **Package import failures:**
 ```bash
 # Clean and recreate environment
-conda env remove -n iri310_cellpose3
+conda env remove -n venv310_cellpose3
 mamba env create -f cellpose3_environment.yml
 ```
 

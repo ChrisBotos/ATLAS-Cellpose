@@ -1,0 +1,63 @@
+name: venv310_cellpose3_fixed
+channels:
+  - pytorch
+  - nvidia  
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Core Python
+  - python=3.10
+  - pip
+
+  # Core scientific computing
+  - numpy=1.26.4
+  - scipy=1.11.4
+  - pandas=2.1.4
+  - matplotlib=3.8.2
+  - seaborn=0.13.0
+  - pillow=10.1.0
+  - scikit-learn=1.3.2
+  - scikit-image=0.22.0
+  - joblib=1.3.2
+
+  # Deep learning - PyTorch with CUDA
+  - pytorch::pytorch
+  - pytorch::torchvision  
+  - pytorch::torchaudio
+  - pytorch::pytorch-cuda=11.8
+
+  # Image processing
+  - imageio=2.31.6
+  - opencv=4.8.1
+  - networkx=3.2.1
+  - h5py=3.10.0
+
+  # Utilities
+  - tqdm=4.66.1
+  - psutil=5.9.6
+  - rich=13.6.0
+  - click=8.1.7
+  - pytest=7.4.3
+  - packaging=23.2
+  - python-dateutil=2.8.2
+  - pytz=2023.3
+  - six=1.16.0
+  - typing_extensions=4.8.0
+  - filelock=3.13.1
+  - jinja2=3.1.2
+  - markupsafe=2.1.3
+
+  # pip-only packages
+  - pip:
+    - cellpose==3.0.10
+    - fastremap==1.14.0
+    - roifile==2023.8.12
+    - typer==0.9.0
+    - shellingham==1.5.4
+    - imagecodecs==2023.9.18
+    - opencv-python-headless==4.8.1.78
+    - anndata==0.10.3
+    - scanpy==1.9.6
+    - pyarrow==13.0.0
+    - fastparquet==2023.10.1

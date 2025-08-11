@@ -29,7 +29,7 @@ dependencies:
   - pytorch::pytorch=2.2.0     # Stable version with CUDA support for GPU-accelerated cell segmentation.
   - pytorch::torchvision=0.17.* # Computer vision utilities for image preprocessing and augmentation.
   - pytorch::torchaudio=2.2.0   # Audio processing (included for completeness, may be useful for signal processing).
-  - pytorch::pytorch-cuda=12.1  # Pulls the matching CUDA runtime for GPU acceleration.
+  - pytorch::pytorch-cuda=11.8  # Pulls the matching CUDA runtime for GPU acceleration.
   - conda-forge::cupy>=12.0.0   # GPU-accelerated NumPy-compatible library for CUDA operations.
   - nvidia::cudatoolkit         # CUDA toolkit for GPU acceleration support.
 
@@ -72,7 +72,7 @@ dependencies:
 ## - NumPy 1.26.4 (downgraded from 2.x for PyTorch compatibility)
 ## - SciPy 1.15.2 (statistical functions for spatial analysis)
 ## - Pandas 2.3.1 (data manipulation for omics datasets)
-## - PyTorch 2.2.0 (CUDA: 12.1, GPU acceleration confirmed)
+## - PyTorch 2.2.0 (CUDA: 11.8, GPU acceleration confirmed)
 ## - TorchVision 0.17.0 (computer vision for microscopy image processing)
 ## - scikit-image 0.25.0 (image processing for tissue analysis)
 ## - Cellpose 4.0.4+ (state-of-the-art cell segmentation with CellposeModel API)
@@ -92,4 +92,4 @@ dependencies:
 ##
 ## Author: Christos Botos
 ## Environment validated: 2025-01-21
-## Compatible with: Ubuntu WSL, Linux systems with CUDA 12.1+
+## Compatible with: Ubuntu WSL, Linux systems with CUDA 11.8+

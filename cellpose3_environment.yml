@@ -1,112 +1,75 @@
-name: iri310_cellpose3
+# Usage:
+# conda create -n venv310_cellpose3 pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+
+name: venv310_cellpose3
 channels:
   - conda-forge
   - pytorch
   - defaults
 
 dependencies:
-  # Core Python and package management
-  - python=3.10.18
-  - pip=25.1
+  - python=3.10
+  - numpy=1.26
+  - scipy=1.11
+  - pandas=2.1
+  - matplotlib=3.8
+  - seaborn=0.13
+  - pillow=10.0
+  - scikit-learn=1.3
+  - scikit-image=0.22
+  - joblib=1.3
+  - statsmodels=0.14
+  - pytorch=2.1
+  - torchvision=0.16
+  - torchaudio=2.1
+  - pytorch-cuda=11.8
+  - opencv=4.8
+  - imageio=2.31
+  - tifffile=2023.7
+  - h5py=3.9
+  - networkx=3.1
+  - pyarrow=13.0
+  - fsspec=2023.9
+  - rich=13.6
+  - click=8.1
+  - tqdm=4.66
+  - colorama=0.4
+  - pytest=7.4
+  - psutil=5.9
+  - packaging=23.0
+  - python-dateutil=2.8
+  - pytz=2023.3
+  - six=1.16
+  - typing-extensions=4.8
+  - filelock=3.12
+  - numba=0.58
+  - llvmlite=0.41
+  - sympy=1.12
+  - pygments=2.16
+  - jinja2=3.1
+  - markupsafe=2.1
+  - imageio=2.31
 
-  # Pip packages with exact versions - Complete environment freeze
+  # Additional Conda-available specialized packages.
+  - anndata=0.10.3
+  - scanpy=1.9.6
+  - umap-learn=0.5.4
+  - pynndescent=0.5.10
+  - fastparquet=2023.10.1
+  - patsy=0.5.3
+  - natsort=8.4.0
+
+  # pip-only packages.
+  - pip
+
   - pip:
-    # Core scientific computing
-    - numpy==1.26.4
-    - scipy==1.15.3
-    - pandas==2.3.1
-
-    # Visualization and plotting
-    - matplotlib==3.10.5
-    - seaborn==0.13.2
-    - contourpy==1.3.2
-    - cycler==0.12.1
-    - fonttools==4.59.0
-    - kiwisolver==1.4.8
-    - pillow==11.3.0
-    - pyparsing==3.2.3
-
-    # Machine learning and statistics
-    - scikit-learn==1.7.1
-    - scikit-image==0.25.2
-    - joblib==1.5.1
-    - statsmodels==0.14.5
-    - threadpoolctl==3.6.0
-
-    # Deep learning framework
-    - torch==2.5.1+cu121
-    - torchaudio==2.5.1+cu121
-    - torchvision==0.20.1+cu121
-
-    # Cellpose and image processing
     - cellpose==3.0.10
-    - opencv-python-headless==4.11.0.86
-    - imagecodecs==2025.3.30
-    - imageio==2.37.0
-    - tifffile==2025.5.10
-    - fastremap==1.17.2
-    - roifile==2025.5.10
-
-    # Single-cell and spatial analysis
-    - anndata==0.11.4
-    - scanpy==1.11.4
-    - h5py==3.12.1
-    - umap-learn==0.5.7
-    - pynndescent==0.5.13
-    - legacy-api-wrap==1.4.1
-    - session-info2==0.1.2
-
-    # Data IO and formats
-    - pyarrow==21.0.0
-    - fastparquet==2024.11.0
-    - cramjam==2.11.0
-    - fsspec==2025.7.0
-
-    # CLI and utilities
-    - typer==0.16.0
-    - rich==13.9.4
-    - click==8.1.8
+    - fastremap==1.14.0
+    - roifile==2023.8.12
+    - cramjam==2.7.0
+    - typer==0.9.0
     - shellingham==1.5.4
-    - tqdm==4.67.1
-    - colorama==0.4.6
-
-    # Testing and development
-    - pytest==8.4.1
-    - iniconfig==2.0.0
-    - pluggy==1.5.0
-    - tomli==2.2.1
-    - exceptiongroup==1.2.2
-
-    # System and utilities
-    - psutil==7.0.0
-    - packaging==25.0
-    - python-dateutil==2.9.0.post0
-    - pytz==2025.2
-    - six==1.17.0
-    - tzdata==2025.2
-    - typing-extensions==4.14.1
-    - filelock==3.18.0
-
-    # Numerical computing
-    - numba==0.61.2
-    - llvmlite==0.44.0
-    - array-api-compat==1.11.1
-    - lazy-loader==0.4
-
-    # Statistical modeling
-    - patsy==1.0.1
-    - natsort==8.4.0
-
-    # Network and web
-    - networkx==3.4.2
-    - jinja2==3.1.6
-    - markupsafe==3.0.2
-
-    # Math and symbolic computation
-    - sympy==1.13.1
-    - mpmath==1.3.0
-
-    # Text processing and documentation
-    - pygments==2.19.1
-    - markdown-it-py==3.0.0
-    - mdurl==0.1.2
+    - imagecodecs==2023.9.18
+    - lazy-loader==0.3
+    - legacy-api-wrap==1.4.0
+    - fsspec

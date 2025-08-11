@@ -13,7 +13,7 @@
 #
 # Dependencies:
 #     • Conda/Miniconda installation (in ~/miniconda3 or system-wide)
-#     • iri310_cellpose3 environment (created from cellpose3_environment.yml)
+#     • venv310_cellpose3 environment (created from cellpose3_environment.yml)
 #     • PyTorch and Cellpose3 packages
 #
 # Usage:
@@ -91,9 +91,9 @@ fi
 echo "✓ Conda initialized successfully"
 
 # Check if environment exists.
-echo "Checking for iri310_cellpose3 environment..."
-if ! conda env list | grep -q "iri310_cellpose3"; then
-    echo "❌ ERROR: iri310_cellpose3 environment not found"
+echo "Checking for venv310_cellpose3 environment..."
+if ! conda env list | grep -q "venv310_cellpose3"; then
+    echo "❌ ERROR: venv310_cellpose3 environment not found"
     echo "Available environments:"
     conda env list
     echo ""
@@ -104,20 +104,20 @@ if ! conda env list | grep -q "iri310_cellpose3"; then
     exit 1
 fi
 
-echo "✓ Environment iri310_cellpose3 found"
+echo "✓ Environment venv310_cellpose3 found"
 
 # Activate the specific environment.
-echo "Activating iri310_cellpose3 environment..."
-conda activate iri310_cellpose3
+echo "Activating venv310_cellpose3 environment..."
+conda activate venv310_cellpose3
 
 # Verify environment activation.
-if [[ "$CONDA_DEFAULT_ENV" != "iri310_cellpose3" ]]; then
-    echo "❌ ERROR: Failed to activate iri310_cellpose3 environment"
+if [[ "$CONDA_DEFAULT_ENV" != "venv310_cellpose3" ]]; then
+    echo "❌ ERROR: Failed to activate venv310_cellpose3 environment"
     echo "Current environment: $CONDA_DEFAULT_ENV"
     echo "This might be a shell configuration issue."
     echo ""
     echo "SOLUTION: Try manual activation:"
-    echo "  conda activate iri310_cellpose3"
+    echo "  conda activate venv310_cellpose3"
     echo "  python code/nuclei_segmentation/run_this.py"
     exit 1
 fi
@@ -130,8 +130,8 @@ python_path=$(which python)
 echo "Python executable: $python_path"
 
 # Check if we're using the right Python.
-if [[ "$python_path" != *"iri310_cellpose3"* ]]; then
-    echo "⚠️  WARNING: Python path doesn't contain iri310_cellpose3"
+if [[ "$python_path" != *"venv310_cellpose3"* ]]; then
+    echo "⚠️  WARNING: Python path doesn't contain venv310_cellpose3"
     echo "This might indicate environment activation issues"
 fi
 
@@ -147,7 +147,7 @@ if python -c "import torch; print(f'✓ PyTorch version: {torch.__version__}'); 
 else
     echo "❌ ERROR: PyTorch not available or broken"
     echo "SOLUTION: Recreate environment:"
-    echo "  conda env remove -n iri310_cellpose3"
+    echo "  conda env remove -n venv310_cellpose3"
     echo "  mamba env create -f cellpose3_environment.yml"
     exit 1
 fi

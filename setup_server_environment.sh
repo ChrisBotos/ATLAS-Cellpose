@@ -120,7 +120,7 @@ create_environment() {
         echo "Attempting to create minimal environment..."
         if mamba env create -f cellpose3_minimal_environment.yml; then
             echo "✅ Minimal environment created successfully"
-            echo "Environment name: iri310_cellpose3_minimal"
+            echo "Environment name: venv310_cellpose3_minimal"
             return 0
         else
             echo "❌ Minimal environment creation failed"
@@ -129,8 +129,8 @@ create_environment() {
     
     # Manual pip installation as last resort
     echo "Attempting manual pip installation..."
-    conda create -n iri310_cellpose3_manual python=3.10 pip -y
-    conda activate iri310_cellpose3_manual
+    conda create -n venv310_cellpose3_manual python=3.10 pip -y
+    conda activate venv310_cellpose3_manual
     
     echo "Installing core packages via conda..."
     conda install numpy scipy matplotlib pillow tqdm psutil -c conda-forge -y
@@ -142,7 +142,7 @@ create_environment() {
     pip install cellpose==3.0.10 scikit-image opencv-python-headless imagecodecs pandas joblib pytest
     
     echo "✅ Manual environment created successfully"
-    echo "Environment name: iri310_cellpose3_manual"
+    echo "Environment name: venv310_cellpose3_manual"
 }
 
 # Function to test environment
@@ -153,12 +153,12 @@ test_environment() {
     
     # Find the created environment
     env_name=""
-    if conda env list | grep -q "iri310_cellpose3_minimal"; then
-        env_name="iri310_cellpose3_minimal"
-    elif conda env list | grep -q "iri310_cellpose3_manual"; then
-        env_name="iri310_cellpose3_manual"
-    elif conda env list | grep -q "iri310_cellpose3"; then
-        env_name="iri310_cellpose3"
+    if conda env list | grep -q "venv310_cellpose3_minimal"; then
+        env_name="venv310_cellpose3_minimal"
+    elif conda env list | grep -q "venv310_cellpose3_manual"; then
+        env_name="venv310_cellpose3_manual"
+    elif conda env list | grep -q "venv310_cellpose3"; then
+        env_name="venv310_cellpose3"
     else
         echo "❌ No environment found"
         return 1

@@ -81,7 +81,7 @@ This document tracks all significant changes made to the codebase during develop
 Fixed critical environment activation issues that were causing segmentation failures. The main issue was that the pipeline was running with system Python instead of the conda environment, leading to missing dependencies and "no masks detected" errors.
 
 ### Root Cause Analysis
-- **Environment Activation Failure**: Pipeline not using `iri310_cellpose3` conda environment
+- **Environment Activation Failure**: Pipeline not using `venv310_cellpose3` conda environment
 - **Missing Dependencies**: PyTorch, Cellpose3, and other packages unavailable in system Python
 - **Timeout Issues**: CPU-only processing causing "tile 4 in batch X" timeouts
 - **Parameter Issues**: Environment problems masked as segmentation parameter problems
@@ -161,7 +161,7 @@ Fixed critical environment activation issues that were causing segmentation fail
 #### Quick Start (Local)
 ```bash
 mamba env create -f cellpose3_environment.yml
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 ./run_with_proper_env.sh
 ```
 
@@ -177,7 +177,7 @@ source ~/.bashrc
 # Create environment
 conda install -n base mamba -c conda-forge
 mamba env create -f cellpose3_environment.yml
-conda activate iri310_cellpose3
+conda activate venv310_cellpose3
 
 # Test and run
 python test_environment_setup.py
