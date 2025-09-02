@@ -3,73 +3,72 @@
 
 name: venv310_cellpose3
 channels:
-  - conda-forge
   - pytorch
+  - nvidia
+  - conda-forge
   - defaults
 
 dependencies:
   - python=3.10
-  - numpy=1.26
-  - scipy=1.11
-  - pandas=2.1
-  - matplotlib=3.8
-  - seaborn=0.13
-  - pillow=10.0
-  - scikit-learn=1.3
-  - scikit-image=0.22
-  - joblib=1.3
-  - statsmodels=0.14
-  - pytorch=2.1
-  - torchvision=0.16
-  - torchaudio=2.1
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - seaborn
+  - pillow
+  - scikit-learn
+  - scikit-image
+  - joblib
+  - statsmodels
+  - pytorch=2.1.*
+  - torchvision=0.16.*
+  - torchaudio=2.1.*
   - pytorch-cuda=11.8
-  - opencv=4.8
-  - imageio=2.31
-  - tifffile=2023.7
-  - h5py=3.9
-  - networkx=3.1
-  - pyarrow=13.0
-  - fsspec=2023.9
-  - rich=13.6
-  - click=8.1
-  - tqdm=4.66
-  - colorama=0.4
-  - pytest=7.4
-  - psutil=5.9
-  - packaging=23.0
-  - python-dateutil=2.8
-  - pytz=2023.3
-  - six=1.16
-  - typing-extensions=4.8
-  - filelock=3.12
-  - numba=0.58
-  - llvmlite=0.41
-  - sympy=1.12
-  - pygments=2.16
-  - jinja2=3.1
-  - markupsafe=2.1
-  - imageio=2.31
+  - opencv
+  - imageio
+  - tifffile
+  - h5py
+  - networkx
+  - pyarrow
+  - fsspec
+  - rich
+  - click
+  - tqdm
+  - colorama
+  - pytest
+  - psutil
+  - packaging
+  - python-dateutil
+  - pytz
+  - six
+  - typing-extensions
+  - filelock
+  - numba
+  - llvmlite
+  - sympy
+  - pygments
+  - jinja2
+  - markupsafe
 
   # Additional Conda-available specialized packages.
-  - anndata=0.10.3
-  - scanpy=1.9.6
-  - umap-learn=0.5.4
-  - pynndescent=0.5.10
-  - fastparquet=2023.10.1
-  - patsy=0.5.3
-  - natsort=8.4.0
+  - anndata
+  - scanpy
+  - umap-learn
+  - pynndescent
+  - fastparquet
+  - patsy
+  - natsort
 
   # pip-only packages.
   - pip
 
   - pip:
     - cellpose==3.0.10
-    - fastremap==1.14.0
-    - roifile==2023.8.12
-    - cramjam==2.7.0
-    - typer==0.9.0
-    - shellingham==1.5.4
-    - imagecodecs==2023.9.18
-    - lazy-loader==0.3
-    - legacy-api-wrap==1.4.0
-    - fsspec
+    - fastremap
+    - roifile
+    - cramjam
+    - typer
+    - shellingham
+    - imagecodecs
+    - lazy-loader
+    - legacy-api-wrap

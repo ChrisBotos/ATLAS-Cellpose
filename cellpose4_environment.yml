@@ -1,4 +1,4 @@
-name: iri310
+name: venv310_cellpose4
 channels:
   - pytorch        # Put FIRST so strict priority can select PyTorch builds here.
   - nvidia         # NVIDIA channel for CUDA packages.
