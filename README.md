@@ -125,6 +125,31 @@ python test_environment_setup.py
 
 Expected output: "🎉 ENVIRONMENT READY!"
 
+### Running Tests
+
+The pipeline includes a comprehensive test suite to validate functionality:
+
+```bash
+conda activate venv310_cellpose3
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run specific test categories
+python -m pytest tests/nuclei_segmentation_tests/ -v  # Core pipeline tests
+python -m pytest tests/test_gpu_merge_4step_integration.py -v  # GPU merge tests
+python -m pytest tests/test_white_segmentation_masks_performance.py -v  # Performance tests
+```
+
+**Test Coverage:**
+- **Core Pipeline**: Segmentation, tiling, preprocessing, and feature extraction
+- **Merge Algorithms**: Two-phase merging, 4-step CPU algorithm, GPU integration
+- **Performance**: Memory efficiency, large image handling, optimization
+- **Visualization**: Color generation, overlay creation, QC tools
+- **Integration**: End-to-end pipeline validation
+
+The test suite has been cleaned to remove outdated debug tests and ensure all tests reference existing code modules.
+
 ## CLAHE Parameter Testing
 
 The pipeline includes a specialized tool for optimizing CLAHE (Contrast Limited Adaptive Histogram Equalization) parameters:

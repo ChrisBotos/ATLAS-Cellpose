@@ -43,6 +43,15 @@ This document provides a numbered list of all major changes made to the I/R Inju
 28. **Enhanced GPU Function Usage** - Lowered GPU thresholds from 100k to 1k-10k pixels for better utilization
 29. **Proper Memory Measurement** - Track GPU memory BEFORE cleanup instead of after (was always 0.0MB)
 
+## September 28, 2025 - Test Suite Cleanup and Maintenance
+
+30. **Removed Broken Test Files** - Eliminated 13 test files with import errors referencing non-existent modules
+31. **Cleaned Debug Test Scripts** - Removed development debug tests that weren't proper unit tests
+32. **Fixed Import Dependencies** - Resolved issues with missing functions and modules in test imports
+33. **Updated Test Documentation** - Added comprehensive test suite documentation to README.md
+34. **Validated Remaining Tests** - Ensured all 18 remaining test files import and run successfully
+35. **Test Suite Organization** - Maintained clean separation between core pipeline and specialized tests
+
 ## August 5, 2025 - Cellpose Merge Pipeline Cleanup
 
 ## August 8, 2025 - Cellpose 3.0 Environment Setup

@@ -34,3 +34,5 @@ build/
 
 # Specific test created directories.
 tests/nuclei_segmentation_tests/tile_merge_viz*/
+tests/results*
+!tests/results/.gitkeep
