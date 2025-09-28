@@ -96,6 +96,23 @@ def load_config(config_path=None):
         "skip_and_copy_merging": config.getboolean("using_previous_results", "skip_and_copy_merging", fallback=False),
         "skip_and_copy_postprocessing": config.getboolean("using_previous_results", "skip_and_copy_postprocessing", fallback=False),
         "skip_and_copy_visualization": config.getboolean("using_previous_results", "skip_and_copy_visualization", fallback=False),
+        "skip_and_copy_filtering": config.getboolean("using_previous_results", "skip_and_copy_filtering", fallback=False),
+
+        # Filtering parameters.
+        "use_filtering": config.getboolean("filtering", "use_filtering", fallback=True),
+        "min_pixels": config.getint("filtering", "min_pixels", fallback=20),
+        "max_pixels": config.getint("filtering", "max_pixels", fallback=900),
+        "min_circularity": config.getfloat("filtering", "min_circularity", fallback=0.56),
+        "max_circularity": config.getfloat("filtering", "max_circularity", fallback=1.00),
+        "min_solidity": config.getfloat("filtering", "min_solidity", fallback=0.765),
+        "max_solidity": config.getfloat("filtering", "max_solidity", fallback=1.00),
+        "min_eccentricity": config.getfloat("filtering", "min_eccentricity", fallback=0.00),
+        "max_eccentricity": config.getfloat("filtering", "max_eccentricity", fallback=0.975),
+        "min_aspect_ratio": config.getfloat("filtering", "min_aspect_ratio", fallback=0.50),
+        "max_aspect_ratio": config.getfloat("filtering", "max_aspect_ratio", fallback=3.20),
+        "min_hole_fraction": config.getfloat("filtering", "min_hole_fraction", fallback=0.00),
+        "max_hole_fraction": config.getfloat("filtering", "max_hole_fraction", fallback=0.001),
+        "exclude_border": config.getboolean("filtering", "exclude_border", fallback=False),
     }
 
     # Cellpose-specific settings optimized for adaptive diameter detection.

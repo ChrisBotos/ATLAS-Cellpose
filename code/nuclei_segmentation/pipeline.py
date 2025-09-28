@@ -49,6 +49,7 @@ from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
 from utils.visualization import small_segmentation_overlay
 from utils.overlay_masks import overlay
+from utils.filter_masks import filter_masks_programmatic
 
 from cellpose_merge.merge_tiles import merge_masks_streaming
 
@@ -408,8 +409,35 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         else:
             logger.info("Skipped postprocessing.")
 
+        if not settings.get("skip_and_copy_filtering", False) or not settings.get("use_previous_results", False):
+            # Step 7: Apply morphological filtering to remove artifacts.
+            if settings.get("use_filtering", True):
+                logger.info("Applying morphological filtering...")
+                original_count = int(masks.max())
+                masks = filter_masks_programmatic(
+                    masks=masks,
+                    settings=settings,
+                    output_dir=output_dir,
+                    logger=logger,
+                    intensity_image=image if settings.get("use_intensity_filtering", False) else None
+                )
+                filtered_count = int(masks.max())
+                logger.info(f"Filtering completed: {original_count} → {filtered_count} nuclei")
+
+                # Save filtered masks to main masks directory.
+                np.save(Path(output_dir) / "masks" / "segmentation_masks_filtered.npy", masks)
+                try:
+                    skio.imsave(Path(output_dir) / "masks" / "segmentation_masks_filtered.tif",
+                               masks.astype(np.uint32), plugin="tifffile")
+                except Exception as e:
+                    logger.warning(f"Could not write filtered TIFF: {e}")
+            else:
+                logger.info("Morphological filtering disabled in configuration.")
+        else:
+            logger.info("Skipped filtering.")
+
         if not settings.get("skip_and_copy_visualization", False) or not settings.get("use_previous_results", False):
-            # Step 7: Overlay generation (cropped + full).
+            # Step 8: Overlay generation (cropped + full).
             # Determine correct paths for overlay generation based on pipeline configuration.
 
             # Image path: use previous results if preprocessing was skipped.
@@ -440,7 +468,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         else:
             logger.info("Skipped visualizations.")
 
-        # Step 8: Optional debug snapshot.
+        # Step 9: Optional debug snapshot.
         if snap:
             snap.capture("end_of_pipeline", {"masks": masks})
 

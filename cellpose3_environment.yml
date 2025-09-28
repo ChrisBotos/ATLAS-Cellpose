@@ -1,74 +1,88 @@
+# Nuclei Segmentation Environment with Cellpose 3.0.
+# Author: Christos Botos.
 # Usage:
-# conda create -n venv310_cellpose3 pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+#   conda env create -f cellpose3_cu118.yml
+#   conda activate venv310_cellpose3
+#   # Then install PyTorch cu118 via pip (Step 3).
 
 name: venv310_cellpose3
 channels:
-  - pytorch
-  - nvidia
-  - conda-forge
-  - defaults
+  - nvidia            # Keep NVIDIA first so CUDA packages resolve cleanly.
+  - conda-forge       # Prefer conda-forge for scientific stack on Linux/WSL.
+  - defaults          # Fallback channel.
 
 dependencies:
+  # ───────── Core Python Environment ─────────
   - python=3.10
-  - numpy
-  - scipy
-  - pandas
-  - matplotlib
-  - seaborn
-  - pillow
-  - scikit-learn
-  - scikit-image
-  - joblib
-  - statsmodels
-  - pytorch=2.1.*
-  - torchvision=0.16.*
-  - torchaudio=2.1.*
-  - pytorch-cuda=11.8
-  - opencv
-  - imageio
-  - tifffile
-  - h5py
-  - networkx
-  - pyarrow
-  - fsspec
-  - rich
-  - click
-  - tqdm
-  - colorama
-  - pytest
-  - psutil
-  - packaging
-  - python-dateutil
-  - pytz
-  - six
-  - typing-extensions
-  - filelock
-  - numba
-  - llvmlite
-  - sympy
-  - pygments
-  - jinja2
-  - markupsafe
-
-  # Additional Conda-available specialized packages.
-  - anndata
-  - scanpy
-  - umap-learn
-  - pynndescent
-  - fastparquet
-  - patsy
-  - natsort
-
-  # pip-only packages.
   - pip
 
+  # ───────── CUDA 11.8 toolchain (user-space) ─────────
+  - cuda-toolkit=11.8      # From NVIDIA channel. Includes nvcc and CUDA libs.
+
+  # ───────── Core Scientific Computing ─────────
+  - numpy=1.26.4
+  - scipy=1.11.*
+  - pandas=2.1.*
+  - matplotlib=3.8.*
+  - pillow=10.*
+
+  # ───────── Machine Learning & Image Processing ─────────
+  - scikit-learn=1.3.*
+  - scikit-image=0.22.*
+  - joblib=1.3.*
+
+  # ───────── Image I/O ─────────
+  - imageio=2.31.*
+  - tifffile=2023.9.*
+  - h5py=3.10.*
+
+  # ───────── Data Handling & Storage ─────────
+  - networkx=3.2.*
+  - pyarrow=13.*
+  - fsspec=2023.*
+
+  # ───────── Dev & Utilities ─────────
+  - rich=13.6.*
+  - click=8.1.*
+  - tqdm=4.66.*
+  - colorama=0.4.*
+  - pytest=7.4.*
+  - psutil=5.9.*
+
+  # ───────── Core Dependencies ─────────
+  - packaging=23.*
+  - python-dateutil=2.8.*
+  - pytz=2023.*
+  - six=1.16.*
+  - typing-extensions=4.8.*
+  - filelock=3.13.*
+  - jinja2=3.1.*
+  - markupsafe=2.1.*
+
+  # ───────── Numerical Extensions ─────────
+  - numba=0.58.*
+  - llvmlite=0.41.*
+  - sympy=1.12.*
+  - statsmodels=0.14.*
+
+  # ───────── Bioinformatics Core ─────────
+  - anndata=0.10.*
+  - scanpy=1.9.*
+  - umap-learn=0.5.*
+  - pynndescent=0.5.*
+  - fastparquet=2023.*
+  - patsy=0.5.*
+  - natsort=8.4.*
+
+  # ───────── pip-only packages ─────────
   - pip:
-    - cellpose==3.0.10
-    - fastremap
-    - roifile
-    - cramjam
-    - typer
-    - shellingham
-    - imagecodecs
-    - lazy-loader
-    - legacy-api-wrap
+      - opencv-python-headless==4.8.1.78   # Avoids GUI/X11 deps on WSL.
+      - cellpose==3.0.10
+      - fastremap==1.14.0
+      - roifile==2023.8.12
+      - cramjam==2.7.0
+      - typer==0.9.0
+      - shellingham==1.5.4
+      - imagecodecs==2023.9.18
+      - lazy-loader==0.3
+      - legacy-api-wrap==1.4

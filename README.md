@@ -166,7 +166,7 @@ temp_results/clahe_clip5.0_grid4x4.tif
 The pipeline follows a modular workflow optimized for large tissue sections:
 
 ```
-Input Image (DAPI) → Preprocessing → Tiling → Cellpose Segmentation → Merging → Quality Control → Feature Extraction
+Input Image (DAPI) → Preprocessing → Tiling → Cellpose Segmentation → Merging → Filtering → Quality Control → Feature Extraction
 ```
 
 ### Core Components
@@ -196,6 +196,24 @@ The pipeline uses Cellpose3 for nuclear segmentation with optimized parameters:
 - **Thresholds**: Optimized for DAPI-stained tissue sections
 - **GPU Support**: Automatic GPU acceleration when available
 
+### Morphological Filtering
+
+The pipeline includes comprehensive morphological filtering to remove segmentation artifacts:
+
+- **Size Filtering**: Removes objects that are too small (debris) or too large (merged nuclei)
+- **Shape Filtering**: Filters based on circularity, solidity, and eccentricity
+- **Aspect Ratio**: Removes overly elongated objects that are likely artifacts
+- **Hole Detection**: Filters objects with excessive internal holes
+- **Border Exclusion**: Optional removal of nuclei touching image borders
+
+**Default Thresholds (optimized for kidney tissue):**
+- Size: 20-900 pixels
+- Circularity: 0.56-1.00 (moderately circular to perfect circle)
+- Solidity: 0.765-1.00 (solid objects with minimal concavity)
+- Eccentricity: 0.00-0.975 (circular to moderately elongated)
+- Aspect Ratio: 0.50-3.20 (prevents extremely elongated artifacts)
+- Hole Fraction: 0.00-0.001 (minimal internal holes allowed)
+
 ## Configuration
 
 The pipeline is configured through `configs/nuclei_segmentation_config.ini`:
@@ -222,6 +240,22 @@ use_tiling = True                   # Enable for large images
 tile_side_length = 512              # Tile size (pixels)
 tile_overlap = 0.2                  # 20% overlap between tiles
 qc_overlays = True                  # Generate QC images
+
+[filtering]
+use_filtering = True                # Enable morphological filtering
+min_pixels = 20                     # Minimum nucleus size (pixels)
+max_pixels = 900                    # Maximum nucleus size (pixels)
+min_circularity = 0.56              # Minimum circularity (0=line, 1=circle)
+max_circularity = 1.00              # Maximum circularity
+min_solidity = 0.765                # Minimum solidity (convex hull ratio)
+max_solidity = 1.00                 # Maximum solidity
+min_eccentricity = 0.00             # Minimum eccentricity (0=circle, 1=line)
+max_eccentricity = 0.975            # Maximum eccentricity
+min_aspect_ratio = 0.50             # Minimum aspect ratio (major/minor axis)
+max_aspect_ratio = 3.20             # Maximum aspect ratio
+min_hole_fraction = 0.00            # Minimum hole fraction
+max_hole_fraction = 0.001           # Maximum hole fraction
+exclude_border = False              # Exclude border-touching nuclei
 ```
 
 ### Parameter Optimization
