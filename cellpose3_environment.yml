@@ -74,15 +74,17 @@ dependencies:
   - patsy=0.5.*
   - natsort=8.4.*
 
-  # ───────── pip-only packages ─────────
+
+  - roifile=2023.8.30
+  - imagecodecs=2023.9.18
+
+    # ───────── pip-only packages ─────────
   - pip:
       - opencv-python-headless==4.8.1.78   # Avoids GUI/X11 deps on WSL.
       - cellpose==3.0.10
       - fastremap==1.14.0
-      - roifile==2023.8.30
       - cramjam==2.7.0
       - typer==0.9.0
       - shellingham==1.5.4
-      - imagecodecs==2023.9.18
       - lazy-loader==0.3
       - legacy-api-wrap==1.4
