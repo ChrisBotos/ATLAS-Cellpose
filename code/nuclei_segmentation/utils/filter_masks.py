@@ -5,18 +5,16 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: filter_masks.py.
 Description:
-    Drop‑in replacement for *filter_masks.py* that eliminates the per‑nucleus
-    full‑frame binary copies that previously caused >200GB peaks for large
-    label maps.  The new version works **directly on the label image**, streams
-    metrics in constant RAM, and writes the accepted / rejected nuclei to
-    memory‑mapped boolean stacks so that downstream scripts remain unchanged.
+    Memory-efficient filtering of segmentation masks based on morphological and intensity
+    metrics. This script eliminates the per‑nucleus full‑frame binary copies that
+    previously caused >200GB memory peaks for large label maps. The implementation works
+    **directly on the label image**, streams metrics in constant RAM, and writes the
+    accepted / rejected nuclei to memory‑mapped boolean stacks.
 
-Key Improvements:
+Key Features:
     • `np.load(..., mmap_mode="r")` ensures the label map is never duplicated.
     • Metrics computed via `skimage.measure.regionprops_table` on the label map
       (O(1) extra memory) instead of converting to a list of masks.
-    • `straight_fraction` is evaluated *per nucleus* in a for‑loop so only one
-      temporary mask is alive at any time.
     • Output boolean stacks are created as `np.memmap`, filled incrementally,
       and finally flushed to `.npy` – peak RAM is ≈ 2× the image size, no more.
     • Overlay generation colors each nucleus on‑the‑fly; no stack in memory.
@@ -31,7 +29,6 @@ Usage Example:
         --results-dir filtered_results \
         --output-prefix filtered_ \
         --min-pixels 20 --max-pixels 570 \
-        --max-straight-fraction 0.25 \
         --summary-csv --overlay --raw-image data/IRI_regist_cropped.tif
 
 Tests:
@@ -63,7 +60,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="[%(levelname)s] %(message)s",
 )
-LOGGER = logging.getLogger("filter‑masks‑memopt")
+LOGGER = logging.getLogger("filter‑masks")
 
 ###############################################################################
 # Dataclasses.
@@ -461,6 +458,121 @@ def parse_cli() -> Config:
         region=tuple(args.region) if args.region else None,
         no_stack=args.no_stack,
     )
+
+###############################################################################
+# Programmatic interface for pipeline integration.
+###############################################################################
+
+def filter_masks_programmatic(
+    masks: np.ndarray,
+    settings: dict,
+    output_dir: Path,
+    logger=None,
+    intensity_image: np.ndarray = None
+) -> np.ndarray:
+    """
+    Apply morphological filtering to segmentation masks programmatically.
+
+    This function provides a programmatic interface to the filtering functionality
+    for integration into the segmentation pipeline. It filters nuclei based on
+    morphological parameters and returns a cleaned mask.
+
+    Parameters
+    ----------
+    masks : np.ndarray
+        Input segmentation masks as a label image.
+    settings : dict
+        Configuration dictionary containing filtering parameters.
+    output_dir : Path
+        Directory to save filtering results and diagnostics.
+    logger : logging.Logger, optional
+        Logger for progress reporting.
+    intensity_image : np.ndarray, optional
+        Optional intensity image for intensity-based filtering.
+
+    Returns
+    -------
+    np.ndarray
+        Filtered segmentation masks with artifacts removed.
+    """
+    if logger:
+        logger.info("Starting morphological filtering of segmentation masks...")
+
+    # Create filtering thresholds from settings.
+    th = Thresholds(
+        min_pixels=settings.get("min_pixels", 20),
+        max_pixels=settings.get("max_pixels", 900),
+        min_circularity=settings.get("min_circularity", 0.56),
+        max_circularity=settings.get("max_circularity", 1.00),
+        min_solidity=settings.get("min_solidity", 0.765),
+        max_solidity=settings.get("max_solidity", 1.00),
+        min_eccentricity=settings.get("min_eccentricity", 0.00),
+        max_eccentricity=settings.get("max_eccentricity", 0.975),
+        min_aspect_ratio=settings.get("min_aspect_ratio", 0.50),
+        max_aspect_ratio=settings.get("max_aspect_ratio", 3.20),
+        min_hole_fraction=settings.get("min_hole_fraction", 0.00),
+        max_hole_fraction=settings.get("max_hole_fraction", 0.001),
+        exclude_border=settings.get("exclude_border", False),
+    )
+
+    # Validate thresholds.
+    th.validate()
+
+    # Compute morphological metrics.
+    if logger:
+        logger.info("Computing morphological metrics for filtering...")
+    metrics_df = compute_metrics(masks, intensity_image)
+
+    # Apply filtering thresholds.
+    passed_mask = apply_thresholds(metrics_df, th)
+    passed_labels = metrics_df.label[passed_mask].astype(int).tolist()
+    failed_labels = metrics_df.label[~passed_mask].astype(int).tolist()
+
+    # Create filtered mask by keeping only passed labels.
+    filtered_masks = np.zeros_like(masks)
+    for label in passed_labels:
+        filtered_masks[masks == label] = label
+
+    # Relabel to ensure consecutive labeling.
+    from skimage.measure import label as relabel
+    filtered_masks = relabel(filtered_masks > 0, connectivity=2)
+
+    # Save filtering results.
+    filter_dir = Path(output_dir) / "filtering"
+    filter_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save filtered masks.
+    np.save(filter_dir / "filtered_masks.npy", filtered_masks)
+
+    # Save filtering statistics.
+    stats = {
+        "original_nuclei": len(metrics_df),
+        "passed_nuclei": len(passed_labels),
+        "failed_nuclei": len(failed_labels),
+        "retention_rate": len(passed_labels) / len(metrics_df) if len(metrics_df) > 0 else 0.0
+    }
+
+    import json
+    with open(filter_dir / "filtering_stats.json", "w") as f:
+        json.dump(stats, f, indent=2)
+
+    # Save detailed metrics if debug mode is enabled.
+    if settings.get("debug_mode", False):
+        metrics_df.assign(passed=passed_mask).to_csv(
+            filter_dir / "filtering_metrics.csv", index=False
+        )
+
+        # Save passed and failed label lists.
+        np.save(filter_dir / "passed_labels.npy", np.array(passed_labels, dtype=np.int32))
+        np.save(filter_dir / "failed_labels.npy", np.array(failed_labels, dtype=np.int32))
+
+    if logger:
+        logger.info(f"Filtering completed: {stats['original_nuclei']} → {stats['passed_nuclei']} nuclei "
+                   f"({stats['retention_rate']:.1%} retained)")
+        logger.info(f"Filtering results saved to: {filter_dir}")
+
+    return filtered_masks
+
 
 ###############################################################################
 # Main entry point.
