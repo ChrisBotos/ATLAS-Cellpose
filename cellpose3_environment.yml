@@ -79,7 +79,7 @@ dependencies:
       - opencv-python-headless==4.8.1.78   # Avoids GUI/X11 deps on WSL.
       - cellpose==3.0.10
       - fastremap==1.14.0
-      - roifile==2023.8.12
+      - roifile==2023.8.30
       - cramjam==2.7.0
       - typer==0.9.0
       - shellingham==1.5.4
