@@ -185,22 +185,22 @@ def test_csv_format_validation() -> bool:
             tmp_path = Path(tmp_file.name)
         
         try:
-            # Create CSV without 'label' column.
+            # Create CSV without 'label' or 'nucleus_id' column.
             test_data = pd.DataFrame({
                 'centroid_x': [100, 200],
                 'centroid_y': [150, 250],
                 'area': [120, 180]
             })
             test_data.to_csv(tmp_path, index=False)
-            
+
             # This should raise an error.
             try:
                 load_nuclear_features(tmp_path)
-                logger.error("✗ Expected error for missing 'label' column, but none occurred.")
+                logger.error("✗ Expected error for missing nucleus identifier column, but none occurred.")
                 return False
             except ValueError as e:
-                if "Missing required columns: ['label']" in str(e):
-                    logger.info("✓ Correctly detected missing 'label' column.")
+                if "Missing required nucleus identifier column" in str(e):
+                    logger.info("✓ Correctly detected missing nucleus identifier column.")
                 else:
                     logger.error(f"✗ Unexpected error message: {str(e)}")
                     return False
@@ -234,7 +234,39 @@ def test_csv_format_validation() -> bool:
         finally:
             if tmp_path.exists():
                 tmp_path.unlink()
-        
+
+        # Test 2: CSV with 'nucleus_id' column should be accepted and renamed.
+        try:
+            test_data = pd.DataFrame({
+                'nucleus_id': [1, 2],
+                'centroid_x': [100, 200],
+                'centroid_y': [150, 250],
+                'area': [120, 180],
+                'circularity': [0.8, 0.9]
+            })
+            test_data.to_csv(tmp_path, index=False)
+
+            # This should work and rename 'nucleus_id' to 'label'.
+            df = load_nuclear_features(tmp_path)
+
+            if 'label' not in df.columns:
+                logger.error("✗ Expected 'nucleus_id' to be renamed to 'label'.")
+                return False
+
+            if 'nucleus_id' in df.columns:
+                logger.error("✗ Original 'nucleus_id' column should be renamed.")
+                return False
+
+            logger.info("✓ Successfully accepted 'nucleus_id' column and renamed to 'label'.")
+
+        except Exception as e:
+            logger.error(f"✗ Unexpected error with 'nucleus_id' column: {str(e)}")
+            return False
+
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
         return True
         
     except Exception as e:

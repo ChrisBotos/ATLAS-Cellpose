@@ -73,6 +73,9 @@ import logging
 import sys
 import time
 from pathlib import Path
+
+# Add project root to path for imports.
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from typing import Dict, Tuple, Optional, List
 from sklearn.ensemble import RandomForestClassifier
 import numpy as np
@@ -99,13 +102,14 @@ from utils.generate_contrast_colors import generate_color_palette, colors_to_hex
 from utils.color_config import ColorConfig, load_color_config
 
 # Import feature extraction configuration utilities.
-from utils.config_loader import load_feature_extraction_config
+from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config
 
 # Import overlay utilities for memory-efficient large image processing.
 overlay_utils_path = Path(__file__).parent.parent / 'nuclei_segmentation' / 'utils'
 sys.path.insert(0, str(overlay_utils_path))
 
-from ..nuclei_segmentation.utils import overlay_masks
+# Import overlay functions directly.
+import overlay_masks
 overlay = overlay_masks.overlay
 OverlayConfig = overlay_masks.OverlayConfig
 
@@ -230,10 +234,11 @@ def get_file_paths_from_config(config: Dict) -> Tuple[Path, Path, Path]:
     """
     console.print("[cyan]Extracting file paths from configuration...[/cyan]")
 
-    # Extract paths from config.
-    features_path = Path(config['features_csv_path'])
-    image_path = Path(config['image_path'])
-    mask_path = Path(config['mask_path'])
+    # Extract paths from config and resolve them relative to current working directory.
+    # The config paths are relative to the project root.
+    features_path = Path(config['features_csv_path']).resolve()
+    image_path = Path(config['image_path']).resolve()
+    mask_path = Path(config['mask_path']).resolve()
 
     # Validate files exist.
     missing_files = []
@@ -280,29 +285,35 @@ def set_global_seed(seed: int):
 def load_nuclear_features(features_path: Path) -> pd.DataFrame:
     """
     Load nuclear features from CSV file with validation.
-    
+
     Args:
         features_path: Path to CSV file containing nuclear features.
-        
+
     Returns:
         DataFrame with nuclear features and metadata.
-        
+
     This function loads and validates the nuclear feature matrix, ensuring
-    all required columns are present for clustering analysis.
+    all required columns are present for clustering analysis. Accepts both
+    'label' and 'nucleus_id' as nucleus identifier columns.
     """
     if not features_path.exists():
         raise FileNotFoundError(f"Features file not found: {features_path}")
-    
-    console.print(f"[cyan]Loading nuclear features from {features_path}...[/cyan]")
-    
-    df = pd.read_csv(features_path)
-    
-    # Validate essential columns.
-    required_cols = ['label']
-    missing_cols = [col for col in required_cols if col not in df.columns]
 
-    if missing_cols:
-        raise ValueError(f"Missing required columns: {missing_cols}")
+    console.print(f"[cyan]Loading nuclear features from {features_path}...[/cyan]")
+
+    df = pd.read_csv(features_path)
+
+    # Check for nucleus identifier column - accept either 'label' or 'nucleus_id'.
+    nucleus_id_col = None
+    if 'label' in df.columns:
+        nucleus_id_col = 'label'
+    elif 'nucleus_id' in df.columns:
+        nucleus_id_col = 'nucleus_id'
+        # Rename to 'label' for consistency with rest of pipeline.
+        df = df.rename(columns={'nucleus_id': 'label'})
+        console.print("[blue]ℹ[/blue] Renamed 'nucleus_id' column to 'label' for pipeline consistency")
+    else:
+        raise ValueError("Missing required nucleus identifier column: expected 'label' or 'nucleus_id'")
 
     # Identify feature columns (exclude metadata).
     metadata_cols = ['label', 'centroid_x', 'centroid_y']

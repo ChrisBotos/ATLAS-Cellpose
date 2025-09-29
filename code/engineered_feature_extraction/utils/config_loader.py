@@ -149,32 +149,76 @@ def load_feature_extraction_config(config_path: Optional[Union[str, Path]] = Non
         "enable_clustering": config.getboolean("general", "enable_clustering", fallback=True),
         "enable_visualizations": config.getboolean("general", "enable_visualizations", fallback=True),
         
-        # ─── Feature Extraction Parameters ───────────────────────────────────
+        # ─── Master Feature Control ──────────────────────────────────────────
+        "extract_all_features": config.getboolean("feature_extraction", "extract_all_features", fallback=False),
+
+        # ─── Legacy Feature Category Parameters (for backward compatibility) ──
         "shape_features": config.getboolean("feature_extraction", "shape_features", fallback=True),
         "size_features": config.getboolean("feature_extraction", "size_features", fallback=True),
         "neighborhood_features": config.getboolean("feature_extraction", "neighborhood_features", fallback=False),
         "texture_features": config.getboolean("feature_extraction", "texture_features", fallback=True),
+
+        # ─── Individual Shape Feature Controls ────────────────────────────────
+        "extract_circularity": config.getboolean("feature_extraction", "extract_circularity", fallback=False),
+        "extract_eccentricity": config.getboolean("feature_extraction", "extract_eccentricity", fallback=False),
+        "extract_solidity": config.getboolean("feature_extraction", "extract_solidity", fallback=False),
+        "extract_aspect_ratio": config.getboolean("feature_extraction", "extract_aspect_ratio", fallback=False),
+        "extract_compactness": config.getboolean("feature_extraction", "extract_compactness", fallback=False),
+        "extract_elongation": config.getboolean("feature_extraction", "extract_elongation", fallback=False),
+        "extract_roundness": config.getboolean("feature_extraction", "extract_roundness", fallback=False),
+        "extract_form_factor": config.getboolean("feature_extraction", "extract_form_factor", fallback=False),
+        "extract_convex_area_ratio": config.getboolean("feature_extraction", "extract_convex_area_ratio", fallback=False),
+        "extract_convexity": config.getboolean("feature_extraction", "extract_convexity", fallback=False),
+        "extract_fractal_dimension": config.getboolean("feature_extraction", "extract_fractal_dimension", fallback=False),
+
+        # ─── Individual Size Feature Controls ─────────────────────────────────
+        "extract_area": config.getboolean("feature_extraction", "extract_area", fallback=True),
+        "extract_perimeter": config.getboolean("feature_extraction", "extract_perimeter", fallback=True),
+        "extract_equivalent_diameter": config.getboolean("feature_extraction", "extract_equivalent_diameter", fallback=True),
+        "extract_major_axis_length": config.getboolean("feature_extraction", "extract_major_axis_length", fallback=True),
+        "extract_minor_axis_length": config.getboolean("feature_extraction", "extract_minor_axis_length", fallback=True),
+        "extract_bounding_box_width": config.getboolean("feature_extraction", "extract_bounding_box_width", fallback=True),
+        "extract_bounding_box_height": config.getboolean("feature_extraction", "extract_bounding_box_height", fallback=True),
+        "extract_bounding_box_area": config.getboolean("feature_extraction", "extract_bounding_box_area", fallback=True),
+        "extract_feret_diameter_max": config.getboolean("feature_extraction", "extract_feret_diameter_max", fallback=True),
+        "extract_feret_diameter_min": config.getboolean("feature_extraction", "extract_feret_diameter_min", fallback=True),
+
+        # ─── Individual Neighborhood Feature Controls ────────────────────────
+        "extract_nearest_neighbor_distance": config.getboolean("feature_extraction", "extract_nearest_neighbor_distance", fallback=False),
+        "extract_neighborhood_density": config.getboolean("feature_extraction", "extract_neighborhood_density", fallback=False),
+        "extract_boundary_proximity": config.getboolean("feature_extraction", "extract_boundary_proximity", fallback=False),
+        "extract_cluster_elongation": config.getboolean("feature_extraction", "extract_cluster_elongation", fallback=False),
+        "extract_cluster_polarization": config.getboolean("feature_extraction", "extract_cluster_polarization", fallback=False),
+        "extract_spatial_autocorrelation": config.getboolean("feature_extraction", "extract_spatial_autocorrelation", fallback=False),
+        "extract_tissue_organization_index": config.getboolean("feature_extraction", "extract_tissue_organization_index", fallback=False),
+        "extract_local_clustering_coefficient": config.getboolean("feature_extraction", "extract_local_clustering_coefficient", fallback=False),
+
+        # ─── Individual Texture Feature Controls ─────────────────────────────
+        "extract_intensity_mean": config.getboolean("feature_extraction", "extract_intensity_mean", fallback=False),
+        "extract_intensity_std": config.getboolean("feature_extraction", "extract_intensity_std", fallback=False),
+        "extract_intensity_median": config.getboolean("feature_extraction", "extract_intensity_median", fallback=False),
+        "extract_intensity_skewness": config.getboolean("feature_extraction", "extract_intensity_skewness", fallback=False),
+        "extract_intensity_kurtosis": config.getboolean("feature_extraction", "extract_intensity_kurtosis", fallback=False),
+        "extract_texture_entropy": config.getboolean("feature_extraction", "extract_texture_entropy", fallback=False),
+        "extract_gradient_magnitude_mean": config.getboolean("feature_extraction", "extract_gradient_magnitude_mean", fallback=False),
+        "extract_gradient_magnitude_std": config.getboolean("feature_extraction", "extract_gradient_magnitude_std", fallback=False),
+        "extract_glcm_contrast": config.getboolean("feature_extraction", "extract_glcm_contrast", fallback=False),
+        "extract_glcm_dissimilarity": config.getboolean("feature_extraction", "extract_glcm_dissimilarity", fallback=False),
+        "extract_glcm_homogeneity": config.getboolean("feature_extraction", "extract_glcm_homogeneity", fallback=False),
+        "extract_glcm_energy": config.getboolean("feature_extraction", "extract_glcm_energy", fallback=False),
+
+        # ─── Advanced Feature Parameters ──────────────────────────────────────
         "neighborhood_radius": config.getfloat("feature_extraction", "neighborhood_radius", fallback=50.0),
         "feature_extraction_workers": config.getint("feature_extraction", "feature_extraction_workers", fallback=-1),
         "min_nuclear_area": config.getfloat("feature_extraction", "min_nuclear_area", fallback=10.0),
         "max_nuclear_area": config.getfloat("feature_extraction", "max_nuclear_area", fallback=2000.0),
-
-        # ─── Individual Feature Controls ──────────────────────────────────────
-        "enable_fractal_dimension": config.getboolean("feature_extraction", "enable_fractal_dimension", fallback=True),
-        "enable_convex_hull_features": config.getboolean("feature_extraction", "enable_convex_hull_features", fallback=True),
-        "enable_pca_clustering": config.getboolean("feature_extraction", "enable_pca_clustering", fallback=True),
-        "enable_spatial_autocorrelation": config.getboolean("feature_extraction", "enable_spatial_autocorrelation", fallback=True),
-        "enable_clustering_coefficient": config.getboolean("feature_extraction", "enable_clustering_coefficient", fallback=True),
-        "enable_glcm_features": config.getboolean("feature_extraction", "enable_glcm_features", fallback=False),
-        "enable_gradient_features": config.getboolean("feature_extraction", "enable_gradient_features", fallback=True),
-        "enable_lbp_features": config.getboolean("feature_extraction", "enable_lbp_features", fallback=False),
 
         # ─── Performance Optimization Parameters ──────────────────────────────
         "enable_vectorized_neighborhood": config.getboolean("feature_extraction", "enable_vectorized_neighborhood", fallback=True),
         "neighborhood_batch_size": config.getint("feature_extraction", "neighborhood_batch_size", fallback=1000),
         "feature_extraction_batch_size": config.getint("feature_extraction", "feature_extraction_batch_size", fallback=500),
         "enable_kdtree_caching": config.getboolean("feature_extraction", "enable_kdtree_caching", fallback=True),
-        "skip_expensive_texture": config.getboolean("feature_extraction", "skip_expensive_texture", fallback=True),
+        "enable_gpu_acceleration": config.getboolean("feature_extraction", "enable_gpu_acceleration", fallback=True),
         "use_thread_pool": config.getboolean("feature_extraction", "use_thread_pool", fallback=False),
         
         # ─── Feature Extraction Input/Output Paths ──────────────────────────
@@ -266,9 +310,50 @@ def load_feature_extraction_config(config_path: Optional[Union[str, Path]] = Non
     if not (0 <= settings["color_alpha"] <= 255):
         logger.warning("color_alpha must be 0-255, setting to 200")
         settings["color_alpha"] = 200
-    
+
+    # Handle extract_all_features parameter.
+    if settings.get("extract_all_features", False):
+        logger.info("extract_all_features=True: Enabling all individual feature extractions")
+        # Enable all individual shape features.
+        shape_features = [
+            "extract_circularity", "extract_eccentricity", "extract_solidity", "extract_aspect_ratio",
+            "extract_compactness", "extract_elongation", "extract_roundness", "extract_form_factor",
+            "extract_convex_area_ratio", "extract_convexity", "extract_fractal_dimension"
+        ]
+        # Enable all individual size features.
+        size_features = [
+            "extract_area", "extract_perimeter", "extract_equivalent_diameter", "extract_major_axis_length",
+            "extract_minor_axis_length", "extract_bounding_box_width", "extract_bounding_box_height",
+            "extract_bounding_box_area", "extract_feret_diameter_max", "extract_feret_diameter_min"
+        ]
+        # Enable all individual neighborhood features.
+        neighborhood_features = [
+            "extract_nearest_neighbor_distance", "extract_neighborhood_density", "extract_boundary_proximity",
+            "extract_cluster_elongation", "extract_cluster_polarization", "extract_spatial_autocorrelation",
+            "extract_tissue_organization_index", "extract_local_clustering_coefficient"
+        ]
+        # Enable all individual texture features.
+        texture_features = [
+            "extract_intensity_mean", "extract_intensity_std", "extract_intensity_median",
+            "extract_intensity_skewness", "extract_intensity_kurtosis", "extract_texture_entropy",
+            "extract_gradient_magnitude_mean", "extract_gradient_magnitude_std", "extract_glcm_contrast",
+            "extract_glcm_dissimilarity", "extract_glcm_homogeneity", "extract_glcm_energy"
+        ]
+
+        # Set all individual features to True.
+        all_features = shape_features + size_features + neighborhood_features + texture_features
+        for feature in all_features:
+            if feature in settings:
+                settings[feature] = True
+
+        # Also enable legacy category flags for backward compatibility.
+        settings["shape_features"] = True
+        settings["size_features"] = True
+        settings["neighborhood_features"] = True
+        settings["texture_features"] = True
+
     logger.info(f"Loaded {len(settings)} configuration parameters")
-    
+
     return settings
 
 
@@ -325,13 +410,110 @@ def validate_config(config: Dict[str, Any]) -> bool:
         return False
 
 
+def get_enabled_features(config: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Get lists of enabled features by category from configuration.
+
+    Args:
+        config: Configuration dictionary.
+
+    Returns:
+        Dictionary with lists of enabled features by category.
+
+    This function analyzes the individual feature flags and returns organized
+    lists of which features are enabled for extraction.
+    """
+    enabled_features = {
+        'shape': [],
+        'size': [],
+        'neighborhood': [],
+        'texture': []
+    }
+
+    # Shape features.
+    shape_feature_map = {
+        'extract_circularity': 'circularity',
+        'extract_eccentricity': 'eccentricity',
+        'extract_solidity': 'solidity',
+        'extract_aspect_ratio': 'aspect_ratio',
+        'extract_compactness': 'compactness',
+        'extract_elongation': 'elongation',
+        'extract_roundness': 'roundness',
+        'extract_form_factor': 'form_factor',
+        'extract_convex_area_ratio': 'convex_area_ratio',
+        'extract_convexity': 'convexity',
+        'extract_fractal_dimension': 'fractal_dimension'
+    }
+
+    # Size features.
+    size_feature_map = {
+        'extract_area': 'area',
+        'extract_perimeter': 'perimeter',
+        'extract_equivalent_diameter': 'equivalent_diameter',
+        'extract_major_axis_length': 'major_axis_length',
+        'extract_minor_axis_length': 'minor_axis_length',
+        'extract_bounding_box_width': 'bounding_box_width',
+        'extract_bounding_box_height': 'bounding_box_height',
+        'extract_bounding_box_area': 'bounding_box_area',
+        'extract_feret_diameter_max': 'feret_diameter_max',
+        'extract_feret_diameter_min': 'feret_diameter_min'
+    }
+
+    # Neighborhood features.
+    neighborhood_feature_map = {
+        'extract_nearest_neighbor_distance': 'nearest_neighbor_distance',
+        'extract_neighborhood_density': 'neighborhood_density',
+        'extract_boundary_proximity': 'boundary_proximity',
+        'extract_cluster_elongation': 'cluster_elongation',
+        'extract_cluster_polarization': 'cluster_polarization',
+        'extract_spatial_autocorrelation': 'spatial_autocorrelation',
+        'extract_tissue_organization_index': 'tissue_organization_index',
+        'extract_local_clustering_coefficient': 'local_clustering_coefficient'
+    }
+
+    # Texture features.
+    texture_feature_map = {
+        'extract_intensity_mean': 'intensity_mean',
+        'extract_intensity_std': 'intensity_std',
+        'extract_intensity_median': 'intensity_median',
+        'extract_intensity_skewness': 'intensity_skewness',
+        'extract_intensity_kurtosis': 'intensity_kurtosis',
+        'extract_texture_entropy': 'texture_entropy',
+        'extract_gradient_magnitude_mean': 'gradient_magnitude_mean',
+        'extract_gradient_magnitude_std': 'gradient_magnitude_std',
+        'extract_glcm_contrast': 'glcm_contrast',
+        'extract_glcm_dissimilarity': 'glcm_dissimilarity',
+        'extract_glcm_homogeneity': 'glcm_homogeneity',
+        'extract_glcm_energy': 'glcm_energy'
+    }
+
+    # Check which features are enabled.
+    for config_key, feature_name in shape_feature_map.items():
+        if config.get(config_key, False):
+            enabled_features['shape'].append(feature_name)
+
+    for config_key, feature_name in size_feature_map.items():
+        if config.get(config_key, False):
+            enabled_features['size'].append(feature_name)
+
+    for config_key, feature_name in neighborhood_feature_map.items():
+        if config.get(config_key, False):
+            enabled_features['neighborhood'].append(feature_name)
+
+    for config_key, feature_name in texture_feature_map.items():
+        if config.get(config_key, False):
+            enabled_features['texture'].append(feature_name)
+
+    return enabled_features
+
+
 def get_default_config() -> Dict[str, Any]:
     """
     Get default configuration parameters for feature extraction and clustering.
-    
+
     Returns:
         Dictionary with default configuration parameters.
-        
+
     This function provides a complete set of default parameters that can be used
     when no configuration file is available or as a fallback for missing parameters.
     """

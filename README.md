@@ -26,6 +26,8 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 - **CLAHE Parameter Testing**: Systematic contrast enhancement optimization with 63 parameter combinations
 - **Quality Control**: Comprehensive visualization and validation tools
 - **Performance Optimization**: GPU acceleration and intelligent memory management
+- **Granular Feature Control**: Individual selection of 43 engineered features across 4 categories for optimal performance
+- **Adaptive Processing**: Dynamic batch sizing and resource allocation based on feature complexity
 - **Server Compatibility**: Designed for HPC clusters with limited permissions
 
 ## Table of Contents
@@ -239,6 +241,55 @@ The pipeline includes comprehensive morphological filtering to remove segmentati
 - Aspect Ratio: 0.50-3.20 (prevents extremely elongated artifacts)
 - Hole Fraction: 0.00-0.001 (minimal internal holes allowed)
 
+### Optimized Feature Extraction
+
+The pipeline includes a highly optimized feature extraction system with granular control over 43 individual features:
+
+#### Feature Categories
+
+1. **Shape Features (11 features)**:
+   - Basic: circularity, eccentricity, solidity, aspect_ratio, compactness, elongation, roundness, form_factor
+   - Advanced: convex_area_ratio, convexity, fractal_dimension
+
+2. **Size Features (10 features)**:
+   - Primary: area, perimeter, equivalent_diameter, major_axis_length, minor_axis_length
+   - Bounding box: width, height, area
+   - Feret diameters: maximum, minimum
+
+3. **Neighborhood Features (8 features)**:
+   - Spatial: nearest_neighbor_distance, neighborhood_density, boundary_proximity
+   - Organization: cluster_elongation, cluster_polarization, spatial_autocorrelation
+   - Indices: tissue_organization_index, local_clustering_coefficient
+
+4. **Texture Features (12 features)**:
+   - Basic statistics: intensity_mean, intensity_std, intensity_median, intensity_skewness, intensity_kurtosis
+   - Entropy: texture_entropy
+   - Gradient: gradient_magnitude_mean, gradient_magnitude_std
+   - GLCM: contrast, dissimilarity, homogeneity, energy
+
+#### Performance Optimizations
+
+- **Granular Selection**: Extract only the features you need for significant performance improvements
+- **Adaptive Batch Processing**: Automatically adjusts batch sizes based on feature complexity
+- **Computational Caching**: LRU caching for expensive operations like convex hull calculations
+- **GPU Acceleration**: CuPy integration for vectorized operations on large datasets
+- **Memory Management**: Intelligent memory allocation and garbage collection
+
+#### Configuration Example
+
+```ini
+# Enable all features (comprehensive analysis)
+extract_all_features = True
+
+# Or select individual features for optimal performance
+extract_all_features = False
+extract_area = True
+extract_circularity = True
+extract_intensity_mean = True
+extract_nearest_neighbor_distance = True
+# ... (43 individual feature flags available)
+```
+
 ## Configuration
 
 The pipeline is configured through `configs/nuclei_segmentation_config.ini`:
@@ -447,6 +498,67 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 conda env remove -n venv310_cellpose3
 mamba env create -f cellpose3_environment.yml
 ```
+
+## Nuclear Feature Clustering
+
+After extracting nuclear features, you can perform clustering analysis to identify distinct nuclear populations and phenotypes.
+
+### Quick Start - Simple Clustering
+
+For basic clustering with area and circularity features:
+
+```bash
+# 1. Extract simple features (fast, reliable)
+python code/engineered_feature_extraction/extract_simple_features.py \
+    --config configs/engineered_feature_extraction_config.ini
+
+# 2. Perform clustering analysis
+python code/engineered_feature_extraction/cluster_engineered_features.py \
+    --config configs/engineered_feature_extraction_config.ini
+```
+
+### Clustering Outputs
+
+The clustering analysis generates comprehensive results:
+
+1. **nuclear_clusters.csv** - Original features + cluster assignments
+2. **cluster_overlay.tif** - Visual overlay showing clusters on tissue image
+3. **pca_clusters.png** - PCA visualization of cluster separation
+4. **feature_importance.png** - Feature contribution to clustering
+5. **cluster_statistics.csv** - Statistical summary per cluster
+6. **kmeans_model.joblib** - Saved model for reproducibility
+
+### Column Name Compatibility
+
+The clustering script automatically handles different column naming conventions:
+- ✅ **'label'** column (from full feature extraction)
+- ✅ **'nucleus_id'** column (from simple feature extraction)
+- 🔄 Automatic renaming for pipeline consistency
+
+### Configuration Parameters
+
+Key clustering parameters in `engineered_feature_extraction_config.ini`:
+
+```ini
+# Clustering settings
+clustering_n_clusters = 8
+clustering_batch_size = 5000
+clustering_seed = 42
+save_clustering_model = true
+
+# Visualization settings
+overlay_alpha = 0.85
+overlay_tile_size = 1024
+enable_gpu = true
+```
+
+### Scientific Context
+
+Nuclear clustering reveals:
+- **Healthy nuclei**: Regular shape, moderate size
+- **Apoptotic nuclei**: Fragmented, irregular morphology
+- **Necrotic nuclei**: Swollen, loss of membrane integrity
+- **Proliferating nuclei**: Larger size, specific morphological features
 
 ### Getting Help
 
