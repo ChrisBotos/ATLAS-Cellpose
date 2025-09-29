@@ -65,7 +65,7 @@ The `extract_simple_features.py` script provides a fast, reliable alternative to
 
 ### Basic Command
 ```bash
-python code/engineered_feature_extraction/extract_simple_features.py \
+python code/engineered_feature_extraction/extract_engineered_features.py \
     --image path/to/dapi_image.tif \
     --mask path/to/segmentation_mask.npy \
     --output path/to/results.csv
@@ -73,7 +73,7 @@ python code/engineered_feature_extraction/extract_simple_features.py \
 
 ### Example with Your Data
 ```bash
-python code/engineered_feature_extraction/extract_simple_features.py \
+python code/engineered_feature_extraction/extract_engineered_features.py \
     --image results/example_cropped/preprocessed/first.tif \
     --mask results/example_cropped/masks/segmentation_masks.npy \
     --output results/example_cropped/simple_features.csv
@@ -115,7 +115,7 @@ The script generates a CSV file with 13 columns (nucleus_id + 12 features):
 python code/nuclei_segmentation/segment_nuclei.py --config configs/segmentation_config.ini
 
 # Then extract simple features
-python code/engineered_feature_extraction/extract_simple_features.py \
+python code/engineered_feature_extraction/extract_engineered_features.py \
     --image results/your_data/preprocessed/image.tif \
     --mask results/your_data/masks/segmentation_masks.npy \
     --output results/your_data/simple_features.csv
@@ -155,7 +155,7 @@ print(f"Potentially damaged nuclei: {len(damaged)} ({100*len(damaged)/len(df):.1
 
 ### Getting Help
 ```bash
-python code/engineered_feature_extraction/extract_simple_features.py --help
+python code/engineered_feature_extraction/extract_engineered_features.py --help
 ```
 
 ## When to Use Complex vs Simple Extraction

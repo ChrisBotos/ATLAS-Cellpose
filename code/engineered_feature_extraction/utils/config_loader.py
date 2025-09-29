@@ -142,209 +142,77 @@ def load_feature_extraction_config(config_path: Optional[Union[str, Path]] = Non
     else:
         logger.info(f"Config file not found at {config_path}, using defaults")
     
-    # Build comprehensive configuration dictionary with type conversion and defaults.
+    # Build simplified configuration dictionary with only used parameters.
     settings = {
         # ─── General Settings ─────────────────────────────────────────────────
         "enable_feature_extraction": config.getboolean("general", "enable_feature_extraction", fallback=True),
         "enable_clustering": config.getboolean("general", "enable_clustering", fallback=True),
         "enable_visualizations": config.getboolean("general", "enable_visualizations", fallback=True),
-        
-        # ─── Master Feature Control ──────────────────────────────────────────
-        "extract_all_features": config.getboolean("feature_extraction", "extract_all_features", fallback=False),
 
-        # ─── Legacy Feature Category Parameters (for backward compatibility) ──
-        "shape_features": config.getboolean("feature_extraction", "shape_features", fallback=True),
-        "size_features": config.getboolean("feature_extraction", "size_features", fallback=True),
-        "neighborhood_features": config.getboolean("feature_extraction", "neighborhood_features", fallback=False),
-        "texture_features": config.getboolean("feature_extraction", "texture_features", fallback=True),
+        # ─── Feature Extraction Parameters ────────────────────────────────────
+        "neighborhood_radius": config.getfloat("feature_extraction", "neighborhood_radius", fallback=20.0),
+        "extract_texture_features": config.getboolean("feature_extraction", "extract_texture_features", fallback=False),
 
-        # ─── Individual Shape Feature Controls ────────────────────────────────
-        "extract_circularity": config.getboolean("feature_extraction", "extract_circularity", fallback=False),
-        "extract_eccentricity": config.getboolean("feature_extraction", "extract_eccentricity", fallback=False),
-        "extract_solidity": config.getboolean("feature_extraction", "extract_solidity", fallback=False),
-        "extract_aspect_ratio": config.getboolean("feature_extraction", "extract_aspect_ratio", fallback=False),
-        "extract_compactness": config.getboolean("feature_extraction", "extract_compactness", fallback=False),
-        "extract_elongation": config.getboolean("feature_extraction", "extract_elongation", fallback=False),
-        "extract_roundness": config.getboolean("feature_extraction", "extract_roundness", fallback=False),
-        "extract_form_factor": config.getboolean("feature_extraction", "extract_form_factor", fallback=False),
-        "extract_convex_area_ratio": config.getboolean("feature_extraction", "extract_convex_area_ratio", fallback=False),
-        "extract_convexity": config.getboolean("feature_extraction", "extract_convexity", fallback=False),
-        "extract_fractal_dimension": config.getboolean("feature_extraction", "extract_fractal_dimension", fallback=False),
+        # ─── Input/Output Paths ───────────────────────────────────────────────
+        "extraction_image_path": config.get("feature_extraction", "extraction_image_path", fallback=""),
+        "extraction_mask_path": config.get("feature_extraction", "extraction_mask_path", fallback=""),
+        "extraction_output_dir": config.get("feature_extraction", "extraction_output_dir", fallback="results/simple_features"),
 
-        # ─── Individual Size Feature Controls ─────────────────────────────────
-        "extract_area": config.getboolean("feature_extraction", "extract_area", fallback=True),
-        "extract_perimeter": config.getboolean("feature_extraction", "extract_perimeter", fallback=True),
-        "extract_equivalent_diameter": config.getboolean("feature_extraction", "extract_equivalent_diameter", fallback=True),
-        "extract_major_axis_length": config.getboolean("feature_extraction", "extract_major_axis_length", fallback=True),
-        "extract_minor_axis_length": config.getboolean("feature_extraction", "extract_minor_axis_length", fallback=True),
-        "extract_bounding_box_width": config.getboolean("feature_extraction", "extract_bounding_box_width", fallback=True),
-        "extract_bounding_box_height": config.getboolean("feature_extraction", "extract_bounding_box_height", fallback=True),
-        "extract_bounding_box_area": config.getboolean("feature_extraction", "extract_bounding_box_area", fallback=True),
-        "extract_feret_diameter_max": config.getboolean("feature_extraction", "extract_feret_diameter_max", fallback=True),
-        "extract_feret_diameter_min": config.getboolean("feature_extraction", "extract_feret_diameter_min", fallback=True),
-
-        # ─── Individual Neighborhood Feature Controls ────────────────────────
-        "extract_nearest_neighbor_distance": config.getboolean("feature_extraction", "extract_nearest_neighbor_distance", fallback=False),
-        "extract_neighborhood_density": config.getboolean("feature_extraction", "extract_neighborhood_density", fallback=False),
-        "extract_boundary_proximity": config.getboolean("feature_extraction", "extract_boundary_proximity", fallback=False),
-        "extract_cluster_elongation": config.getboolean("feature_extraction", "extract_cluster_elongation", fallback=False),
-        "extract_cluster_polarization": config.getboolean("feature_extraction", "extract_cluster_polarization", fallback=False),
-        "extract_spatial_autocorrelation": config.getboolean("feature_extraction", "extract_spatial_autocorrelation", fallback=False),
-        "extract_tissue_organization_index": config.getboolean("feature_extraction", "extract_tissue_organization_index", fallback=False),
-        "extract_local_clustering_coefficient": config.getboolean("feature_extraction", "extract_local_clustering_coefficient", fallback=False),
-
-        # ─── Individual Texture Feature Controls ─────────────────────────────
-        "extract_intensity_mean": config.getboolean("feature_extraction", "extract_intensity_mean", fallback=False),
-        "extract_intensity_std": config.getboolean("feature_extraction", "extract_intensity_std", fallback=False),
-        "extract_intensity_median": config.getboolean("feature_extraction", "extract_intensity_median", fallback=False),
-        "extract_intensity_skewness": config.getboolean("feature_extraction", "extract_intensity_skewness", fallback=False),
-        "extract_intensity_kurtosis": config.getboolean("feature_extraction", "extract_intensity_kurtosis", fallback=False),
-        "extract_texture_entropy": config.getboolean("feature_extraction", "extract_texture_entropy", fallback=False),
-        "extract_gradient_magnitude_mean": config.getboolean("feature_extraction", "extract_gradient_magnitude_mean", fallback=False),
-        "extract_gradient_magnitude_std": config.getboolean("feature_extraction", "extract_gradient_magnitude_std", fallback=False),
-        "extract_glcm_contrast": config.getboolean("feature_extraction", "extract_glcm_contrast", fallback=False),
-        "extract_glcm_dissimilarity": config.getboolean("feature_extraction", "extract_glcm_dissimilarity", fallback=False),
-        "extract_glcm_homogeneity": config.getboolean("feature_extraction", "extract_glcm_homogeneity", fallback=False),
-        "extract_glcm_energy": config.getboolean("feature_extraction", "extract_glcm_energy", fallback=False),
-
-        # ─── Advanced Feature Parameters ──────────────────────────────────────
-        "neighborhood_radius": config.getfloat("feature_extraction", "neighborhood_radius", fallback=50.0),
-        "feature_extraction_workers": config.getint("feature_extraction", "feature_extraction_workers", fallback=-1),
-        "min_nuclear_area": config.getfloat("feature_extraction", "min_nuclear_area", fallback=10.0),
-        "max_nuclear_area": config.getfloat("feature_extraction", "max_nuclear_area", fallback=2000.0),
-
-        # ─── Performance Optimization Parameters ──────────────────────────────
-        "enable_vectorized_neighborhood": config.getboolean("feature_extraction", "enable_vectorized_neighborhood", fallback=True),
-        "neighborhood_batch_size": config.getint("feature_extraction", "neighborhood_batch_size", fallback=1000),
-        "feature_extraction_batch_size": config.getint("feature_extraction", "feature_extraction_batch_size", fallback=500),
-        "enable_kdtree_caching": config.getboolean("feature_extraction", "enable_kdtree_caching", fallback=True),
-        "enable_gpu_acceleration": config.getboolean("feature_extraction", "enable_gpu_acceleration", fallback=True),
-        "use_thread_pool": config.getboolean("feature_extraction", "use_thread_pool", fallback=False),
-        
-        # ─── Feature Extraction Input/Output Paths ──────────────────────────
-        "extraction_image_path": config.get("clustering", "extraction_image_path", fallback=""),
-        "extraction_mask_path": config.get("clustering", "extraction_mask_path", fallback=""),
-        "extraction_output_dir": config.get("clustering", "extraction_output_dir", fallback=""),
-
-        # ─── Clustering Input File Paths ─────────────────────────────────────
+        # ─── Clustering Input/Output Paths ───────────────────────────────────
         "features_csv_path": config.get("clustering", "features_csv_path", fallback=""),
         "image_path": config.get("clustering", "image_path", fallback=""),
         "mask_path": config.get("clustering", "mask_path", fallback=""),
         "clustering_output_dir": config.get("clustering", "clustering_output_dir", fallback=""),
 
-        # ─── Clustering Parameters ───────────────────────────────────────────
-        "default_clusters": config.getint("clustering", "default_clusters", fallback=12),
-        "auto_k_method": config.get("clustering", "auto_k_method", fallback="silhouette"),
+        # ─── Clustering Algorithm Parameters ──────────────────────────────────
+        "default_clusters": config.getint("clustering", "default_clusters", fallback=8),
+        "auto_k_method": config.get("clustering", "auto_k_method", fallback="None"),
         "max_clusters_test": config.getint("clustering", "max_clusters_test", fallback=25),
-        "clustering_batch_size": config.getint("clustering", "clustering_batch_size", fallback=5000),
         "clustering_seed": config.getint("clustering", "clustering_seed", fallback=42),
-        
-        # ─── Clustering Visualization Parameters ─────────────────────────────
+        "clustering_batch_size": config.getint("clustering", "clustering_batch_size", fallback=5000),
+
+        # ─── Visualization Parameters ─────────────────────────────────────────
         "generate_cluster_overlay": config.getboolean("clustering", "generate_cluster_overlay", fallback=True),
         "generate_pca_plot": config.getboolean("clustering", "generate_pca_plot", fallback=True),
         "generate_feature_importance": config.getboolean("clustering", "generate_feature_importance", fallback=True),
+        "pca_sample_size": config.getint("clustering", "pca_sample_size", fallback=5000),
         "overlay_crop_region": get_tuple(config, "clustering", "overlay_crop_region", default=(0.1, 0.9, 0.1, 0.9), cast=float),
         "overlay_downsample_factor": config.getint("clustering", "overlay_downsample_factor", fallback=1),
-        
-        # ─── Color Palette Configuration ─────────────────────────────────────
+        "overlay_tile_size": config.getint("clustering", "overlay_tile_size", fallback=1024),
+        "overlay_workers": config.get("clustering", "overlay_workers", fallback="auto"),
+        "overlay_alpha": config.getfloat("clustering", "overlay_alpha", fallback=0.85),
+        "overlay_gpu": config.getboolean("clustering", "overlay_gpu", fallback=True),
+        "overlay_memory_limit_mb": config.getint("clustering", "overlay_memory_limit_mb", fallback=8192),
+
+        # ─── Color Configuration ──────────────────────────────────────────────
         "color_background": config.get("clustering", "color_background", fallback="dark"),
-        "color_alpha": config.getint("clustering", "color_alpha", fallback=200),
-        "color_saturation": config.getfloat("clustering", "color_saturation", fallback=0.95),
+        "color_alpha": config.getint("clustering", "color_alpha", fallback=250),
+        "color_saturation": config.getfloat("clustering", "color_saturation", fallback=0.98),
         "color_contrast_ratio": config.getfloat("clustering", "color_contrast_ratio", fallback=4.5),
         "color_hue_start": config.getfloat("clustering", "color_hue_start", fallback=0.0),
-        "custom_colors": get_list(config, "clustering", "custom_colors", default=[], cast=str),
-        
-        # ─── Output and Analysis Parameters ──────────────────────────────────
-        "clustering_output_subdir": config.get("clustering", "clustering_output_subdir", fallback="clustering_analysis"),
+        "custom_colors": get_list(config, "clustering", "custom_colors", default=["#FF0000", "#00FF00", "#0080FF", "#FF00FF", "#FF8C00"], cast=str),
+
+        # ─── Output Parameters ────────────────────────────────────────────────
         "save_cluster_statistics": config.getboolean("clustering", "save_cluster_statistics", fallback=True),
         "save_clustering_model": config.getboolean("clustering", "save_clustering_model", fallback=True),
-        "pca_sample_size": config.getint("clustering", "pca_sample_size", fallback=5000),
-        
-        # ─── Visualization Parameters ────────────────────────────────────────
-        "enable_violin_plots": config.getboolean("visualization", "enable_violin_plots", fallback=True),
-        "timepoint_color_coding": config.getboolean("visualization", "timepoint_color_coding", fallback=True),
-        "features_per_page": config.getint("visualization", "features_per_page", fallback=9),
-        "enable_statistical_testing": config.getboolean("visualization", "enable_statistical_testing", fallback=True),
-        "figure_dpi": config.getint("visualization", "figure_dpi", fallback=300),
-        "figure_format": config.get("visualization", "figure_format", fallback="png"),
-        "timepoint_colors": get_list(config, "visualization", "timepoint_colors", 
-                                   default=["#FF6B6B", "#4ECDC4", "#45B7D1"], cast=str),
-        "generate_correlation_heatmap": config.getboolean("visualization", "generate_correlation_heatmap", fallback=True),
-        "generate_cluster_validation": config.getboolean("visualization", "generate_cluster_validation", fallback=True),
-        
-        # ─── Advanced Analysis Parameters ────────────────────────────────────
-        "enable_advanced_dimensionality_reduction": config.getboolean("advanced", "enable_advanced_dimensionality_reduction", fallback=False),
-        "enable_hierarchical_clustering": config.getboolean("advanced", "enable_hierarchical_clustering", fallback=False),
-        "enable_outlier_detection": config.getboolean("advanced", "enable_outlier_detection", fallback=False),
-        "outlier_contamination": config.getfloat("advanced", "outlier_contamination", fallback=0.05),
-        "enable_feature_selection": config.getboolean("advanced", "enable_feature_selection", fallback=False),
-        "n_selected_features": config.getint("advanced", "n_selected_features", fallback=20),
-        "enable_cross_validation": config.getboolean("advanced", "enable_cross_validation", fallback=False),
-        "cv_folds": config.getint("advanced", "cv_folds", fallback=5),
-        
-        # ─── Performance and Memory Management ───────────────────────────────
-        "max_memory_gb": config.getfloat("performance", "max_memory_gb", fallback=8.0),
-        "enable_memory_monitoring": config.getboolean("performance", "enable_memory_monitoring", fallback=True),
-        "enable_parallel_processing": config.getboolean("performance", "enable_parallel_processing", fallback=True),
-        "temp_directory": config.get("performance", "temp_directory", fallback="temp"),
-        "log_level": config.get("performance", "log_level", fallback="INFO"),
     }
     
     # Validate critical parameters.
     if settings["default_clusters"] < 2:
         logger.warning("default_clusters must be >= 2, setting to 2")
         settings["default_clusters"] = 2
-    
+
     if settings["max_clusters_test"] < settings["default_clusters"]:
         logger.warning("max_clusters_test must be >= default_clusters, adjusting")
         settings["max_clusters_test"] = max(settings["default_clusters"], 25)
-    
-    if settings["clustering_batch_size"] < 100:
-        logger.warning("clustering_batch_size too small, setting to 1000")
-        settings["clustering_batch_size"] = 1000
-    
+
     if not (0.0 <= settings["color_saturation"] <= 1.0):
-        logger.warning("color_saturation must be 0.0-1.0, setting to 0.95")
-        settings["color_saturation"] = 0.95
-    
+        logger.warning("color_saturation must be 0.0-1.0, setting to 0.98")
+        settings["color_saturation"] = 0.98
+
     if not (0 <= settings["color_alpha"] <= 255):
-        logger.warning("color_alpha must be 0-255, setting to 200")
-        settings["color_alpha"] = 200
-
-    # Handle extract_all_features parameter.
-    if settings.get("extract_all_features", False):
-        logger.info("extract_all_features=True: Enabling all individual feature extractions")
-        # Enable all individual shape features.
-        shape_features = [
-            "extract_circularity", "extract_eccentricity", "extract_solidity", "extract_aspect_ratio",
-            "extract_compactness", "extract_elongation", "extract_roundness", "extract_form_factor",
-            "extract_convex_area_ratio", "extract_convexity", "extract_fractal_dimension"
-        ]
-        # Enable all individual size features.
-        size_features = [
-            "extract_area", "extract_perimeter", "extract_equivalent_diameter", "extract_major_axis_length",
-            "extract_minor_axis_length", "extract_bounding_box_width", "extract_bounding_box_height",
-            "extract_bounding_box_area", "extract_feret_diameter_max", "extract_feret_diameter_min"
-        ]
-        # Enable all individual neighborhood features.
-        neighborhood_features = [
-            "extract_nearest_neighbor_distance", "extract_neighborhood_density", "extract_boundary_proximity",
-            "extract_cluster_elongation", "extract_cluster_polarization", "extract_spatial_autocorrelation",
-            "extract_tissue_organization_index", "extract_local_clustering_coefficient"
-        ]
-        # Enable all individual texture features.
-        texture_features = [
-            "extract_intensity_mean", "extract_intensity_std", "extract_intensity_median",
-            "extract_intensity_skewness", "extract_intensity_kurtosis", "extract_texture_entropy",
-            "extract_gradient_magnitude_mean", "extract_gradient_magnitude_std", "extract_glcm_contrast",
-            "extract_glcm_dissimilarity", "extract_glcm_homogeneity", "extract_glcm_energy"
-        ]
-
-        # Set all individual features to True.
-        all_features = shape_features + size_features + neighborhood_features + texture_features
-        for feature in all_features:
-            if feature in settings:
-                settings[feature] = True
+        logger.warning("color_alpha must be 0-255, setting to 250")
+        settings["color_alpha"] = 250
 
         # Also enable legacy category flags for backward compatibility.
         settings["shape_features"] = True

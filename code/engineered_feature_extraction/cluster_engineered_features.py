@@ -186,7 +186,7 @@ def validate_config_parameters(config: Dict) -> None:
 
     missing_paths = []
     for param, description in required_paths.items():
-        if param not in config or not config[param]:
+        if param not in config or not config[param] or config[param].strip() == "":
             missing_paths.append(f"  • {param}: {description}")
 
     if missing_paths:
@@ -233,6 +233,14 @@ def get_file_paths_from_config(config: Dict) -> Tuple[Path, Path, Path]:
     that all required input files exist before starting the analysis.
     """
     console.print("[cyan]Extracting file paths from configuration...[/cyan]")
+
+    # Validate that paths are not empty before resolving.
+    if not config['features_csv_path']:
+        raise ValueError("features_csv_path is empty in configuration")
+    if not config['image_path']:
+        raise ValueError("image_path is empty in configuration")
+    if not config['mask_path']:
+        raise ValueError("mask_path is empty in configuration")
 
     # Extract paths from config and resolve them relative to current working directory.
     # The config paths are relative to the project root.

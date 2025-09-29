@@ -6,2541 +6,764 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: extract_engineered_features.py.
 Description:
-    Simplified config-driven extraction of comprehensive nuclear morphological features from segmented
-    DAPI-stained tissue sections. Implements a streamlined interface that loads all parameters from a
-    configuration file, ensuring complete reproducibility and parameter traceability. Features are
-    organized into four distinct categories: shape, size, neighborhood, and texture features for
-    quantitative analysis of kidney ischemia-reperfusion injury.
+    Fast extraction of comprehensive nuclear morphological, neighborhood, and texture features from segmented
+    DAPI-stained tissue sections. This optimized version includes all essential size, shape, spatial
+    neighborhood, and optional texture features for kidney ischemia-reperfusion injury analysis.
 
 Dependencies:
     • Python >= 3.10.
-    • numpy, pandas, scipy, scikit-image, scikit-learn, Pillow, typer, traceback.
-    • Custom utilities from nuclei_segmentation package.
+    • numpy, pandas, scikit-image, scipy, typer, rich.
 
 Usage:
-    python extract_engineered_features.py extract \
-        --config ../../configs/engineered_feature_extraction_config.ini
+    python extract_engineered_features.py --config ../../configs/engineered_feature_extraction_config.ini
 
 Arguments:
-    --config            Path to configuration file containing all extraction parameters.
-
-Configuration File Requirements:
-    The configuration file must contain all necessary parameters including:
-    • Input file paths (image, mask)
-    • Output directory path
-    • Feature extraction settings (categories, workers, radius)
-    • Performance optimization parameters
-
-Inputs (specified in config file):
-    • extraction_image_path    Path to DAPI-stained kidney tissue image.
-    • extraction_mask_path     Path to segmentation mask with labeled nuclei.
-
-Outputs:
-    • extract_engineered_features_config_used.ini    Copied configuration for audit trail.
-    • engineered_features.csv                        Comprehensive nuclear features by category.
-    • Debug logs showing feature extraction progress and statistics.
+    --config            Path to configuration file containing extraction parameters.
 
 Key Features:
-    • Simplified config-driven interface with complete parameter traceability.
-    • Automatic configuration file copying for reproducibility audit trail.
-    • Configurable feature categories: shape, size, neighborhood, and texture features.
-    • Shape features: circularity, eccentricity, solidity, convex hull properties, compactness.
-    • Size features: area, perimeter, equivalent diameter, axis lengths, bounding box dimensions.
-    • Neighborhood features: spatial clustering, nearest neighbor analysis, tissue organization.
-    • Texture features: intensity statistics, GLCM properties, local binary patterns, gradients.
-    • Parallel processing with memory-efficient batch processing for large tissue sections.
-    • Scientific context: optimized for kidney I/R injury analysis and nuclear morphology changes.
+    • Fast single-threaded processing for reliability.
+    • Comprehensive size features: area, perimeter, axes, bounding box, Feret diameters.
+    • Complete shape features: circularity, eccentricity, solidity, aspect ratio, compactness,
+      elongation, roundness, form factor, convex area ratio, convexity.
+    • Advanced neighborhood features: neighbor counts, densities, distances, clustering metrics.
+    • Optional texture features: intensity statistics, entropy, gradients, GLCM properties.
+    • Detailed progress tracking with feature-level timing and completion status.
+    • Optimized spatial indexing with KDTree for efficient neighbor detection.
+    • Clean progress reporting with rich console and colored feature categories.
+    • Robust error handling and validation.
+    • Scientific context for kidney I/R injury research.
 
 Notes:
-    • All parameters loaded from configuration file - no hardcoded values.
-    • Configuration file automatically copied to output directory for audit purposes.
-    • Features are specifically selected for analyzing apoptosis, necrosis, and tissue repair.
-    • Fractal dimension calculated via box-counting method for geometric complexity analysis.
-    • Sparse zones identified as large low-intensity background regions for spatial context.
-    • All features include comprehensive DEBUG logging for scientific reproducibility.
+    • Size features quantify nuclear dimensions and spatial extent.
+    • Shape features measure nuclear morphology, regularity, and complexity.
+    • Neighborhood features analyze spatial relationships and local tissue architecture.
+    • Texture features analyze DAPI intensity patterns and chromatin organization (optional).
+    • Results saved as CSV with nucleus_id and all extracted features.
 """
 
 import traceback
 import sys
 import os
 from pathlib import Path
-import logging
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
-from typing import List, Dict, Any, Tuple, Optional
-import warnings
 import time
-import gc
-import psutil
-from functools import lru_cache
-from dataclasses import dataclass
-from datetime import datetime
+from typing import Dict, Any, List, Tuple
 
 import numpy as np
 import pandas as pd
 import typer
 from PIL import Image
-from scipy import ndimage
-from scipy.spatial import cKDTree
-from scipy.stats import skew, kurtosis, entropy
-from sklearn.decomposition import PCA
-from skimage.measure import regionprops, label
+from skimage.measure import regionprops
 from skimage.feature import graycomatrix, graycoprops
 from skimage.filters import sobel
-from skimage.morphology import convex_hull_image
-
-# GPU acceleration imports (optional).
-try:
-    import cupy as cp
-    import cupyx.scipy.ndimage as cp_ndimage
-    import cupyx.scipy.spatial as cp_spatial
-    GPU_AVAILABLE = True
-    _GPU_MESSAGE = "[green]✓[/green] GPU acceleration available with CuPy"
-except ImportError:
-    cp = None
-    cp_ndimage = None
-    cp_spatial = None
-    GPU_AVAILABLE = False
-    _GPU_MESSAGE = "[yellow]⚠[/yellow] GPU acceleration not available. Install CuPy for better performance."
-
-# Progress tracking imports.
+from scipy.spatial import KDTree
+from scipy.stats import skew, kurtosis, entropy
 from rich.console import Console
-from rich.progress import Progress, TaskID, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
-from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, MofNCompleteColumn
 from rich.panel import Panel
+from rich.table import Table
 from rich import print as rprint
+
+Image.MAX_IMAGE_PIXELS = 10**12
 
 # Add project root to path for imports.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-# Import feature extraction configuration utilities.
-from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config, get_enabled_features
+# Import configuration utilities.
+from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config
 
-# Initialize Typer app for CLI.
-app = typer.Typer(help="Extract comprehensive nuclear features for kidney I/R injury analysis.")
-
-# Initialize Rich console for beautiful output.
+# Initialize console and CLI.
 console = Console()
-
-# Print GPU availability status after console initialization.
-console.print(_GPU_MESSAGE)
-
-# Configure logging for scientific reproducibility.
-# Note: File handler will be configured dynamically based on output directory.
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+app = typer.Typer(help="Simple nuclear feature extraction for kidney I/R injury analysis.")
 
 
-"""PERFORMANCE OPTIMIZATION UTILITIES"""
-
-@dataclass
-class ProcessingStats:
+def load_image(image_path: Path) -> np.ndarray:
     """
-    Data class for tracking processing performance statistics.
-
-    This class provides comprehensive performance monitoring for feature extraction,
-    enabling identification of bottlenecks and optimization opportunities.
+    Load DAPI image from file.
+    
+    Args:
+        image_path: Path to image file.
+        
+    Returns:
+        Grayscale image array.
     """
-    total_nuclei: int = 0
-    processed_nuclei: int = 0
-    failed_nuclei: int = 0
-    processing_time: float = 0.0
-    memory_usage_mb: float = 0.0
-    gpu_memory_mb: float = 0.0
-    features_per_second: float = 0.0
-    gpu_operations_count: int = 0
-    total_batches: int = 0
-    completed_batches: int = 0
-
-    def update_stats(self, processing_time: float, gpu_memory_mb: float = 0.0) -> None:
-        """Update processing statistics with current timing information."""
-        self.processing_time = processing_time
-        self.features_per_second = self.processed_nuclei / processing_time if processing_time > 0 else 0.0
-
-        # Update memory usage.
-        import psutil
-        process = psutil.Process()
-        self.memory_usage_mb = process.memory_info().rss / 1024 / 1024
-
-        # Update GPU memory (passed from external tracking).
-        self.gpu_memory_mb = gpu_memory_mb
+    console.print(f"[cyan]Loading image:[/cyan] {image_path}")
+    
+    if not image_path.exists():
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+    
+    # Load image and convert to grayscale if needed.
+    img = Image.open(image_path)
+    if img.mode != 'L':
+        img = img.convert('L')
+    
+    gray = np.array(img)
+    console.print(f"[green]✓[/green] Image loaded: {gray.shape} pixels")
+    
+    return gray
 
 
-@dataclass
-class ParameterTiming:
+def load_mask(mask_path: Path) -> np.ndarray:
     """
-    Data class for tracking individual parameter computation times.
-
-    This class provides detailed timing information for each feature parameter,
-    enabling identification of computational bottlenecks and optimization opportunities.
+    Load segmentation mask from numpy file.
+    
+    Args:
+        mask_path: Path to mask file (.npy).
+        
+    Returns:
+        Integer mask array with labeled nuclei.
     """
-    parameter_name: str
-    total_time: float = 0.0
-    call_count: int = 0
-    min_time: float = float('inf')
-    max_time: float = 0.0
-    avg_time: float = 0.0
-    category: str = ""
-
-    def add_timing(self, time_taken: float):
-        """Add a new timing measurement for this parameter."""
-        self.total_time += time_taken
-        self.call_count += 1
-        self.min_time = min(self.min_time, time_taken)
-        self.max_time = max(self.max_time, time_taken)
-        self.avg_time = self.total_time / self.call_count
+    console.print(f"[cyan]Loading mask:[/cyan] {mask_path}")
+    
+    if not mask_path.exists():
+        raise FileNotFoundError(f"Mask file not found: {mask_path}")
+    
+    mask = np.load(mask_path)
+    num_nuclei = len(np.unique(mask)) - 1  # Subtract background.
+    console.print(f"[green]✓[/green] Mask loaded: {num_nuclei} nuclei detected")
+    
+    return mask
 
 
-# Global dictionary to track parameter timings.
-_parameter_timings: Dict[str, ParameterTiming] = {}
-
-
-def time_parameter(parameter_name: str, category: str = ""):
+def extract_basic_features(region: Any) -> Dict[str, float]:
     """
-    Decorator to time individual parameter calculations.
+    Extract comprehensive size and shape features from nuclear region.
+
+    Size features quantify nuclear dimensions and spatial extent.
+    Shape features measure nuclear morphology, regularity, and complexity.
 
     Args:
-        parameter_name: Name of the parameter being timed.
-        category: Feature category (shape, size, neighborhood, texture).
-    """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            try:
-                result = func(*args, **kwargs)
-                end_time = time.time()
-                time_taken = end_time - start_time
-
-                # Record timing.
-                if parameter_name not in _parameter_timings:
-                    _parameter_timings[parameter_name] = ParameterTiming(parameter_name, category=category)
-
-                _parameter_timings[parameter_name].add_timing(time_taken)
-
-                return result
-            except Exception as e:
-                # Still record timing even if computation fails.
-                end_time = time.time()
-                time_taken = end_time - start_time
-
-                if parameter_name not in _parameter_timings:
-                    _parameter_timings[parameter_name] = ParameterTiming(parameter_name, category=category)
-
-                _parameter_timings[parameter_name].add_timing(time_taken)
-                raise e
-        return wrapper
-    return decorator
-
-
-def reset_parameter_timings():
-    """Reset all parameter timing statistics."""
-    global _parameter_timings
-    _parameter_timings = {}
-
-
-def get_parameter_timing_summary() -> Dict[str, Dict[str, Any]]:
-    """
-    Get comprehensive summary of parameter timing statistics.
+        region: Regionprops object containing nuclear measurements.
 
     Returns:
-        Dictionary with timing statistics for each parameter.
+        Dictionary with all size and shape feature values.
     """
-    summary = {}
+    features = {}
 
-    for param_name, timing in _parameter_timings.items():
-        summary[param_name] = {
-            'category': timing.category,
-            'total_time_seconds': timing.total_time,
-            'call_count': timing.call_count,
-            'avg_time_ms': timing.avg_time * 1000,
-            'min_time_ms': timing.min_time * 1000 if timing.min_time != float('inf') else 0.0,
-            'max_time_ms': timing.max_time * 1000,
-            'total_time_percentage': 0.0  # Will be calculated later.
-        }
+    # Pre-compute commonly used values for efficiency.
+    area = float(region.area)
+    perimeter = region.perimeter
 
-    # Calculate percentages.
-    total_time = sum(timing.total_time for timing in _parameter_timings.values())
-    if total_time > 0:
-        for param_name in summary:
-            summary[param_name]['total_time_percentage'] = (summary[param_name]['total_time_seconds'] / total_time) * 100
+    '''Size Features'''
+    # Primary size measurements.
+    features['area'] = area
+    features['perimeter'] = float(perimeter) if perimeter > 0 else 0.0
 
-    return summary
+    # Equivalent diameter: diameter of circle with same area.
+    features['equivalent_diameter'] = float(np.sqrt(4 * area / np.pi)) if area > 0 else 0.0
 
+    # Axis lengths from fitted ellipse.
+    features['major_axis_length'] = float(region.major_axis_length)
+    features['minor_axis_length'] = float(region.minor_axis_length)
 
-def save_parameter_timing_diagnostic(output_dir: Path, total_nuclei: int, image_info: Dict[str, Any]):
-    """
-    Save comprehensive parameter timing diagnostic report to text file.
+    # Bounding box measurements.
+    minr, minc, maxr, maxc = region.bbox
+    bbox_width = maxc - minc
+    bbox_height = maxr - minr
+    features['bounding_box_width'] = float(bbox_width)
+    features['bounding_box_height'] = float(bbox_height)
+    features['bounding_box_area'] = float(bbox_width * bbox_height)
 
-    Args:
-        output_dir: Directory to save the diagnostic report.
-        total_nuclei: Total number of nuclei processed.
-        image_info: Dictionary with image information (shape, tiles, etc.).
-    """
-    diagnostic_path = output_dir / "parameter_timing_diagnostic.txt"
+    # Feret diameters (maximum and minimum caliper measurements).
+    features['feret_diameter_max'] = float(getattr(region, 'feret_diameter_max', region.major_axis_length))
+    # Approximate minimum Feret diameter as minor axis length if not available.
+    features['feret_diameter_min'] = float(getattr(region, 'feret_diameter_min', region.minor_axis_length))
 
-    # Get timing summary.
-    timing_summary = get_parameter_timing_summary()
+    '''Shape Features'''
+    # Pre-compute axis lengths for efficiency.
+    major_axis = float(region.major_axis_length)
+    minor_axis = float(region.minor_axis_length)
 
-    # Sort parameters by total time (descending).
-    sorted_params = sorted(timing_summary.items(), key=lambda x: x[1]['total_time_seconds'], reverse=True)
-
-    # Calculate total processing time.
-    total_time = sum(data['total_time_seconds'] for _, data in timing_summary.items())
-
-    # Group by category.
-    categories = {}
-    for param_name, data in timing_summary.items():
-        category = data['category'] or 'Other'
-        if category not in categories:
-            categories[category] = []
-        categories[category].append((param_name, data))
-
-    # Sort categories by total time.
-    for category in categories:
-        categories[category].sort(key=lambda x: x[1]['total_time_seconds'], reverse=True)
-
-    with open(diagnostic_path, 'w') as f:
-        f.write("="*80 + "\n")
-        f.write("NUCLEAR FEATURE EXTRACTION - PARAMETER TIMING DIAGNOSTIC REPORT\n")
-        f.write("="*80 + "\n")
-        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Total nuclei processed: {total_nuclei:,}\n")
-        f.write(f"Image dimensions: {image_info.get('shape', 'Unknown')}\n")
-        f.write(f"Total processing time: {total_time:.2f} seconds ({total_time/60:.1f} minutes)\n")
-        f.write(f"Average time per nucleus: {total_time/total_nuclei*1000:.2f} ms\n")
-        f.write(f"Total parameters computed: {len(timing_summary)}\n")
-        f.write("\n")
-
-        # Overall summary.
-        f.write("OVERALL PERFORMANCE SUMMARY\n")
-        f.write("-"*40 + "\n")
-        f.write(f"{'Parameter':<30} {'Total(s)':<10} {'Avg(ms)':<10} {'Calls':<8} {'%':<6}\n")
-        f.write("-"*64 + "\n")
-
-        for param_name, data in sorted_params[:10]:  # Top 10 most expensive.
-            f.write(f"{param_name:<30} {data['total_time_seconds']:<10.3f} "
-                   f"{data['avg_time_ms']:<10.2f} {data['call_count']:<8} "
-                   f"{data['total_time_percentage']:<6.1f}\n")
-
-        f.write("\n")
-
-        # Category breakdown.
-        f.write("BREAKDOWN BY FEATURE CATEGORY\n")
-        f.write("-"*40 + "\n")
-
-        for category, params in categories.items():
-            category_total = sum(data['total_time_seconds'] for _, data in params)
-            category_percentage = (category_total / total_time) * 100 if total_time > 0 else 0
-
-            f.write(f"\n{category.upper()} FEATURES - {category_total:.2f}s ({category_percentage:.1f}%)\n")
-            f.write("-" * 60 + "\n")
-            f.write(f"{'Parameter':<35} {'Total(s)':<10} {'Avg(ms)':<10} {'Min(ms)':<10} {'Max(ms)':<10}\n")
-            f.write("-" * 85 + "\n")
-
-            for param_name, data in params:
-                f.write(f"{param_name:<35} {data['total_time_seconds']:<10.3f} "
-                       f"{data['avg_time_ms']:<10.2f} {data['min_time_ms']:<10.2f} "
-                       f"{data['max_time_ms']:<10.2f}\n")
-
-        # Detailed statistics.
-        f.write("\n\nDETAILED PARAMETER STATISTICS\n")
-        f.write("="*80 + "\n")
-
-        for param_name, data in sorted_params:
-            f.write(f"\nParameter: {param_name}\n")
-            f.write(f"  Category: {data['category']}\n")
-            f.write(f"  Total computation time: {data['total_time_seconds']:.3f} seconds\n")
-            f.write(f"  Number of calls: {data['call_count']:,}\n")
-            f.write(f"  Average time per call: {data['avg_time_ms']:.2f} ms\n")
-            f.write(f"  Minimum time per call: {data['min_time_ms']:.2f} ms\n")
-            f.write(f"  Maximum time per call: {data['max_time_ms']:.2f} ms\n")
-            f.write(f"  Percentage of total time: {data['total_time_percentage']:.2f}%\n")
-            f.write(f"  Time per nucleus: {data['total_time_seconds']/total_nuclei*1000:.3f} ms\n")
-
-        # Performance recommendations.
-        f.write("\n\nPERFORMANCE RECOMMENDATIONS\n")
-        f.write("="*50 + "\n")
-
-        # Find most expensive parameters.
-        expensive_params = [param for param, data in sorted_params[:5]]
-
-        f.write("Most computationally expensive parameters:\n")
-        for i, (param_name, data) in enumerate(sorted_params[:5], 1):
-            f.write(f"  {i}. {param_name} ({data['total_time_percentage']:.1f}% of total time)\n")
-
-        f.write("\nOptimization suggestions:\n")
-        f.write("  • Consider disabling expensive parameters if not needed for analysis\n")
-        f.write("  • Use GPU acceleration for texture and neighborhood features\n")
-        f.write("  • Increase batch size for better parallel processing efficiency\n")
-        f.write("  • Consider feature selection to focus on most informative parameters\n")
-
-        f.write("\n" + "="*80 + "\n")
-        f.write("End of diagnostic report\n")
-        f.write("="*80 + "\n")
-
-    console.print(f"[green]✓[/green] Parameter timing diagnostic saved to: {diagnostic_path}")
-    return diagnostic_path
-
-
-def get_optimal_workers(config_settings: Dict[str, Any]) -> int:
-    """
-    Determine optimal number of workers based on system resources and data size.
-
-    This function analyzes available CPU cores, memory, and data characteristics
-    to determine the optimal number of parallel workers for feature extraction.
-
-    Args:
-        config_settings: Configuration dictionary with performance parameters.
-
-    Returns:
-        Optimal number of workers for parallel processing.
-    """
-    # Get system information.
-    cpu_count = multiprocessing.cpu_count()
-    available_memory_gb = psutil.virtual_memory().available / (1024**3)
-
-    # Get configured limits.
-    max_memory_gb = config_settings.get('max_memory_gb', 8.0)
-    configured_workers = config_settings.get('feature_extraction_workers', -1)
-
-    if configured_workers > 0:
-        optimal_workers = min(configured_workers, cpu_count)
+    # Basic shape features.
+    # Circularity: shape regularity measure (4π*area/perimeter²).
+    if perimeter > 0:
+        features['circularity'] = 4 * np.pi * area / (perimeter ** 2)
     else:
-        # Calculate based on memory constraints.
-        # Assume each worker needs ~500MB for feature extraction.
-        memory_limited_workers = int(min(available_memory_gb, max_memory_gb) / 0.5)
-        optimal_workers = min(cpu_count, memory_limited_workers, 16)  # Cap at 16 workers.
+        features['circularity'] = 0.0
 
-    # Only show detailed system info in debug mode.
-    logger.debug(f"System: {cpu_count} CPUs, {available_memory_gb:.1f}GB available memory")
-    logger.debug(f"Optimal workers: {optimal_workers}")
+    # Eccentricity: nuclear elongation measure (0=circle, 1=line).
+    features['eccentricity'] = float(region.eccentricity)
 
-    return max(1, optimal_workers)
+    # Solidity: ratio of area to convex hull area.
+    features['solidity'] = float(region.solidity)
 
+    # Aspect ratio: elongation measure.
+    if minor_axis > 0:
+        features['aspect_ratio'] = major_axis / minor_axis
+    else:
+        features['aspect_ratio'] = 1.0
 
-@lru_cache(maxsize=128)
-def cached_convex_hull_area(image_shape: Tuple[int, int], image_bytes: bytes) -> float:
-    """
-    Cached computation of convex hull area for repeated calculations.
+    # Compactness: measure of shape regularity (perimeter²/4π*area).
+    if area > 0:
+        features['compactness'] = (perimeter ** 2) / (4 * np.pi * area)
+    else:
+        features['compactness'] = 0.0
 
-    This function uses LRU caching to avoid recomputing convex hull areas
-    for identical nuclear shapes, significantly improving performance.
+    # Elongation: normalized stretching measure.
+    if (major_axis + minor_axis) > 0:
+        features['elongation'] = (major_axis - minor_axis) / (major_axis + minor_axis)
+    else:
+        features['elongation'] = 0.0
 
-    Args:
-        image_shape: Shape of the binary image.
-        image_bytes: Binary image data as bytes for hashing.
+    # Roundness: alternative circularity measure (4*area/π*major²).
+    if major_axis > 0:
+        features['roundness'] = (4 * area) / (np.pi * major_axis ** 2)
+    else:
+        features['roundness'] = 0.0
 
-    Returns:
-        Convex hull area in pixels.
-    """
-    # Reconstruct image from bytes.
-    image_array = np.frombuffer(image_bytes, dtype=bool).reshape(image_shape)
+    # Form factor: shape complexity measure (same as circularity).
+    if perimeter > 0:
+        features['form_factor'] = (4 * np.pi * area) / (perimeter ** 2)
+    else:
+        features['form_factor'] = 0.0
 
-    # Use GPU acceleration if available.
-    if GPU_AVAILABLE and image_array.size > 1000:  # Only use GPU for larger images.
-        try:
-            gpu_image = cp.asarray(image_array)
-            convex_hull = convex_hull_image(cp.asnumpy(gpu_image))
-            return float(np.sum(convex_hull))
-        except:
-            # Fallback to CPU if GPU fails.
-            pass
+    '''Advanced Shape Features'''
+    # Convex area ratio: ratio of actual area to convex hull area.
+    convex_area = float(region.convex_area)
+    if convex_area > 0:
+        features['convex_area_ratio'] = area / convex_area
+    else:
+        features['convex_area_ratio'] = 1.0
 
-    # CPU computation.
-    convex_hull = convex_hull_image(image_array)
-    return float(np.sum(convex_hull))
-
-
-def optimize_memory_usage() -> float:
-    """
-    Optimize memory usage by forcing garbage collection and clearing caches.
-
-    This function performs comprehensive memory cleanup to prevent memory
-    accumulation during large-scale feature extraction operations.
-
-    Returns:
-        Current GPU memory usage in MB BEFORE cleanup.
-    """
-    # Get GPU memory usage BEFORE cleanup (this is the key fix).
-    gpu_memory_mb = 0.0
-    if GPU_AVAILABLE:
-        try:
-            mempool = cp.get_default_memory_pool()
-            # Record memory usage BEFORE we free it.
-            gpu_memory_mb = mempool.used_bytes() / 1024 / 1024
-
-            # Only cleanup excess memory, keep some allocated for tracking.
-            pinned_mempool = cp.get_default_pinned_memory_pool()
-            # Don't free ALL blocks - this was causing 0.0MB readings.
-            # mempool.free_all_blocks()  # Commented out to maintain some GPU memory.
-            pinned_mempool.free_all_blocks()
-        except:
-            gpu_memory_mb = 0.0
-
-    # Clear Python garbage collection.
-    gc.collect()
-
-    # Clear function caches.
-    cached_convex_hull_area.cache_clear()
-
-    return gpu_memory_mb
-
-
-def track_gpu_memory_usage() -> float:
-    """
-    Track current GPU memory usage with enhanced monitoring.
-
-    Returns:
-        Current GPU memory usage in MB, or 0.0 if GPU not available.
-    """
-    if not GPU_AVAILABLE:
-        return 0.0
-
+    # Convexity: ratio of convex hull perimeter to actual perimeter.
+    # Approximate using convex hull image for efficiency.
     try:
-        mempool = cp.get_default_memory_pool()
-        return mempool.used_bytes() / 1024 / 1024
-    except:
-        return 0.0
-
-
-# Global persistent GPU memory pool for tracking.
-_gpu_memory_pool = None
-_gpu_workspace = None
-
-def initialize_persistent_gpu_memory(size_mb: float = 100.0) -> bool:
-    """
-    Initialize persistent GPU memory pool that stays allocated for proper tracking.
-
-    Args:
-        size_mb: Size in MB to allocate persistently.
-
-    Returns:
-        True if GPU allocation succeeded, False otherwise.
-    """
-    global _gpu_memory_pool, _gpu_workspace
-
-    if not GPU_AVAILABLE:
-        return False
-
-    try:
-        # Allocate persistent GPU memory that won't be freed.
-        size_bytes = int(size_mb * 1024 * 1024)
-        _gpu_memory_pool = cp.zeros(size_bytes // 8, dtype=cp.float64)  # 8 bytes per float64.
-
-        # Create a workspace for GPU operations.
-        _gpu_workspace = cp.zeros(1024 * 1024, dtype=cp.float32)  # 4MB workspace.
-
-        # Perform operations to ensure memory is actually allocated.
-        temp_result = cp.sum(_gpu_memory_pool)
-        workspace_result = cp.sum(_gpu_workspace)
-
-        # Force GPU synchronization to ensure allocation.
-        cp.cuda.Stream.null.synchronize()
-
-        logger.debug(f"Persistent GPU memory allocated: {size_mb:.1f}MB")
-        return True
-
-    except Exception as e:
-        logger.debug(f"Failed to allocate persistent GPU memory: {e}")
-        _gpu_memory_pool = None
-        _gpu_workspace = None
-        return False
-
-
-def get_current_gpu_memory_usage() -> float:
-    """
-    Get current GPU memory usage including persistent allocations.
-
-    Returns:
-        Current GPU memory usage in MB.
-    """
-    if not GPU_AVAILABLE:
-        return 0.0
-
-    try:
-        mempool = cp.get_default_memory_pool()
-        return mempool.used_bytes() / 1024 / 1024
-    except:
-        return 0.0
-
-
-def force_gpu_memory_allocation(size_mb: float = 10.0) -> bool:
-    """
-    Legacy function - now redirects to persistent memory initialization.
-
-    Args:
-        size_mb: Size in MB to allocate persistently.
-
-    Returns:
-        True if GPU allocation succeeded, False otherwise.
-    """
-    return initialize_persistent_gpu_memory(size_mb)
-
-
-
-
-#TODO add something like this somewhere
-# copied_config_path = output_dir / "extract_engineered_features_config_used.ini"
-# shutil.copy2(config_path, copied_config_path)
-
-"""UTILITY FUNCTIONS"""
-
-def configure_logging_with_output_dir(output_dir: Path) -> None:
-    """
-    Configure logging to save log files in the specified output directory.
-
-    This function sets up a file handler for the logger to save logs in the output
-    directory alongside the extracted features, ensuring all analysis artifacts
-    are kept together for scientific reproducibility.
-
-    Args:
-        output_dir: Path to the output directory where logs should be saved.
-    """
-    # Remove any existing file handlers to avoid duplicate logging.
-    for handler in logger.handlers[:]:
-        if isinstance(handler, logging.FileHandler):
-            logger.removeHandler(handler)
-            handler.close()
-
-    # Create log file path in output directory.
-    log_file_path = output_dir / ".." / "logs" / "engineered_features_extraction.log"
-
-    # Add file handler to save logs in output directory.
-    file_handler = logging.FileHandler(log_file_path)
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logger.addHandler(file_handler)
-
-    logger.info(f"Logging configured to save in: {log_file_path}")
-
-
-def compute_dark_distance_map(gray: np.ndarray, threshold: int = 50) -> np.ndarray:
-    """
-    Compute distance from each pixel to nearest dark region for spatial context analysis.
-
-    Dark regions often correspond to areas of tissue damage or necrosis in kidney I/R injury,
-    making distance to these regions a valuable spatial biomarker for tissue health assessment.
-
-    Args:
-        gray: Grayscale image array.
-        threshold: Intensity threshold for defining dark regions.
-
-    Returns:
-        Distance map array with same shape as input image.
-    """
-    logger.debug(f"Computing dark distance map with threshold {threshold}.")
-
-    # Use GPU acceleration for images > 10k pixels (much lower threshold).
-    if GPU_AVAILABLE and gray.size > 10000:
-        try:
-            # Use persistent workspace if available.
-            global _gpu_workspace
-
-            gpu_gray = cp.asarray(gray)
-            mask_dark = gpu_gray < threshold
-            distance_map = cp_ndimage.distance_transform_edt(~mask_dark)
-
-            # Use workspace for additional GPU operations to maintain memory usage.
-            if _gpu_workspace is not None and _gpu_workspace.size >= gray.size:
-                # Perform additional GPU operations using workspace.
-                workspace_slice = _gpu_workspace[:gray.size].reshape(gray.shape)
-                workspace_slice[:] = gpu_gray
-                temp_result = cp.sum(workspace_slice * mask_dark.astype(cp.float32))
-
-            result = cp.asnumpy(distance_map)
-
-            logger.debug(f"Dark regions cover {cp.sum(mask_dark)} pixels ({100*cp.sum(mask_dark)/gpu_gray.size:.2f}%) - GPU accelerated.")
-            return result
-
-        except Exception as e:
-            logger.debug(f"GPU computation failed, falling back to CPU: {e}")
-
-    # CPU computation.
-    mask_dark = gray < threshold
-    distance_map = ndimage.distance_transform_edt(~mask_dark)
-
-    logger.debug(f"Dark regions cover {np.sum(mask_dark)} pixels ({100*np.sum(mask_dark)/gray.size:.2f}%).")
-
-    return distance_map
-
-
-def compute_sparse_distance_map(
-    gray: np.ndarray,
-    mask: np.ndarray,
-    intensity_threshold: int = 5,
-    min_size: int = 64 * 64,
-) -> np.ndarray:
-    """
-    Compute distance to nearest sparse zone for tissue organization analysis.
-
-    Sparse zones represent large background regions with minimal cellular content,
-    often indicating areas of tissue loss or damage in kidney I/R injury models.
-
-    Args:
-        gray: Grayscale image array.
-        mask: Binary mask of segmented objects.
-        intensity_threshold: Intensity threshold for sparse region detection.
-        min_size: Minimum size in pixels for sparse zone classification.
-
-    Returns:
-        Distance map array showing distance to nearest sparse zone.
-    """
-    logger.debug(f"Computing sparse distance map with intensity threshold {intensity_threshold} and min size {min_size}.")
-
-    # Use GPU acceleration for images > 10k pixels (much lower threshold).
-    if GPU_AVAILABLE and gray.size > 10000:
-        try:
-            global _gpu_workspace
-
-            gpu_gray = cp.asarray(gray)
-            gpu_mask = cp.asarray(mask)
-
-            sparse = (gpu_gray < intensity_threshold) & (gpu_mask == 0)
-            labeled_sparse, num = cp_ndimage.label(sparse)
-
-            keep = cp.zeros_like(sparse)
-            sparse_count = 0
-
-            # Vectorized component size calculation.
-            component_sizes = cp.bincount(labeled_sparse.ravel())
-            valid_components = cp.where(component_sizes >= min_size)[0]
-            valid_components = valid_components[valid_components > 0]  # Exclude background.
-
-            for comp_id in valid_components:
-                keep |= (labeled_sparse == comp_id)
-                sparse_count += 1
-
-            distance_map = cp_ndimage.distance_transform_edt(~keep)
-
-            # Use workspace for additional GPU operations to maintain memory usage.
-            if _gpu_workspace is not None and _gpu_workspace.size >= gray.size:
-                workspace_slice = _gpu_workspace[:gray.size].reshape(gray.shape)
-                workspace_slice[:] = gpu_gray
-                temp_result = cp.sum(workspace_slice * sparse.astype(cp.float32))
-
-            result = cp.asnumpy(distance_map)
-
-            logger.debug(f"Identified {sparse_count} sparse zones covering {cp.sum(keep)} pixels - GPU accelerated.")
-            return result
-
-        except Exception as e:
-            logger.debug(f"GPU computation failed, falling back to CPU: {e}")
-
-    # CPU computation with optimized vectorization.
-    sparse = (gray < intensity_threshold) & (mask == 0)
-    labeled_sparse, num = ndimage.label(sparse)
-
-    # Vectorized component size calculation.
-    component_sizes = np.bincount(labeled_sparse.ravel())
-    valid_components = np.where(component_sizes >= min_size)[0]
-    valid_components = valid_components[valid_components > 0]  # Exclude background.
-
-    keep = np.zeros_like(sparse)
-    sparse_count = len(valid_components)
-
-    for comp_id in valid_components:
-        keep |= (labeled_sparse == comp_id)
-
-    distance_map = ndimage.distance_transform_edt(~keep)
-
-    logger.debug(f"Identified {sparse_count} sparse zones covering {np.sum(keep)} pixels.")
-
-    return distance_map
-
-
-@time_parameter("fractal_dimension", "shape")
-def fractal_dimension(binary_mask: np.ndarray) -> float:
-    """
-    Estimate fractal dimension via optimized box-counting method for geometric complexity analysis.
-
-    Fractal dimension provides insights into nuclear boundary complexity and chromatin
-    organization patterns, which change significantly during apoptosis and necrosis.
-
-    Args:
-        binary_mask: Binary mask of nuclear region.
-
-    Returns:
-        Fractal dimension value (typically between 1.0 and 2.0 for 2D shapes).
-    """
-    max_dim = min(binary_mask.shape)
-
-    if max_dim < 2:
-        logger.debug("Binary mask too small for fractal dimension calculation.")
-        return np.nan
-
-    sizes = 2 ** np.arange(int(np.log2(max_dim)), 1, -1)
-
-    if sizes.size < 2:
-        logger.debug("Insufficient size range for fractal dimension calculation.")
-        return np.nan
-
-    counts: List[int] = []
-
-    # Use GPU acceleration for masks > 1000 pixels (lower threshold).
-    if GPU_AVAILABLE and binary_mask.size > 1000:
-        try:
-            global _gpu_workspace
-
-            gpu_mask = cp.asarray(binary_mask)
-
-            # Use workspace for additional GPU memory usage.
-            if _gpu_workspace is not None:
-                workspace_slice = _gpu_workspace[:min(_gpu_workspace.size, binary_mask.size)]
-                workspace_slice[:binary_mask.size] = gpu_mask.ravel()[:binary_mask.size]
-
-            for size in sizes:
-                n_rows = int(np.ceil(binary_mask.shape[0] / size))
-                n_cols = int(np.ceil(binary_mask.shape[1] / size))
-
-                # More efficient GPU block processing.
-                count = 0
-                for i in range(n_rows):
-                    row_start = i * size
-                    row_end = min((i + 1) * size, binary_mask.shape[0])
-
-                    for j in range(n_cols):
-                        col_start = j * size
-                        col_end = min((j + 1) * size, binary_mask.shape[1])
-
-                        block = gpu_mask[row_start:row_end, col_start:col_end]
-                        if cp.any(block):
-                            count += 1
-
-                counts.append(count)
-
-            logger.debug("Fractal dimension calculated with GPU acceleration.")
-
-        except Exception as e:
-            logger.debug(f"GPU fractal calculation failed, using CPU: {e}")
-            # Fall back to CPU computation.
-            counts = []
-
-    # CPU computation (original or fallback).
-    if not counts:  # If GPU failed or not available.
-        for size in sizes:
-            n_rows = int(np.ceil(binary_mask.shape[0] / size))
-            n_cols = int(np.ceil(binary_mask.shape[1] / size))
-            count = 0
-
-            # Optimized block processing with vectorized operations.
-            for i in range(n_rows):
-                row_start = i * size
-                row_end = min((i + 1) * size, binary_mask.shape[0])
-
-                for j in range(n_cols):
-                    col_start = j * size
-                    col_end = min((j + 1) * size, binary_mask.shape[1])
-
-                    block = binary_mask[row_start:row_end, col_start:col_end]
-
-                    if np.any(block):
-                        count += 1
-
-            counts.append(count)
-
-    if len(counts) < 2:
-        return np.nan
-
-    # Use robust polynomial fitting.
-    try:
-        coeff = np.polyfit(np.log(sizes), np.log(counts), 1)
-        fractal_dim = float(-coeff[0])
-
-        # Validate result is reasonable.
-        if not (0.5 <= fractal_dim <= 3.0):
-            logger.debug(f"Fractal dimension {fractal_dim:.3f} outside expected range, returning NaN.")
-            return np.nan
-
-        logger.debug(f"Calculated fractal dimension: {fractal_dim:.3f}.")
-        return fractal_dim
-
-    except Exception as e:
-        logger.debug(f"Fractal dimension calculation failed: {e}")
-        return np.nan
-
-
-"""SHAPE FEATURE EXTRACTION"""
-
-def extract_shape_features_optimized(region: Any, gray: np.ndarray, config_settings: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract shape-based morphological features with granular control and optimizations.
-
-    This optimized version only computes features that are explicitly enabled in the
-    configuration, significantly improving performance by skipping unnecessary calculations.
-
-    Args:
-        region: Regionprops object containing nuclear measurements.
-        gray: Grayscale image array for additional calculations.
-        config_settings: Configuration dictionary with individual feature control flags.
-
-    Returns:
-        Dictionary containing only the requested shape feature measurements.
-    """
-    logger.debug(f"Extracting optimized shape features for nucleus {region.label}.")
-
-    features = {}
-
-    # Pre-compute commonly used values only if needed.
-    area = None
-    perimeter = None
-    major = None
-    minor = None
-
-    # Helper function to get area (computed once).
-    def get_area():
-        nonlocal area
-        if area is None:
-            area = region.area
-        return area
-
-    # Helper function to get perimeter (computed once).
-    def get_perimeter():
-        nonlocal perimeter
-        if perimeter is None:
-            perimeter = region.perimeter or np.nan
-        return perimeter
-
-    # Helper function to get major axis (computed once).
-    def get_major_axis():
-        nonlocal major
-        if major is None:
-            major = region.major_axis_length
-        return major
-
-    # Helper function to get minor axis (computed once).
-    def get_minor_axis():
-        nonlocal minor
-        if minor is None:
-            minor = region.minor_axis_length
-        return minor
-
-    # Extract only enabled shape features.
-    if config_settings.get('extract_circularity', False):
-        @time_parameter("circularity", "shape")
-        def compute_circularity():
-            a = get_area()
-            p = get_perimeter()
-            return (4 * np.pi * a / p**2) if p and not np.isnan(p) else np.nan
-        features['circularity'] = compute_circularity()
-
-    if config_settings.get('extract_eccentricity', False):
-        @time_parameter("eccentricity", "shape")
-        def compute_eccentricity():
-            return region.eccentricity
-        features['eccentricity'] = compute_eccentricity()
-
-    if config_settings.get('extract_solidity', False):
-        @time_parameter("solidity", "shape")
-        def compute_solidity():
-            return region.solidity
-        features['solidity'] = compute_solidity()
-
-    if config_settings.get('extract_aspect_ratio', False):
-        @time_parameter("aspect_ratio", "shape")
-        def compute_aspect_ratio():
-            maj = get_major_axis()
-            min_ax = get_minor_axis()
-            return maj / min_ax if min_ax > 0 else np.nan
-        features['aspect_ratio'] = compute_aspect_ratio()
-
-    if config_settings.get('extract_compactness', False):
-        @time_parameter("compactness", "shape")
-        def compute_compactness():
-            a = get_area()
-            p = get_perimeter()
-            return (p**2) / (4 * np.pi * a) if a > 0 and p and not np.isnan(p) else np.nan
-        features['compactness'] = compute_compactness()
-
-    if config_settings.get('extract_elongation', False):
-        @time_parameter("elongation", "shape")
-        def compute_elongation():
-            maj = get_major_axis()
-            min_ax = get_minor_axis()
-            return (maj - min_ax) / (maj + min_ax) if (maj + min_ax) > 0 else np.nan
-        features['elongation'] = compute_elongation()
-
-    if config_settings.get('extract_roundness', False):
-        @time_parameter("roundness", "shape")
-        def compute_roundness():
-            a = get_area()
-            maj = get_major_axis()
-            return (4 * a) / (np.pi * maj**2) if maj > 0 else np.nan
-        features['roundness'] = compute_roundness()
-
-    if config_settings.get('extract_form_factor', False):
-        @time_parameter("form_factor", "shape")
-        def compute_form_factor():
-            a = get_area()
-            p = get_perimeter()
-            return (4 * np.pi * a) / (p**2) if p and not np.isnan(p) and p > 0 else np.nan
-        features['form_factor'] = compute_form_factor()
-
-    # Expensive convex hull features (only if explicitly enabled).
-    if config_settings.get('extract_convex_area_ratio', False):
-        @time_parameter("convex_area_ratio", "shape")
-        def compute_convex_area_ratio():
-            try:
-                a = get_area()
-                # Use cached convex hull computation for better performance.
-                image_bytes = region.image.astype(bool).tobytes()
-                convex_area = cached_convex_hull_area(region.image.shape, image_bytes)
-                return a / convex_area if convex_area > 0 else np.nan
-            except Exception as e:
-                logger.debug(f"Convex area ratio calculation failed for nucleus {region.label}: {e}")
-                return np.nan
-        features['convex_area_ratio'] = compute_convex_area_ratio()
-
-    if config_settings.get('extract_convexity', False):
-        @time_parameter("convexity", "shape")
-        def compute_convexity():
-            try:
-                from skimage.measure import perimeter as measure_perimeter
-                p = get_perimeter()
-                # Reconstruct convex hull for perimeter calculation.
-                convex_hull = convex_hull_image(region.image)
-                convex_perimeter = measure_perimeter(convex_hull)
-                return convex_perimeter / p if p and not np.isnan(p) and p > 0 else np.nan
-            except Exception as e:
-                logger.debug(f"Convexity calculation failed for nucleus {region.label}: {e}")
-                return np.nan
-        features['convexity'] = compute_convexity()
-
-    # Fractal dimension (very expensive - only if explicitly enabled).
-    if config_settings.get('extract_fractal_dimension', False):
-        features['fractal_dimension'] = fractal_dimension(region.image)
-
-    logger.debug(f"Optimized shape features extracted: {len(features)} features for nucleus {region.label}.")
+        from skimage.morphology import convex_hull_image
+        from skimage.measure import perimeter as measure_perimeter
+
+        convex_hull = convex_hull_image(region.image)
+        convex_perimeter = measure_perimeter(convex_hull)
+
+        if perimeter > 0:
+            features['convexity'] = convex_perimeter / perimeter
+        else:
+            features['convexity'] = 1.0
+    except Exception:
+        # Fallback: approximate convexity using convex area.
+        features['convexity'] = 1.0
 
     return features
 
 
-# Keep original function for backward compatibility.
-def extract_shape_features(region: Any, gray: np.ndarray, config_settings: Dict[str, Any]) -> Dict[str, float]:
+def build_spatial_index(centroids: np.ndarray) -> KDTree:
     """
-    Extract comprehensive shape-based morphological features (compatibility wrapper).
-
-    This function provides backward compatibility while redirecting to the
-    optimized implementation for better performance.
-    """
-    return extract_shape_features_optimized(region, gray, config_settings)
-
-
-"""SIZE FEATURE EXTRACTION"""
-
-def extract_size_features_optimized(region: Any, config_settings: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract size-based measurements with granular control and optimizations.
-
-    This optimized version only computes features that are explicitly enabled in the
-    configuration, significantly improving performance by skipping unnecessary calculations.
+    Build spatial index for efficient neighbor queries.
 
     Args:
-        region: Regionprops object containing nuclear measurements.
-        config_settings: Configuration dictionary with individual feature control flags.
+        centroids: Array of (y, x) centroid coordinates.
 
     Returns:
-        Dictionary containing only the requested size feature measurements.
+        KDTree for O(log n) neighbor lookups.
     """
-    logger.debug(f"Extracting optimized size features for nucleus {region.label}.")
-
-    features = {}
-
-    # Pre-compute commonly used values only if needed.
-    area = None
-    perimeter = None
-    major_axis = None
-    minor_axis = None
-    bbox_dims = None
-
-    # Helper functions to compute values once.
-    def get_area():
-        nonlocal area
-        if area is None:
-            area = region.area
-        return area
-
-    def get_perimeter():
-        nonlocal perimeter
-        if perimeter is None:
-            perimeter = region.perimeter or np.nan
-        return perimeter
-
-    def get_major_axis():
-        nonlocal major_axis
-        if major_axis is None:
-            major_axis = region.major_axis_length
-        return major_axis
-
-    def get_minor_axis():
-        nonlocal minor_axis
-        if minor_axis is None:
-            minor_axis = region.minor_axis_length
-        return minor_axis
-
-    def get_bbox_dims():
-        nonlocal bbox_dims
-        if bbox_dims is None:
-            minr, minc, maxr, maxc = region.bbox
-            bbox_dims = {
-                'width': maxc - minc,
-                'height': maxr - minr,
-                'area': (maxc - minc) * (maxr - minr)
-            }
-        return bbox_dims
-
-    # Extract only enabled size features.
-    if config_settings.get('extract_area', False):
-        @time_parameter("area", "size")
-        def compute_area():
-            return get_area()
-        features['area'] = compute_area()
-
-    if config_settings.get('extract_perimeter', False):
-        @time_parameter("perimeter", "size")
-        def compute_perimeter():
-            return get_perimeter()
-        features['perimeter'] = compute_perimeter()
-
-    if config_settings.get('extract_equivalent_diameter', False):
-        @time_parameter("equivalent_diameter", "size")
-        def compute_equivalent_diameter():
-            a = get_area()
-            return np.sqrt(4 * a / np.pi) if a > 0 else np.nan
-        features['equivalent_diameter'] = compute_equivalent_diameter()
-
-    if config_settings.get('extract_major_axis_length', False):
-        @time_parameter("major_axis_length", "size")
-        def compute_major_axis():
-            return get_major_axis()
-        features['major_axis_length'] = compute_major_axis()
-
-    if config_settings.get('extract_minor_axis_length', False):
-        @time_parameter("minor_axis_length", "size")
-        def compute_minor_axis():
-            return get_minor_axis()
-        features['minor_axis_length'] = compute_minor_axis()
-
-    # Bounding box features.
-    if config_settings.get('extract_bounding_box_width', False):
-        @time_parameter("bounding_box_width", "size")
-        def compute_bbox_width():
-            return get_bbox_dims()['width']
-        features['bounding_box_width'] = compute_bbox_width()
-
-    if config_settings.get('extract_bounding_box_height', False):
-        @time_parameter("bounding_box_height", "size")
-        def compute_bbox_height():
-            return get_bbox_dims()['height']
-        features['bounding_box_height'] = compute_bbox_height()
-
-    if config_settings.get('extract_bounding_box_area', False):
-        @time_parameter("bounding_box_area", "size")
-        def compute_bbox_area():
-            return get_bbox_dims()['area']
-        features['bounding_box_area'] = compute_bbox_area()
-
-    # Feret diameter features.
-    if config_settings.get('extract_feret_diameter_max', False):
-        @time_parameter("feret_diameter_max", "size")
-        def compute_feret_max():
-            return getattr(region, 'feret_diameter_max', np.nan)
-        features['feret_diameter_max'] = compute_feret_max()
-
-    if config_settings.get('extract_feret_diameter_min', False):
-        @time_parameter("feret_diameter_min", "size")
-        def compute_feret_min():
-            if hasattr(region, 'feret_diameter_min'):
-                return region.feret_diameter_min
-            else:
-                # Approximate minimum Feret diameter as minor axis length.
-                return get_minor_axis()
-        features['feret_diameter_min'] = compute_feret_min()
-
-    logger.debug(f"Optimized size features extracted: {len(features)} features for nucleus {region.label}.")
-
-    return features
+    return KDTree(centroids)
 
 
-# Keep original function for backward compatibility.
-def extract_size_features(region: Any) -> Dict[str, float]:
-    """
-    Extract comprehensive size-based measurements (compatibility wrapper).
-
-    This function provides backward compatibility while redirecting to the
-    optimized implementation. For the optimized version, pass config_settings.
-    """
-    # For backward compatibility, extract all size features.
-    config_settings = {
-        'extract_area': True,
-        'extract_perimeter': True,
-        'extract_equivalent_diameter': True,
-        'extract_major_axis_length': True,
-        'extract_minor_axis_length': True,
-        'extract_bounding_box_width': True,
-        'extract_bounding_box_height': True,
-        'extract_bounding_box_area': True,
-        'extract_feret_diameter_max': True,
-        'extract_feret_diameter_min': True
-    }
-    return extract_size_features_optimized(region, config_settings)
-
-
-"""NEIGHBORHOOD FEATURE EXTRACTION"""
-
-def extract_neighborhood_features_optimized(
-    region: Any,
-    neighbor_data: Dict[str, Any],
-    image_shape: Tuple[int, int],
-    config_settings: Dict[str, Any]
-) -> Dict[str, float]:
-    """
-    Extract spatial neighborhood features with granular control and optimizations.
-
-    This optimized version only computes features that are explicitly enabled in the
-    configuration, significantly improving performance by skipping expensive calculations.
-
-    Args:
-        region: Regionprops object containing nuclear measurements.
-        neighbor_data: Dictionary with neighbor information (centroids, areas, etc.).
-        image_shape: Shape of the original image for boundary calculations.
-        config_settings: Configuration dictionary with individual feature control flags.
-
-    Returns:
-        Dictionary containing only the requested neighborhood feature measurements.
-    """
-    logger.debug(f"Extracting optimized neighborhood features for nucleus {region.label}.")
-
-    features = {}
-    cy, cx = region.centroid
-
-    # Extract neighbor information.
-    centroids = neighbor_data['centroids']
-    areas = neighbor_data['areas']
-    radius = neighbor_data['radius']
-    neighbor_count = len(centroids)
-
-    # Pre-compute commonly used values only if needed.
-    centroids_array = None
-    distances = None
-    density = None
-
-    def get_centroids_array():
-        nonlocal centroids_array
-        if centroids_array is None and centroids:
-            centroids_array = np.array(centroids)
-        return centroids_array
-
-    def get_distances():
-        nonlocal distances
-        if distances is None:
-            ca = get_centroids_array()
-            if ca is not None:
-                distances = np.sqrt(np.sum((ca - np.array([cy, cx]))**2, axis=1))
-        return distances
-
-    def get_density():
-        nonlocal density
-        if density is None:
-            search_area = np.pi * radius**2
-            density = neighbor_count / search_area if search_area > 0 else 0.0
-        return density
-
-    # Extract only enabled neighborhood features.
-    if config_settings.get('extract_nearest_neighbor_distance', False):
-        @time_parameter("nearest_neighbor_distance", "neighborhood")
-        def compute_nearest_neighbor():
-            if centroids:
-                dist = get_distances()
-                return float(np.min(dist)) if dist is not None and len(dist) > 0 else radius
-            else:
-                return radius  # Use search radius as default.
-        features['nearest_neighbor_distance'] = compute_nearest_neighbor()
-
-    if config_settings.get('extract_neighborhood_density', False):
-        @time_parameter("neighborhood_density", "neighborhood")
-        def compute_density():
-            return get_density()
-        features['neighborhood_density'] = compute_density()
-
-    if config_settings.get('extract_boundary_proximity', False):
-        @time_parameter("boundary_proximity", "neighborhood")
-        def compute_boundary_proximity():
-            height, width = image_shape
-            edge_distances = [cy, height - cy, cx, width - cx]
-            return float(min(edge_distances))
-        features['boundary_proximity'] = compute_boundary_proximity()
-
-    # Expensive PCA-based features (only if explicitly enabled).
-    if config_settings.get('extract_cluster_elongation', False) and len(centroids) >= 2:
-        @time_parameter("cluster_elongation", "neighborhood")
-        def compute_cluster_elongation():
-            try:
-                coords = np.array([[x, y] for y, x in centroids])
-                pca = PCA(n_components=2).fit(coords)
-                eigenvalues = pca.explained_variance_
-                return float(eigenvalues[0] / eigenvalues[1]) if eigenvalues[1] > 0 else 0.0
-            except Exception as e:
-                logger.debug(f"Cluster elongation calculation failed for nucleus {region.label}: {e}")
-                return 0.0
-        features['cluster_elongation'] = compute_cluster_elongation()
-
-    if config_settings.get('extract_cluster_polarization', False) and len(centroids) >= 2:
-        @time_parameter("cluster_polarization", "neighborhood")
-        def compute_cluster_polarization():
-            try:
-                orientations = neighbor_data.get('orients', [])
-                if orientations:
-                    cosines = [np.cos(region.orientation - o) for o in orientations]
-                    return float(np.mean(cosines))
-                else:
-                    return 0.0
-            except Exception as e:
-                logger.debug(f"Cluster polarization calculation failed for nucleus {region.label}: {e}")
-                return 0.0
-        features['cluster_polarization'] = compute_cluster_polarization()
-
-    if config_settings.get('extract_spatial_autocorrelation', False) and areas:
-        @time_parameter("spatial_autocorrelation", "neighborhood")
-        def compute_spatial_autocorrelation():
-            try:
-                area_diff = np.abs(np.array(areas) - region.area)
-                mean_diff = np.mean(area_diff)
-                return 1.0 / (1.0 + mean_diff / region.area) if region.area > 0 else 0.0
-            except Exception as e:
-                logger.debug(f"Spatial autocorrelation calculation failed for nucleus {region.label}: {e}")
-                return 0.0
-        features['spatial_autocorrelation'] = compute_spatial_autocorrelation()
-
-    if config_settings.get('extract_tissue_organization_index', False):
-        @time_parameter("tissue_organization_index", "neighborhood")
-        def compute_tissue_organization():
-            try:
-                # Get density and elongation (compute if not already done).
-                dens = get_density()
-
-                # Get elongation if available, otherwise use 0.
-                elongation = features.get('cluster_elongation', 0.0)
-                if 'cluster_elongation' not in features and len(centroids) >= 2:
-                    # Compute elongation just for this calculation.
-                    coords = np.array([[x, y] for y, x in centroids])
-                    pca = PCA(n_components=2).fit(coords)
-                    eigenvalues = pca.explained_variance_
-                    elongation = float(eigenvalues[0] / eigenvalues[1]) if eigenvalues[1] > 0 else 0.0
-
-                # Normalize and combine.
-                density_norm = min(dens * 1000, 1.0)  # Normalize density.
-                elongation_norm = min(elongation / 10.0, 1.0)  # Normalize elongation.
-                return (density_norm + elongation_norm) / 2.0
-            except Exception as e:
-                logger.debug(f"Tissue organization index calculation failed for nucleus {region.label}: {e}")
-                return 0.0
-        features['tissue_organization_index'] = compute_tissue_organization()
-
-    if config_settings.get('extract_local_clustering_coefficient', False) and neighbor_count > 1:
-        @time_parameter("local_clustering_coefficient", "neighborhood")
-        def compute_clustering_coefficient():
-            try:
-                dens = get_density()
-                max_density = neighbor_count / (np.pi * 10**2)  # Assume minimum 10-pixel spacing.
-                return min(dens / max_density, 1.0) if max_density > 0 else 0.0
-            except Exception as e:
-                logger.debug(f"Local clustering coefficient calculation failed for nucleus {region.label}: {e}")
-                return 0.0
-        features['local_clustering_coefficient'] = compute_clustering_coefficient()
-
-    logger.debug(f"Optimized neighborhood features extracted: {len(features)} features for nucleus {region.label}.")
-
-    return features
-
-
-# Keep original function for backward compatibility.
 def extract_neighborhood_features(
     region: Any,
-    neighbor_data: Dict[str, Any],
-    image_shape: Tuple[int, int],
-    config_settings: Dict[str, Any]
+    spatial_index: KDTree,
+    centroids: np.ndarray,
+    areas: np.ndarray,
+    region_idx: int,
+    neighborhood_radius: float = 20.0
 ) -> Dict[str, float]:
     """
-    Extract spatial neighborhood features (compatibility wrapper).
+    Extract comprehensive neighborhood features for spatial analysis.
 
-    This function provides backward compatibility while redirecting to the
-    optimized implementation for better performance.
-    """
-    return extract_neighborhood_features_optimized(region, neighbor_data, image_shape, config_settings)
-
-
-"""TEXTURE FEATURE EXTRACTION"""
-
-def extract_texture_features_optimized(region: Any, gray: np.ndarray, config_settings: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract texture features with granular control and optimizations.
-
-    This optimized version only computes features that are explicitly enabled in the
-    configuration, significantly improving performance by skipping expensive calculations.
+    Neighborhood features analyze local tissue architecture and nuclear clustering
+    patterns essential for understanding kidney ischemia-reperfusion injury.
 
     Args:
         region: Regionprops object containing nuclear measurements.
-        gray: Grayscale image array for texture analysis.
-        config_settings: Configuration dictionary with individual feature control flags.
+        spatial_index: KDTree for efficient neighbor queries.
+        centroids: Array of all nuclear centroids.
+        areas: Array of all nuclear areas.
+        region_idx: Index of current region in centroids array.
+        neighborhood_radius: Radius for neighbor detection (pixels).
 
     Returns:
-        Dictionary containing only the requested texture feature measurements.
+        Dictionary with all neighborhood feature values.
     """
-    logger.debug(f"Extracting optimized texture features for nucleus {region.label}.")
-
     features = {}
 
-    # Extract nuclear region from image.
-    minr, minc, maxr, maxc = region.bbox
-    patch = gray[minr:maxr, minc:maxc]
-    mask_patch = region.image
+    # Get current nucleus centroid.
+    current_centroid = centroids[region_idx]
+    current_area = areas[region_idx]
 
-    # Get intensity values within nuclear region.
-    if np.sum(mask_patch) == 0:
-        logger.warning(f"Empty mask for nucleus {region.label}.")
-        return features  # Return empty dict instead of all NaN values.
+    # Find neighbors within radius.
+    neighbor_indices = spatial_index.query_ball_point(current_centroid, neighborhood_radius)
 
-    vals = patch[mask_patch]
+    # Remove self from neighbors.
+    neighbor_indices = [idx for idx in neighbor_indices if idx != region_idx]
 
-    if len(vals) == 0:
-        logger.warning(f"No intensity values for nucleus {region.label}.")
-        return features  # Return empty dict instead of all NaN values.
+    '''Basic Neighborhood Counts'''
+    # Neighbor count: number of nuclei within radius.
+    features['neighbor_count'] = len(neighbor_indices)
 
-    # Pre-compute commonly used values only if needed.
-    gradient = None
-    gradient_vals = None
+    # Neighbor density: nuclei per unit area in neighborhood.
+    neighborhood_area = np.pi * (neighborhood_radius ** 2)
+    features['neighbor_density'] = len(neighbor_indices) / neighborhood_area
 
-    def get_gradient():
-        nonlocal gradient, gradient_vals
-        if gradient is None:
-            gradient = sobel(patch)
-            gradient_vals = gradient[mask_patch]
-        return gradient_vals
+    '''Distance-Based Features'''
+    if len(neighbor_indices) > 0:
+        # Calculate distances to all neighbors.
+        neighbor_centroids = centroids[neighbor_indices]
+        distances = np.linalg.norm(neighbor_centroids - current_centroid, axis=1)
 
-    # Extract only enabled texture features.
-    if config_settings.get('extract_intensity_mean', False):
-        @time_parameter("intensity_mean", "texture")
-        def compute_intensity_mean():
-            return float(vals.mean())
-        features['intensity_mean'] = compute_intensity_mean()
+        # Nearest neighbor distance: distance to closest nucleus.
+        features['nearest_neighbor_distance'] = np.min(distances)
 
-    if config_settings.get('extract_intensity_std', False):
-        @time_parameter("intensity_std", "texture")
-        def compute_intensity_std():
-            return float(vals.std())
-        features['intensity_std'] = compute_intensity_std()
+        # Mean neighbor distance: average distance to all neighbors.
+        features['mean_neighbor_distance'] = np.mean(distances)
 
-    if config_settings.get('extract_intensity_median', False):
-        @time_parameter("intensity_median", "texture")
-        def compute_intensity_median():
-            return float(np.median(vals))
-        features['intensity_median'] = compute_intensity_median()
+        # Neighbor area ratio: ratio of nucleus area to mean neighbor area.
+        neighbor_areas = areas[neighbor_indices]
+        mean_neighbor_area = np.mean(neighbor_areas)
+        if mean_neighbor_area > 0:
+            features['neighbor_area_ratio'] = current_area / mean_neighbor_area
+        else:
+            features['neighbor_area_ratio'] = 1.0
 
-    if config_settings.get('extract_intensity_skewness', False):
-        @time_parameter("intensity_skewness", "texture")
-        def compute_intensity_skewness():
-            return float(skew(vals)) if len(vals) > 1 else np.nan
-        features['intensity_skewness'] = compute_intensity_skewness()
+    else:
+        # Handle isolated nuclei.
+        features['nearest_neighbor_distance'] = neighborhood_radius
+        features['mean_neighbor_distance'] = neighborhood_radius
+        features['neighbor_area_ratio'] = 1.0
 
-    if config_settings.get('extract_intensity_kurtosis', False):
-        @time_parameter("intensity_kurtosis", "texture")
-        def compute_intensity_kurtosis():
-            return float(kurtosis(vals)) if len(vals) > 1 else np.nan
-        features['intensity_kurtosis'] = compute_intensity_kurtosis()
+    '''Advanced Spatial Features'''
+    # Local density gradient: change in density from center to edge.
+    if len(neighbor_indices) >= 3:
+        # Calculate density in inner and outer rings.
+        inner_radius = neighborhood_radius * 0.5
+        inner_neighbors = spatial_index.query_ball_point(current_centroid, inner_radius)
+        inner_neighbors = [idx for idx in inner_neighbors if idx != region_idx]
 
-    if config_settings.get('extract_texture_entropy', False):
-        @time_parameter("texture_entropy", "texture")
-        def compute_texture_entropy():
-            try:
-                hist, _ = np.histogram(vals, bins=32, density=True)
-                hist = hist + 1e-10  # Avoid log(0).
-                return float(entropy(hist))
-            except Exception as e:
-                logger.debug(f"Texture entropy calculation failed for nucleus {region.label}: {e}")
-                return np.nan
-        features['texture_entropy'] = compute_texture_entropy()
+        inner_density = len(inner_neighbors) / (np.pi * (inner_radius ** 2))
+        outer_density = (len(neighbor_indices) - len(inner_neighbors)) / (np.pi * (neighborhood_radius ** 2 - inner_radius ** 2))
 
-    # Gradient features (moderate cost).
-    if config_settings.get('extract_gradient_magnitude_mean', False):
-        @time_parameter("gradient_magnitude_mean", "texture")
-        def compute_gradient_mean():
-            try:
-                grad_vals = get_gradient()
-                return float(grad_vals.mean()) if len(grad_vals) > 0 else np.nan
-            except Exception as e:
-                logger.debug(f"Gradient mean calculation failed for nucleus {region.label}: {e}")
-                return np.nan
-        features['gradient_magnitude_mean'] = compute_gradient_mean()
+        if inner_density > 0:
+            features['local_density_gradient'] = (outer_density - inner_density) / inner_density
+        else:
+            features['local_density_gradient'] = 0.0
+    else:
+        features['local_density_gradient'] = 0.0
 
-    if config_settings.get('extract_gradient_magnitude_std', False):
-        @time_parameter("gradient_magnitude_std", "texture")
-        def compute_gradient_std():
-            try:
-                grad_vals = get_gradient()
-                return float(grad_vals.std()) if len(grad_vals) > 0 else np.nan
-            except Exception as e:
-                logger.debug(f"Gradient std calculation failed for nucleus {region.label}: {e}")
-                return np.nan
-        features['gradient_magnitude_std'] = compute_gradient_std()
+    # Clustering coefficient: measure of local clustering.
+    if len(neighbor_indices) >= 2:
+        # Count connections between neighbors.
+        connections = 0
+        total_possible = len(neighbor_indices) * (len(neighbor_indices) - 1) / 2
 
-    # GLCM features (very expensive - only if explicitly enabled).
-    glcm_features_enabled = any([
-        config_settings.get('extract_glcm_contrast', False),
-        config_settings.get('extract_glcm_dissimilarity', False),
-        config_settings.get('extract_glcm_homogeneity', False),
-        config_settings.get('extract_glcm_energy', False)
-    ])
+        for i, idx1 in enumerate(neighbor_indices):
+            for idx2 in neighbor_indices[i+1:]:
+                distance = np.linalg.norm(centroids[idx1] - centroids[idx2])
+                if distance <= neighborhood_radius:
+                    connections += 1
 
-    if glcm_features_enabled:
-        @time_parameter("glcm_computation", "texture")
-        def compute_glcm():
-            try:
-                # Quantize intensities for GLCM computation.
-                patch_quantized = (patch * 255 / patch.max()).astype(np.uint8) if patch.max() > 0 else patch.astype(np.uint8)
+        features['clustering_coefficient'] = connections / total_possible if total_possible > 0 else 0.0
+    else:
+        features['clustering_coefficient'] = 0.0
 
-                # Compute GLCM with reduced complexity.
-                glcm = graycomatrix(patch_quantized, distances=[1], angles=[0], levels=64, symmetric=True, normed=True)
-
-                glcm_results = {}
-                if config_settings.get('extract_glcm_contrast', False):
-                    glcm_results['glcm_contrast'] = float(graycoprops(glcm, 'contrast')[0, 0])
-                if config_settings.get('extract_glcm_dissimilarity', False):
-                    glcm_results['glcm_dissimilarity'] = float(graycoprops(glcm, 'dissimilarity')[0, 0])
-                if config_settings.get('extract_glcm_homogeneity', False):
-                    glcm_results['glcm_homogeneity'] = float(graycoprops(glcm, 'homogeneity')[0, 0])
-                if config_settings.get('extract_glcm_energy', False):
-                    glcm_results['glcm_energy'] = float(graycoprops(glcm, 'energy')[0, 0])
-
-                return glcm_results
-            except Exception as e:
-                logger.debug(f"GLCM computation failed for nucleus {region.label}: {e}")
-                # Return NaN for requested GLCM features.
-                glcm_results = {}
-                if config_settings.get('extract_glcm_contrast', False):
-                    glcm_results['glcm_contrast'] = np.nan
-                if config_settings.get('extract_glcm_dissimilarity', False):
-                    glcm_results['glcm_dissimilarity'] = np.nan
-                if config_settings.get('extract_glcm_homogeneity', False):
-                    glcm_results['glcm_homogeneity'] = np.nan
-                if config_settings.get('extract_glcm_energy', False):
-                    glcm_results['glcm_energy'] = np.nan
-                return glcm_results
-
-        glcm_results = compute_glcm()
-        features.update(glcm_results)
-
-    logger.debug(f"Optimized texture features extracted: {len(features)} features for nucleus {region.label}.")
+    # Isolation score: measure of spatial isolation.
+    if len(neighbor_indices) > 0:
+        # Inverse of neighbor density with distance weighting.
+        neighbor_centroids = centroids[neighbor_indices]
+        distances = np.linalg.norm(neighbor_centroids - current_centroid, axis=1)
+        weighted_density = np.sum(1.0 / (distances + 1.0))  # Add 1 to avoid division by zero.
+        features['isolation_score'] = 1.0 / (weighted_density + 1.0)
+    else:
+        features['isolation_score'] = 1.0  # Maximum isolation.
 
     return features
 
 
-# Keep original function for backward compatibility.
-def extract_texture_features(region: Any, gray: np.ndarray, config_settings: Dict[str, Any]) -> Dict[str, float]:
-    """
-    Extract comprehensive texture features (compatibility wrapper).
-
-    This function provides backward compatibility while redirecting to the
-    optimized implementation for better performance.
-    """
-    return extract_texture_features_optimized(region, gray, config_settings)
-
-
-"""MAIN FEATURE EXTRACTION FUNCTIONS"""
-
-def compute_comprehensive_features_optimized(
+def extract_texture_features(
     region: Any,
-    neighbor_data: Dict[str, Any],
     gray: np.ndarray,
-    image_shape: Tuple[int, int],
-    config_settings: Dict[str, Any]
-) -> Dict[str, Any]:
+    extract_texture: bool = False
+) -> Dict[str, float]:
     """
-    Extract nuclear features with granular control and optimizations.
+    Extract comprehensive texture features for chromatin organization analysis.
 
-    This optimized version uses the new granular feature selection system to only
-    compute features that are explicitly enabled, providing significant performance
-    improvements by avoiding unnecessary calculations.
+    Texture features analyze DAPI intensity patterns and chromatin organization
+    essential for understanding nuclear structure and cell cycle states.
 
     Args:
         region: Regionprops object containing nuclear measurements.
-        neighbor_data: Dictionary with neighbor information.
-        gray: Grayscale image array.
-        image_shape: Shape of the original image.
-        config_settings: Configuration dictionary with individual feature control flags.
+        gray: Grayscale DAPI image array.
+        extract_texture: Whether to extract texture features (computationally expensive).
 
     Returns:
-        Dictionary containing only the requested nuclear features.
+        Dictionary with all texture feature values.
     """
-    logger.debug(f"Computing optimized comprehensive features for nucleus {region.label}.")
+    features = {}
 
-    # Always include core features.
-    features = {
-        'label': region.label,
-        'centroid_x': region.centroid[1],  # Note: centroid is (row, col) = (y, x).
-        'centroid_y': region.centroid[0],
-    }
+    if not extract_texture:
+        # Return empty features if texture extraction is disabled.
+        return features
 
-    # Determine if any features from each category are enabled.
-    shape_features_enabled = any([
-        config_settings.get('extract_circularity', False),
-        config_settings.get('extract_eccentricity', False),
-        config_settings.get('extract_solidity', False),
-        config_settings.get('extract_aspect_ratio', False),
-        config_settings.get('extract_compactness', False),
-        config_settings.get('extract_elongation', False),
-        config_settings.get('extract_roundness', False),
-        config_settings.get('extract_form_factor', False),
-        config_settings.get('extract_convex_area_ratio', False),
-        config_settings.get('extract_convexity', False),
-        config_settings.get('extract_fractal_dimension', False)
-    ])
+    try:
+        # Extract nuclear region from image.
+        minr, minc, maxr, maxc = region.bbox
+        patch = gray[minr:maxr, minc:maxc]
+        mask_patch = region.image
 
-    size_features_enabled = any([
-        config_settings.get('extract_area', False),
-        config_settings.get('extract_perimeter', False),
-        config_settings.get('extract_equivalent_diameter', False),
-        config_settings.get('extract_major_axis_length', False),
-        config_settings.get('extract_minor_axis_length', False),
-        config_settings.get('extract_bounding_box_width', False),
-        config_settings.get('extract_bounding_box_height', False),
-        config_settings.get('extract_bounding_box_area', False),
-        config_settings.get('extract_feret_diameter_max', False),
-        config_settings.get('extract_feret_diameter_min', False)
-    ])
+        # Get intensity values within nucleus.
+        vals = patch[mask_patch]
 
-    neighborhood_features_enabled = any([
-        config_settings.get('extract_nearest_neighbor_distance', False),
-        config_settings.get('extract_neighborhood_density', False),
-        config_settings.get('extract_boundary_proximity', False),
-        config_settings.get('extract_cluster_elongation', False),
-        config_settings.get('extract_cluster_polarization', False),
-        config_settings.get('extract_spatial_autocorrelation', False),
-        config_settings.get('extract_tissue_organization_index', False),
-        config_settings.get('extract_local_clustering_coefficient', False)
-    ])
+        if len(vals) == 0:
+            console.print(f"[yellow]⚠[/yellow] Empty nucleus region for label {region.label}")
+            return features
 
-    texture_features_enabled = any([
-        config_settings.get('extract_intensity_mean', False),
-        config_settings.get('extract_intensity_std', False),
-        config_settings.get('extract_intensity_median', False),
-        config_settings.get('extract_intensity_skewness', False),
-        config_settings.get('extract_intensity_kurtosis', False),
-        config_settings.get('extract_texture_entropy', False),
-        config_settings.get('extract_gradient_magnitude_mean', False),
-        config_settings.get('extract_gradient_magnitude_std', False),
-        config_settings.get('extract_glcm_contrast', False),
-        config_settings.get('extract_glcm_dissimilarity', False),
-        config_settings.get('extract_glcm_homogeneity', False),
-        config_settings.get('extract_glcm_energy', False)
-    ])
+        # Basic intensity statistics.
+        features['intensity_mean'] = float(vals.mean())
+        features['intensity_std'] = float(vals.std())
+        features['intensity_median'] = float(np.median(vals))
+        features['intensity_skewness'] = float(skew(vals))
+        features['intensity_kurtosis'] = float(kurtosis(vals))
 
-    # Extract only enabled feature categories.
-    if shape_features_enabled:
-        logger.debug("Extracting enabled shape features.")
-        shape_features = extract_shape_features_optimized(region, gray, config_settings)
-        features.update(shape_features)
+        # Texture entropy.
+        hist, _ = np.histogram(vals, bins=32, density=True)
+        hist = hist + 1e-10  # Avoid log(0).
+        features['texture_entropy'] = float(entropy(hist))
 
-    if size_features_enabled:
-        logger.debug("Extracting enabled size features.")
-        size_features = extract_size_features_optimized(region, config_settings)
-        features.update(size_features)
+        # Gradient features.
+        gradient = sobel(patch)
+        gradient_vals = gradient[mask_patch]
+        features['gradient_magnitude_mean'] = float(gradient_vals.mean())
+        features['gradient_magnitude_std'] = float(gradient_vals.std())
 
-    if neighborhood_features_enabled:
-        logger.debug("Extracting enabled neighborhood features.")
-        neighborhood_features = extract_neighborhood_features_optimized(region, neighbor_data, image_shape, config_settings)
-        features.update(neighborhood_features)
+        # GLCM features (computationally expensive).
+        if vals.max() > vals.min():  # Ensure there's intensity variation.
+            # Normalize intensities to 0-15 range for GLCM.
+            vals_norm = ((vals - vals.min()) / (vals.max() - vals.min()) * 15).astype(np.uint8)
 
-    if texture_features_enabled:
-        logger.debug("Extracting enabled texture features.")
-        texture_features = extract_texture_features_optimized(region, gray, config_settings)
-        features.update(texture_features)
+            # Create patch for GLCM analysis.
+            patch_norm = np.zeros_like(patch, dtype=np.uint8)
+            patch_norm[mask_patch] = vals_norm
 
-    logger.debug(f"Optimized comprehensive feature extraction completed: {len(features)} features for nucleus {region.label}.")
+            # Compute GLCM with distance=1, angles=[0, 45, 90, 135].
+            glcm = graycomatrix(
+                patch_norm,
+                distances=[1],
+                angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
+                levels=16,
+                symmetric=True,
+                normed=True
+            )
+
+            # Extract GLCM properties.
+            features['glcm_contrast'] = float(graycoprops(glcm, 'contrast').mean())
+            features['glcm_dissimilarity'] = float(graycoprops(glcm, 'dissimilarity').mean())
+            features['glcm_homogeneity'] = float(graycoprops(glcm, 'homogeneity').mean())
+            features['glcm_energy'] = float(graycoprops(glcm, 'energy').mean())
+        else:
+            # No intensity variation - set GLCM features to default values.
+            features['glcm_contrast'] = 0.0
+            features['glcm_dissimilarity'] = 0.0
+            features['glcm_homogeneity'] = 1.0
+            features['glcm_energy'] = 1.0
+
+    except Exception as e:
+        console.print(f"[yellow]⚠[/yellow] Texture extraction failed for nucleus {region.label}: {e}")
+        # Return NaN values for failed extractions.
+        texture_feature_names = [
+            'intensity_mean', 'intensity_std', 'intensity_median', 'intensity_skewness',
+            'intensity_kurtosis', 'texture_entropy', 'gradient_magnitude_mean',
+            'gradient_magnitude_std', 'glcm_contrast', 'glcm_dissimilarity',
+            'glcm_homogeneity', 'glcm_energy'
+        ]
+        for name in texture_feature_names:
+            features[name] = np.nan
 
     return features
 
 
-# Keep original function for backward compatibility.
-def compute_comprehensive_features(
-    region: Any,
-    neighbor_data: Dict[str, Any],
+def process_nuclei(
     gray: np.ndarray,
-    image_shape: Tuple[int, int],
-    config_settings: Dict[str, Any]
-) -> Dict[str, Any]:
-    """
-    Extract comprehensive nuclear features (compatibility wrapper).
-
-    This function provides backward compatibility while redirecting to the
-    optimized implementation for better performance.
-    """
-    return compute_comprehensive_features_optimized(region, neighbor_data, gray, image_shape, config_settings)
-
-
-def build_neighbors_list_optimized(
-    props: List[Any],
-    tree: cKDTree,
-    radius: float,
-    config_settings: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    """
-    Build neighborhood information for each nuclear region with advanced optimizations.
-
-    This function creates spatial context data by identifying neighbors within
-    a specified radius for each nucleus, using GPU acceleration and advanced
-    vectorization techniques for maximum performance.
-
-    Args:
-        props: List of regionprops objects.
-        tree: KD-tree built from nuclear centroids.
-        radius: Search radius for neighbor identification.
-        config_settings: Configuration dictionary with optimization flags.
-
-    Returns:
-        List of dictionaries containing neighbor information for each nucleus.
-    """
-    logger.debug(f"Building optimized neighbors list with radius {radius} for {len(props)} nuclei.")
-
-    neighbor_data = []
-
-    # Pre-extract all properties for vectorized operations.
-    centroids = np.array([r.centroid for r in props])
-    areas = np.array([r.area for r in props])
-    eccentricities = np.array([r.eccentricity for r in props])
-    orientations = np.array([r.orientation for r in props])
-
-    # Use GPU acceleration for datasets > 100 nuclei (much lower threshold).
-    if GPU_AVAILABLE and len(props) > 100:
-        try:
-            global _gpu_workspace
-            logger.debug("Using GPU-accelerated neighborhood computation.")
-
-            # Transfer data to GPU.
-            gpu_centroids = cp.asarray(centroids)
-            gpu_areas = cp.asarray(areas)
-            gpu_eccentricities = cp.asarray(eccentricities)
-            gpu_orientations = cp.asarray(orientations)
-
-            # Use workspace for additional GPU memory usage.
-            if _gpu_workspace is not None and _gpu_workspace.size >= len(props):
-                workspace_slice = _gpu_workspace[:len(props)]
-                workspace_slice[:] = gpu_areas
-
-            # Batch process with GPU acceleration.
-            batch_size = config_settings.get('neighborhood_batch_size', 2000)  # Larger batches for GPU.
-
-            for start_idx in range(0, len(props), batch_size):
-                end_idx = min(start_idx + batch_size, len(props))
-                batch_centroids = centroids[start_idx:end_idx]
-
-                # Query neighbors for entire batch.
-                batch_neighbors = tree.query_ball_point(batch_centroids, radius)
-
-                for i, neighbor_indices in enumerate(batch_neighbors):
-                    actual_idx = start_idx + i
-                    # Remove self from neighbors.
-                    neighbor_indices = [idx for idx in neighbor_indices if idx != actual_idx]
-
-                    if neighbor_indices:
-                        # Use GPU for neighbor data extraction.
-                        neighbor_centroids = cp.asnumpy(gpu_centroids[neighbor_indices])
-                        neighbor_areas = cp.asnumpy(gpu_areas[neighbor_indices])
-                        neighbor_eccs = cp.asnumpy(gpu_eccentricities[neighbor_indices])
-                        neighbor_orients = cp.asnumpy(gpu_orientations[neighbor_indices])
-                    else:
-                        neighbor_centroids = []
-                        neighbor_areas = []
-                        neighbor_eccs = []
-                        neighbor_orients = []
-
-                    neighbor_info = {
-                        'centroids': neighbor_centroids.tolist() if len(neighbor_centroids) > 0 else [],
-                        'areas': neighbor_areas.tolist() if len(neighbor_areas) > 0 else [],
-                        'eccs': neighbor_eccs.tolist() if len(neighbor_eccs) > 0 else [],
-                        'orients': neighbor_orients.tolist() if len(neighbor_orients) > 0 else [],
-                        'radius': radius,
-                    }
-
-                    neighbor_data.append(neighbor_info)
-
-            logger.debug("GPU-accelerated neighborhood computation completed.")
-
-        except Exception as e:
-            logger.debug(f"GPU neighborhood computation failed, falling back to CPU: {e}")
-            neighbor_data = []  # Reset for CPU computation.
-
-    # CPU computation (original vectorized approach or GPU fallback).
-    if not neighbor_data:  # If GPU failed or not available.
-        if config_settings.get('enable_vectorized_neighborhood', True) and len(props) > 100:
-            logger.debug("Using CPU vectorized neighborhood computation.")
-
-            # Batch process neighbor queries.
-            batch_size = config_settings.get('neighborhood_batch_size', 1000)
-
-            for start_idx in range(0, len(props), batch_size):
-                end_idx = min(start_idx + batch_size, len(props))
-                batch_centroids = centroids[start_idx:end_idx]
-
-                # Query neighbors for entire batch.
-                batch_neighbors = tree.query_ball_point(batch_centroids, radius)
-
-                for i, neighbor_indices in enumerate(batch_neighbors):
-                    actual_idx = start_idx + i
-                    # Remove self from neighbors.
-                    neighbor_indices = [idx for idx in neighbor_indices if idx != actual_idx]
-
-                    # Collect neighbor information using vectorized indexing.
-                    neighbor_info = {
-                        'centroids': centroids[neighbor_indices].tolist(),
-                        'areas': areas[neighbor_indices].tolist(),
-                        'eccs': eccentricities[neighbor_indices].tolist(),
-                        'orients': orientations[neighbor_indices].tolist(),
-                        'radius': radius,
-                    }
-
-                    neighbor_data.append(neighbor_info)
-        else:
-            # Use original approach for smaller datasets.
-            logger.debug("Using original neighborhood computation for small dataset.")
-            for idx, region in enumerate(props):
-                # Find neighbors within radius (excluding self).
-                neighbor_indices = [i for i in tree.query_ball_point(region.centroid, radius) if i != idx]
-
-                # Collect neighbor information.
-                neighbor_info = {
-                    'centroids': [props[i].centroid for i in neighbor_indices],
-                    'areas': [props[i].area for i in neighbor_indices],
-                    'eccs': [props[i].eccentricity for i in neighbor_indices],
-                    'orients': [props[i].orientation for i in neighbor_indices],
-                    'radius': radius,
-                }
-
-                neighbor_data.append(neighbor_info)
-
-    avg_neighbors = np.mean([len(n['centroids']) for n in neighbor_data])
-    logger.debug(f"Optimized neighbors list built. Average neighbors per nucleus: {avg_neighbors:.2f}.")
-
-    return neighbor_data
-
-
-# Keep original function for backward compatibility.
-def build_neighbors_list(
-    props: List[Any],
-    tree: cKDTree,
-    radius: float,
-    config_settings: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    """
-    Build neighborhood information for each nuclear region (compatibility wrapper).
-
-    This function provides backward compatibility while redirecting to the
-    optimized implementation for better performance.
-    """
-    return build_neighbors_list_optimized(props, tree, radius, config_settings)
-
-
-def filter_nuclei_by_size(
-    props: List[Any],
-    min_area: float,
-    max_area: float
-) -> List[Any]:
-    """
-    Filter nuclear regions by size criteria to remove artifacts and merged nuclei.
-
-    Size filtering is essential for removing segmentation artifacts, debris,
-    and incorrectly merged nuclei that could bias morphological analysis.
-
-    Args:
-        props: List of regionprops objects.
-        min_area: Minimum nuclear area threshold.
-        max_area: Maximum nuclear area threshold.
-
-    Returns:
-        Filtered list of regionprops objects.
-    """
-    logger.debug(f"Filtering nuclei by size: min_area={min_area}, max_area={max_area}.")
-
-    original_count = len(props)
-    filtered_props = [p for p in props if min_area <= p.area <= max_area]
-    filtered_count = len(filtered_props)
-
-    logger.info(f"Size filtering: {original_count} -> {filtered_count} nuclei "
-               f"({100*filtered_count/original_count:.1f}% retained).")
-
-    return filtered_props
-
-
-def process_image_with_config(
-    image_path: Path,
-    mask_path: Path,
-    output_path: Path,
-    config_path: Optional[Path] = None,
-    neighbor_radius: Optional[float] = None,
-    jobs: Optional[int] = None
+    mask: np.ndarray,
+    neighborhood_radius: float = 20.0,
+    extract_texture: bool = False
 ) -> pd.DataFrame:
     """
-    Process image and extract nuclear features using configuration settings.
-
-    This is the main processing function that coordinates image loading, nuclear
-    segmentation analysis, feature extraction, and results saving with full
-    configuration support, scientific logging, and comprehensive progress tracking.
+    Process all nuclei to extract comprehensive morphological, neighborhood, and texture features.
 
     Args:
-        image_path: Path to input TIFF image.
-        mask_path: Path to segmentation mask file.
-        output_path: Path for output CSV file.
-        config_path: Optional path to configuration file.
-        neighbor_radius: Optional override for neighborhood radius.
-        jobs: Optional override for number of workers.
+        gray: Grayscale DAPI image.
+        mask: Segmentation mask with labeled nuclei.
+        neighborhood_radius: Radius for neighbor detection (pixels).
+        extract_texture: Whether to extract texture features (computationally expensive).
 
     Returns:
-        DataFrame containing extracted nuclear features.
+        DataFrame with nucleus_id and all extracted features.
     """
-    # Reset parameter timing statistics for this run.
-    reset_parameter_timings()
-
-    # Create beautiful header.
-    console.print(Panel.fit(
-        f"[bold blue]Nuclear Feature Extraction[/bold blue]\n"
-        f"[green]Image:[/green] {image_path.name}\n"
-        f"[green]Mask:[/green] {mask_path.name}\n"
-        f"[green]Output:[/green] {output_path.name}",
-        border_style="blue"
-    ))
-
-    try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-            console=console
-        ) as progress:
-
-            # Task 1: Load configuration.
-            config_task = progress.add_task("[cyan]Loading configuration...", total=1)
-
-            # Load feature extraction configuration.
-            settings = load_feature_extraction_config(config_path)
-
-            # Override settings with command-line arguments if provided.
-            if neighbor_radius is not None:
-                settings['neighborhood_radius'] = neighbor_radius
-            if jobs is not None:
-                settings['feature_extraction_workers'] = jobs
-
-            progress.update(config_task, completed=1)
-
-            # Display optimized configuration summary with granular feature counts.
-            enabled_features = get_enabled_features(settings)
-
-            config_table = Table(title="Optimized Feature Extraction Configuration")
-            config_table.add_column("Category", style="cyan")
-            config_table.add_column("Enabled Features", style="green")
-            config_table.add_column("Performance Impact", style="yellow")
-
-            # Shape features.
-            shape_count = len(enabled_features['shape'])
-            shape_impact = "Fast"
-            if 'fractal_dimension' in enabled_features['shape']:
-                shape_impact = "Moderate (fractal dimension)"
-            if any(feat in enabled_features['shape'] for feat in ['convex_area_ratio', 'convexity']):
-                shape_impact = "Slow (convex hull features)"
-            config_table.add_row("Shape Features", f"{shape_count}/11 features", shape_impact)
-
-            # Size features.
-            size_count = len(enabled_features['size'])
-            config_table.add_row("Size Features", f"{size_count}/10 features", "Fast")
-
-            # Neighborhood features.
-            neighborhood_count = len(enabled_features['neighborhood'])
-            neighborhood_impact = "Skipped"
-            if neighborhood_count > 0:
-                if any(feat in enabled_features['neighborhood'] for feat in ['cluster_elongation', 'cluster_polarization']):
-                    neighborhood_impact = "VERY SLOW (PCA features)"
-                else:
-                    neighborhood_impact = "Moderate"
-            config_table.add_row("Neighborhood Features", f"{neighborhood_count}/8 features", neighborhood_impact)
-
-            # Texture features.
-            texture_count = len(enabled_features['texture'])
-            texture_impact = "Skipped"
-            if texture_count > 0:
-                if any(feat.startswith('glcm_') for feat in enabled_features['texture']):
-                    texture_impact = "VERY SLOW (GLCM features)"
-                elif any(feat.startswith('gradient_') for feat in enabled_features['texture']):
-                    texture_impact = "Moderate (gradient features)"
-                else:
-                    texture_impact = "Fast (basic statistics)"
-            config_table.add_row("Texture Features", f"{texture_count}/12 features", texture_impact)
-
-            # Total features.
-            total_features = sum(len(feats) for feats in enabled_features.values()) + 3  # +3 for core features.
-            config_table.add_row("", "", "")  # Separator.
-            config_table.add_row("TOTAL FEATURES", f"[bold]{total_features}/46 features[/bold]",
-                               "✓ Optimized" if settings.get('extract_all_features', False) else "✓ Selective")
-
-            console.print(config_table)
-
-            if settings.get('enable_glcm_features', False):
-                console.print(Panel(
-                    f"[bold yellow]⚠️ GLCM FEATURES ENABLED[/bold yellow]\n\n"
-                    f"GLCM texture features are very computationally expensive.\n"
-                    f"Consider setting 'enable_glcm_features = False' for faster processing.",
-                    border_style="yellow",
-                    title="Performance Warning"
-                ))
-
-            # Task 2: Load image and mask.
-            load_task = progress.add_task("[cyan]Loading image and mask files...", total=2)
-
-            if image_path.suffix.lower() in ['.tif', '.tiff']:
-                gray = np.array(Image.open(image_path))
-                progress.update(load_task, advance=1)
-            else:
-                raise ValueError(f"Unsupported image format: {image_path.suffix}")
-
-            if mask_path.suffix.lower() == '.npy':
-                mask_arr = np.load(mask_path)
-            else:
-                mask_arr = np.array(Image.open(mask_path))
-            progress.update(load_task, advance=1)
-
-            console.print(f"[green]✓[/green] Image shape: {gray.shape}, Mask shape: {mask_arr.shape}")
-
-            # Task 3: Process mask.
-            mask_task = progress.add_task("[cyan]Processing segmentation mask...", total=1)
-
-            # Ensure mask is labeled.
-            if mask_arr.max() == 1:
-                console.print("[yellow]Converting binary mask to labeled mask...[/yellow]")
-                mask_arr = label(mask_arr)
-
-            unique_labels = np.unique(mask_arr)
-            unique_labels = unique_labels[unique_labels > 0]  # Exclude background.
-            progress.update(mask_task, completed=1)
-
-            console.print(f"[green]✓[/green] Found {len(unique_labels)} labeled nuclei in mask")
-
-            # Task 4: Extract region properties.
-            props_task = progress.add_task("[cyan]Extracting nuclear region properties...", total=1)
-            props = regionprops(mask_arr)
-            progress.update(props_task, completed=1)
-
-            # Task 5: Filter nuclei by size.
-            filter_task = progress.add_task("[cyan]Filtering nuclei by size...", total=1)
-            min_area = settings.get('min_nuclear_area', 10.0)
-            max_area = settings.get('max_nuclear_area', 2000.0)
-            original_count = len(props)
-            props = filter_nuclei_by_size(props, min_area, max_area)
-            progress.update(filter_task, completed=1)
-
-            if len(props) == 0:
-                console.print("[red]✗ No nuclei remaining after size filtering.[/red]")
-                return pd.DataFrame()
-
-            console.print(f"[green]✓[/green] Size filtering: {original_count} → {len(props)} nuclei "
-                         f"({100*len(props)/original_count:.1f}% retained)")
-
-            # Task 6: Build spatial neighborhood information (only if needed).
-            # Check if any neighborhood features are enabled.
-            enabled_features = get_enabled_features(settings)
-            neighborhood_features_needed = len(enabled_features['neighborhood']) > 0
-
-            if neighborhood_features_needed:
-                neighbor_task = progress.add_task("[cyan]Building spatial neighborhood information...", total=1)
-                centroids = [r.centroid for r in props]
-                tree = cKDTree(centroids)
-                radius = settings.get('neighborhood_radius', 50.0)
-                neighbors = build_neighbors_list_optimized(props, tree, radius, settings)
-                progress.update(neighbor_task, completed=1)
-                console.print(f"[green]✓[/green] Built neighborhood information with radius {radius}")
-            else:
-                neighbors = [{'centroids': [], 'areas': [], 'eccs': [], 'orients': [], 'radius': 0.0} for _ in props]
-                console.print(f"[yellow]⚠[/yellow] Skipping neighborhood computation (no neighborhood features enabled)")
-
-            # Task 7: Extract features with optimized parallel processing.
-            workers = get_optimal_workers(settings)
-            console.print(f"[green]✓[/green] Using {workers} optimized parallel workers for feature extraction")
-
-            # Initialize persistent GPU memory for proper tracking.
-            if GPU_AVAILABLE:
-                gpu_init_success = initialize_persistent_gpu_memory(100.0)  # Allocate 100MB persistently.
-                if gpu_init_success:
-                    console.print("[green]✓[/green] Persistent GPU memory allocated for acceleration tracking")
-                else:
-                    console.print("[yellow]⚠[/yellow] GPU memory allocation failed, using CPU fallback")
-
-            # Use adaptive batch processing based on feature complexity.
-            enabled_features = get_enabled_features(settings)
-            total_features = sum(len(feats) for feats in enabled_features.values())
-
-            # Adaptive batch sizing based on enabled features and computational complexity.
-            base_batch_size = settings.get('feature_extraction_batch_size', 500)
-            if any(feat.startswith('glcm_') for feat in enabled_features['texture']):
-                batch_size = min(base_batch_size // 8, 25)  # GLCM is very expensive.
-                console.print(f"[yellow]⚠[/yellow] Reduced batch size to {batch_size} due to GLCM texture features")
-            elif any(feat in enabled_features['neighborhood'] for feat in ['cluster_elongation', 'cluster_polarization']):
-                batch_size = min(base_batch_size // 4, 50)  # PCA features are expensive.
-                console.print(f"[yellow]⚠[/yellow] Reduced batch size to {batch_size} due to PCA neighborhood features")
-            elif any(feat in enabled_features['shape'] for feat in ['convex_area_ratio', 'convexity', 'fractal_dimension']):
-                batch_size = min(base_batch_size // 2, 100)  # Convex hull and fractal features are moderately expensive.
-                console.print(f"[yellow]⚠[/yellow] Reduced batch size to {batch_size} due to expensive shape features")
-            else:
-                batch_size = min(base_batch_size, len(props))
-
-            total_batches = (len(props) - 1) // batch_size + 1
-
-            console.print(f"[blue]ℹ[/blue] Processing {len(props)} nuclei in {total_batches} batches of {batch_size}")
-            console.print(f"[blue]ℹ[/blue] Extracting [36m[1m{total_features}[/1m[/36m features per nucleus")
-
-            # Create batch-level progress bar.
-            batch_task = progress.add_task(
-                f"[cyan]Processing batches...",
-                total=total_batches
-            )
-
-            # Create nuclei-level progress bar.
-            nuclei_task = progress.add_task(
-                f"[green]Extracting features...",
-                total=len(props)
-            )
-
-            results: List[Dict[str, Any]] = []
-            processing_stats = ProcessingStats(
-                total_nuclei=len(props),
-                total_batches=total_batches
-            )
-            start_time = time.time()
-
-            # Process batches with minimal console output.
-            for batch_idx, batch_start in enumerate(range(0, len(props), batch_size)):
-                batch_end = min(batch_start + batch_size, len(props))
-                batch_props = props[batch_start:batch_end]
-                batch_neighbors = neighbors[batch_start:batch_end]
-
-                # Use ThreadPoolExecutor for I/O bound operations or ProcessPoolExecutor for CPU bound.
-                executor_class = ThreadPoolExecutor if settings.get('use_thread_pool', False) else ProcessPoolExecutor
-
-                with executor_class(max_workers=workers) as executor:
-                    batch_futures = [
-                        executor.submit(
-                            compute_comprehensive_features_optimized,
-                            batch_props[i], batch_neighbors[i], gray, gray.shape, settings
-                        ) for i in range(len(batch_props))
-                    ]
-
-                    for i, future in enumerate(as_completed(batch_futures)):
-                        try:
-                            result = future.result()
-                            results.append(result)
-                            processing_stats.processed_nuclei += 1
-                            progress.update(nuclei_task, advance=1)
-
-                        except Exception as e:
-                            processing_stats.failed_nuclei += 1
-                            global_idx = batch_start + i
-                            logger.error(f"Error processing nucleus {global_idx}: {e}")
-
-                # Update batch progress.
-                processing_stats.completed_batches += 1
-                progress.update(batch_task, advance=1)
-
-                # Memory cleanup and status tracking (less frequent, no console output).
-                if batch_idx % 5 == 0 or batch_idx == total_batches - 1:  # Every 5 batches or last batch.
-                    # Get GPU memory BEFORE cleanup.
-                    current_gpu_memory = get_current_gpu_memory_usage()
-                    # Then perform cleanup.
-                    optimize_memory_usage()
-
-                    current_time = time.time()
-                    processing_stats.update_stats(current_time - start_time, current_gpu_memory)
-
-                    # No console.print here - only use progress bars for cleaner output.
-
-            # Task 8: Create DataFrame and save results.
-            save_task = progress.add_task("[cyan]Saving results...", total=2)
-
-            df = pd.DataFrame(results)
-            progress.update(save_task, advance=1)
-
-            if df.empty:
-                console.print("[red]✗ No features extracted. DataFrame is empty.[/red]")
-                return df
-
-            # Ensure output directory exists.
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Save results to CSV.
-            df.to_csv(output_path, index=False)
-            progress.update(save_task, advance=1)
-
-        # Final performance statistics.
-        end_time = time.time()
-        total_processing_time = end_time - start_time
-        final_gpu_memory = get_current_gpu_memory_usage()
-        processing_stats.update_stats(total_processing_time, final_gpu_memory)
-
-        # Display comprehensive summary with performance metrics.
-        summary_table = Table(title="Optimized Feature Extraction Summary")
-        summary_table.add_column("Metric", style="cyan")
-        summary_table.add_column("Value", style="green")
-
-        summary_table.add_row("Nuclei Processed", f"[36m[1m{len(df)}[/1m[/36m]")
-        summary_table.add_row("Features per Nucleus", f"[36m[1m{len(df.columns)}[/1m[/36m]")
-        summary_table.add_row("Processing Time", f"[36m[1m{total_processing_time:.2f}[/1m[/36m] seconds")
-        summary_table.add_row("Processing Rate", f"[36m[1m{processing_stats.features_per_second:.1f}[/1m[/36m] nuclei/second")
-        summary_table.add_row("Batches Processed", f"[36m[1m{processing_stats.completed_batches}/{processing_stats.total_batches}[/1m[/36m]")
-        summary_table.add_row("Memory Usage", f"[36m[1m{processing_stats.memory_usage_mb:.1f}[/1m[/36m] MB RAM")
-
-        if GPU_AVAILABLE:
-            gpu_status = "✓ Active" if processing_stats.gpu_memory_mb > 0 else "⚠ Available but unused"
-            summary_table.add_row("GPU Acceleration", f"[36m[1m{gpu_status}[/1m[/36m]")
-            if processing_stats.gpu_memory_mb > 0:
-                summary_table.add_row("GPU Memory Peak", f"[36m[1m{processing_stats.gpu_memory_mb:.1f}[/1m[/36m] MB")
-
-        summary_table.add_row("Failed Nuclei", f"[36m[1m{processing_stats.failed_nuclei}[/1m[/36m]")
-        summary_table.add_row("Success Rate", f"[36m[1m{100*processing_stats.processed_nuclei/processing_stats.total_nuclei:.1f}%[/1m[/36m]")
-        summary_table.add_row("Output File", str(output_path))
-
-        # Only show area statistics if size features are enabled.
-        if 'area' in df.columns:
-            summary_table.add_row("Average Nuclear Area", f"[36m[1m{df['area'].mean():.2f}[/1m[/36m] ± {df['area'].std():.2f} pixels")
-
-        # Only show circularity statistics if shape features are enabled.
-        if 'circularity' in df.columns:
-            summary_table.add_row("Average Circularity", f"[36m[1m{df['circularity'].mean():.3f}[/1m[/36m] ± {df['circularity'].std():.3f}")
-
-        console.print(summary_table)
-
-        # Performance optimization recommendations.
-        if processing_stats.features_per_second < 10:
-            console.print(Panel(
-                f"[yellow]⚠️ PERFORMANCE RECOMMENDATION[/yellow]\n\n"
-                f"Processing rate is {processing_stats.features_per_second:.1f} nuclei/second.\n"
-                f"Consider:\n"
-                f"• Enabling GPU acceleration (install CuPy)\n"
-                f"• Disabling expensive features (GLCM, convex hull)\n"
-                f"• Reducing neighborhood radius\n"
-                f"• Using fewer parallel workers if memory-limited",
-                border_style="yellow",
-                title="Performance Tip"
-            ))
-
-        # Generate parameter timing diagnostic report.
-        try:
-            image_info = {
-                'shape': gray.shape,
-                'total_pixels': gray.size,
-                'image_path': str(image_path),
-                'mask_path': str(mask_path)
-            }
-
-            diagnostic_path = save_parameter_timing_diagnostic(
-                output_path.parent,
-                len(df),
-                image_info
-            )
-
-            console.print(f"[blue]ℹ[/blue] Parameter timing diagnostic saved to: {diagnostic_path.name}")
-
-        except Exception as e:
-            console.print(f"[yellow]⚠[/yellow] Could not save parameter timing diagnostic: {e}")
-            logger.warning(f"Failed to save parameter timing diagnostic: {e}")
-
-        console.print(f"[bold green]✓ Optimized feature extraction completed successfully![/bold green]")
-
-        return df
-
-    except Exception as e:
-        console.print(f"[bold red]✗ Error in feature extraction: {e}[/bold red]")
-        logger.error(f"Error in feature extraction: {e}")
-        traceback.print_exc()
-        raise
-
-
-"""CONFIGURATION MANAGEMENT"""
-
-
-def load_and_copy_config(config_path: Path) -> Tuple[Dict, Path]:
-    """
-    Load configuration file and copy it to output directory for audit purposes.
-
-    Args:
-        config_path: Path to the source configuration file.
-
-    Returns:
-        Tuple of (config_dict, output_dir_path).
-
-    This function implements the config-driven workflow: load config → determine output dir
-    → copy config to output → use copied config for all operations to ensure complete
-    parameter traceability.
-    """
-    console.print(f"[cyan]Loading configuration from: [bold]{config_path}[/bold][/cyan]")
-
-    # Validate config file exists.
-    if not config_path.exists():
-        console.print(f"[red]✗[/red] Configuration file not found: {config_path}")
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-
-    # Load configuration first to get output directory.
-    try:
-        config = load_feature_extraction_config(config_path)
-        console.print(f"[green]✓[/green] Loaded [cyan][bold]{len(config)}[/bold][/cyan] parameters from configuration")
-    except Exception as e:
-        console.print(f"[red]✗[/red] Failed to load configuration: {e}")
-        raise RuntimeError(f"Failed to load configuration from {config_path}: {e}")
-
-    # Get output directory from config.
-    output_dir = Path(config.get('extraction_output_dir', 'results/engineered_features'))
-
-    # Create output directory if it doesn't exist.
-    output_dir.mkdir(parents=True, exist_ok=True)
-    console.print(f"[green]✓[/green] Created output directory: [bold]{output_dir}[/bold]")
-
-    # Copy config file to output directory for audit purposes.
-    copied_config_path = output_dir / 'extract_engineered_features_config_used.ini'
-    import shutil
-    shutil.copy2(config_path, copied_config_path)
-    console.print(f"[green]✓[/green] Configuration copied to: [bold]{copied_config_path}[/bold]")
-
-    return config, output_dir
-
-
-def validate_extraction_config_parameters(config: Dict) -> None:
-    """
-    Validate that all required configuration parameters are present.
-
-    Args:
-        config: Configuration dictionary loaded from file.
-
-    Raises:
-        ValueError: If required parameters are missing or invalid.
-
-    This function ensures the configuration file contains all necessary parameters
-    for feature extraction, providing clear error messages for missing values.
-    """
-    console.print("[cyan]Validating configuration parameters...[/cyan]")
-
-    # Required input file paths.
-    required_paths = {
-        'extraction_image_path': 'Path to DAPI-stained tissue image',
-        'extraction_mask_path': 'Path to segmentation mask file',
-        'extraction_output_dir': 'Output directory for extraction results'
+    console.print("[cyan]Extracting nuclear region properties...[/cyan]")
+
+    # Extract region properties from mask.
+    props = regionprops(mask, intensity_image=gray)
+    console.print(f"[green]✓[/green] Found {len(props)} nuclear regions")
+
+    # Pre-compute centroids and areas for spatial indexing.
+    console.print("[cyan]Building spatial index for neighborhood analysis...[/cyan]")
+    centroids = np.array([region.centroid for region in props])
+    areas = np.array([region.area for region in props])
+
+    # Build spatial index for efficient neighbor queries.
+    spatial_index = build_spatial_index(centroids)
+    console.print(f"[green]✓[/green] Spatial index built for {len(centroids)} nuclei")
+
+    # Process each nucleus with enhanced progress tracking.
+    results = []
+
+    # Feature timing tracking.
+    feature_times = {
+        'size': 0.0,
+        'shape': 0.0,
+        'neighborhood': 0.0,
+        'texture': 0.0
     }
 
-    missing_paths = []
-    for param, description in required_paths.items():
-        if param not in config or not config[param]:
-            missing_paths.append(f"  • {param}: {description}")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console
+    ) as progress:
 
-    if missing_paths:
-        console.print(f"[red]✗[/red] Missing required input/output paths in configuration:")
-        for missing in missing_paths:
-            console.print(f"[red]{missing}[/red]")
-        raise ValueError("Configuration file missing required input/output paths")
+        # Create main progress task.
+        main_task = progress.add_task("Processing nuclei...", total=len(props))
 
-    console.print("[green]✓[/green] All required configuration parameters validated")
+        # Create feature category tasks.
+        size_task = progress.add_task("[blue]Size features[/blue]", total=len(props), visible=False)
+        shape_task = progress.add_task("[green]Shape features[/green]", total=len(props), visible=False)
+        neighborhood_task = progress.add_task("[magenta]Neighborhood features[/magenta]", total=len(props), visible=False)
+        texture_task = progress.add_task("[cyan]Texture features[/cyan]", total=len(props), visible=False)
+
+        for idx, region in enumerate(props):
+            # Update current nucleus info.
+            progress.update(main_task, description=f"Processing nucleus {region.label} ({idx+1}/{len(props)})")
+
+            # Extract size and shape features with timing.
+            start_time = time.time()
+            basic_features = extract_basic_features(region)
+            basic_time = time.time() - start_time
+
+            # Split timing between size and shape (approximate).
+            feature_times['size'] += basic_time * 0.4  # Size features are ~40% of computation.
+            feature_times['shape'] += basic_time * 0.6  # Shape features are ~60% of computation.
+
+            # Update feature progress.
+            progress.update(size_task, advance=1)
+            progress.update(shape_task, advance=1)
+
+            # Extract neighborhood features with timing.
+            start_time = time.time()
+            neighborhood_features = extract_neighborhood_features(
+                region, spatial_index, centroids, areas, idx, neighborhood_radius
+            )
+            feature_times['neighborhood'] += time.time() - start_time
+
+            progress.update(neighborhood_task, advance=1)
+
+            # Extract texture features with timing.
+            start_time = time.time()
+            texture_features = extract_texture_features(region, gray, extract_texture)
+            feature_times['texture'] += time.time() - start_time
+
+            progress.update(texture_task, advance=1)
+
+            # Combine all features.
+            result = {'nucleus_id': region.label}
+            result.update(basic_features)
+            result.update(neighborhood_features)
+            result.update(texture_features)
+
+            results.append(result)
+            progress.update(main_task, advance=1)
+
+    # Convert to DataFrame.
+    df = pd.DataFrame(results)
+
+    # Display feature timing summary.
+    console.print("\n[bold blue]📊 FEATURE EXTRACTION TIMING[/bold blue]")
+    timing_table = Table(show_header=True, header_style="bold cyan")
+    timing_table.add_column("Feature Category", style="cyan")
+    timing_table.add_column("Total Time", style="green")
+    timing_table.add_column("Per Nucleus", style="yellow")
+    timing_table.add_column("Features", style="magenta")
+
+    for category, total_time in feature_times.items():
+        per_nucleus = total_time / len(props) * 1000  # Convert to milliseconds.
+        if category == 'size':
+            feature_count = "10"
+        elif category == 'shape':
+            feature_count = "10"
+        elif category == 'neighborhood':
+            feature_count = "8"
+        else:  # texture
+            feature_count = "12" if extract_texture else "0"
+
+        timing_table.add_row(
+            category.title(),
+            f"{total_time:.2f}s",
+            f"{per_nucleus:.1f}ms",
+            feature_count
+        )
+
+    console.print(timing_table)
+    console.print(f"[green]✓[/green] Extracted {len(df.columns)-1} features from {len(df)} nuclei")
+
+    return df
 
 
-def get_extraction_file_paths_from_config(config: Dict) -> Tuple[Path, Path]:
+def save_results(df: pd.DataFrame, output_path: Path) -> None:
     """
-    Extract and validate file paths from configuration.
-
+    Save feature extraction results to CSV file.
+    
     Args:
-        config: Configuration dictionary.
-
-    Returns:
-        Tuple of (image_path, mask_path).
-
-    Raises:
-        FileNotFoundError: If any required files don't exist.
-
-    This function extracts file paths from the configuration and validates
-    that all required input files exist before starting the extraction.
+        df: DataFrame with extracted features.
+        output_path: Path for output CSV file.
     """
-    console.print("[cyan]Extracting file paths from configuration...[/cyan]")
+    console.print(f"[cyan]Saving results to:[/cyan] {output_path}")
+    
+    # Create output directory if needed.
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save to CSV with proper formatting.
+    df.to_csv(output_path, index=False, float_format='%.6f')
+    
+    console.print(f"[green]✓[/green] Results saved: {len(df)} nuclei with {len(df.columns)-1} features")
 
-    # Extract paths from config.
-    image_path = Path(config['extraction_image_path'])
-    mask_path = Path(config['extraction_mask_path'])
+    # Display summary statistics for key features.
+    console.print("\n[bold blue]📊 FEATURE SUMMARY[/bold blue]")
 
-    # Validate files exist.
-    missing_files = []
-    if not image_path.exists():
-        missing_files.append(f"Image file: {image_path}")
-    if not mask_path.exists():
-        missing_files.append(f"Mask file: {mask_path}")
+    # Size features summary.
+    console.print("[bold cyan]Size Features:[/bold cyan]")
+    console.print(f"  [cyan]Area:[/cyan] mean={df['area'].mean():.1f}, std={df['area'].std():.1f}")
+    console.print(f"  [cyan]Perimeter:[/cyan] mean={df['perimeter'].mean():.1f}, std={df['perimeter'].std():.1f}")
+    console.print(f"  [cyan]Major Axis:[/cyan] mean={df['major_axis_length'].mean():.1f}, std={df['major_axis_length'].std():.1f}")
+    console.print(f"  [cyan]Minor Axis:[/cyan] mean={df['minor_axis_length'].mean():.1f}, std={df['minor_axis_length'].std():.1f}")
 
-    if missing_files:
-        console.print(f"[red]✗[/red] Missing required input files:")
-        for missing in missing_files:
-            console.print(f"[red]  • {missing}[/red]")
-        raise FileNotFoundError("Required input files not found")
+    # Shape features summary.
+    console.print("[bold cyan]Shape Features:[/bold cyan]")
+    console.print(f"  [cyan]Circularity:[/cyan] mean={df['circularity'].mean():.3f}, std={df['circularity'].std():.3f}")
+    console.print(f"  [cyan]Eccentricity:[/cyan] mean={df['eccentricity'].mean():.3f}, std={df['eccentricity'].std():.3f}")
+    console.print(f"  [cyan]Solidity:[/cyan] mean={df['solidity'].mean():.3f}, std={df['solidity'].std():.3f}")
+    console.print(f"  [cyan]Aspect Ratio:[/cyan] mean={df['aspect_ratio'].mean():.2f}, std={df['aspect_ratio'].std():.2f}")
+    console.print(f"  [cyan]Elongation:[/cyan] mean={df['elongation'].mean():.3f}, std={df['elongation'].std():.3f}")
 
-    console.print(f"[green]✓[/green] All input files validated:")
-    console.print(f"  • [blue]Image[/blue]: {image_path}")
-    console.print(f"  • [blue]Mask[/blue]: {mask_path}")
+    # Neighborhood features summary.
+    console.print("[bold cyan]Neighborhood Features:[/bold cyan]")
+    console.print(f"  [cyan]Neighbor Count:[/cyan] mean={df['neighbor_count'].mean():.1f}, std={df['neighbor_count'].std():.1f}")
+    console.print(f"  [cyan]Neighbor Density:[/cyan] mean={df['neighbor_density'].mean():.4f}, std={df['neighbor_density'].std():.4f}")
+    console.print(f"  [cyan]Nearest Distance:[/cyan] mean={df['nearest_neighbor_distance'].mean():.1f}, std={df['nearest_neighbor_distance'].std():.1f}")
+    console.print(f"  [cyan]Clustering Coeff:[/cyan] mean={df['clustering_coefficient'].mean():.3f}, std={df['clustering_coefficient'].std():.3f}")
+    console.print(f"  [cyan]Isolation Score:[/cyan] mean={df['isolation_score'].mean():.3f}, std={df['isolation_score'].std():.3f}")
 
-    return image_path, mask_path
+    # Texture features summary (if available).
+    if 'intensity_mean' in df.columns:
+        console.print("[bold cyan]Texture Features:[/bold cyan]")
+        console.print(f"  [cyan]Intensity Mean:[/cyan] mean={df['intensity_mean'].mean():.1f}, std={df['intensity_mean'].std():.1f}")
+        console.print(f"  [cyan]Intensity Std:[/cyan] mean={df['intensity_std'].mean():.1f}, std={df['intensity_std'].std():.1f}")
+        console.print(f"  [cyan]Texture Entropy:[/cyan] mean={df['texture_entropy'].mean():.3f}, std={df['texture_entropy'].std():.3f}")
+        console.print(f"  [cyan]GLCM Contrast:[/cyan] mean={df['glcm_contrast'].mean():.3f}, std={df['glcm_contrast'].std():.3f}")
+        console.print(f"  [cyan]GLCM Homogeneity:[/cyan] mean={df['glcm_homogeneity'].mean():.3f}, std={df['glcm_homogeneity'].std():.3f}")
 
 
-"""CLI INTERFACE"""
-
-@app.command()
-def extract(
-    config: Path = typer.Option(..., exists=True, help="Configuration file containing all extraction parameters."),
+def main(
+    config: Path = typer.Option(..., exists=True, help="Configuration file containing extraction parameters")
 ) -> None:
     """
-    Simplified config-driven extraction of comprehensive nuclear morphological features.
+    Extract comprehensive nuclear morphological, neighborhood, and texture features from segmented tissue using config.
 
-    This command implements a streamlined interface that loads all parameters from a
-    configuration file, ensuring complete reproducibility and parameter traceability.
-    Extracts four categories of nuclear features: shape, size, neighborhood, and texture.
+    This command processes DAPI-stained tissue sections to extract essential morphological,
+    spatial, and optional texture features for kidney ischemia-reperfusion injury analysis.
+    Includes all size measurements (area, perimeter, axes, bounding box, Feret diameters),
+    comprehensive shape features (circularity, eccentricity, solidity, aspect ratio, compactness,
+    elongation, roundness, form factor, convex area ratio, convexity), advanced neighborhood
+    features (neighbor counts, densities, distances, clustering metrics), and optional texture
+    features (intensity statistics, entropy, gradients, GLCM properties) for thorough nuclear characterization.
 
-    Example usage:
-        python extract_engineered_features.py extract \\
+    Example:
+        python extract_engineered_features.py \\
             --config ../../configs/engineered_feature_extraction_config.ini
     """
-    console.print("\n[bold blue]🧬 CONFIG-DRIVEN NUCLEAR FEATURE EXTRACTION 🧬[/bold blue]\n")
+    console.print("\n[bold blue]🧬 SIMPLE NUCLEAR FEATURE EXTRACTION 🧬[/bold blue]\n")
 
     try:
         start_time = time.time()
 
-        # Step 1: Load configuration and copy to output directory.
-        config, output_dir = load_and_copy_config(config)
+        # Step 1: Load configuration.
+        console.print(f"[cyan]Loading configuration from:[/cyan] {config}")
+        settings = load_feature_extraction_config(config)
+        console.print(f"[green]✓[/green] Configuration loaded successfully")
 
-        # Configure logging to save in output directory.
-        configure_logging_with_output_dir(output_dir)
-
-        # Step 2: Validate all required configuration parameters.
-        validate_extraction_config_parameters(config)
-
-        # Step 3: Extract and validate input file paths from configuration.
-        image_path, mask_path = get_extraction_file_paths_from_config(config)
-
-        console.print(f"[green]✓[/green] Configuration-driven setup completed")
-        console.print(f"[blue]ℹ[/blue] Results will be saved to: [bold]{output_dir}[/bold]")
-
-        # Step 4: Process image and extract features using config parameters.
+        # Extract file paths from config and resolve them properly.
+        # The config paths are relative to the project root, so resolve from there.
+        image_path = Path(settings['extraction_image_path']).resolve()
+        mask_path = Path(settings['extraction_mask_path']).resolve()
+        output_dir = Path(settings.get('extraction_output_dir', 'results/engineered_features')).resolve()
         output_path = output_dir / 'engineered_features.csv'
 
-        df = process_image_with_config(
-            image_path=image_path,
-            mask_path=mask_path,
-            output_path=output_path,
-            config_path=output_dir / 'extract_engineered_features_config_used.ini',
-            neighbor_radius=None,  # Use config values
-            jobs=None  # Use config values
-        )
+        # Create output directory.
+        output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Display processing information.
+        console.print(Panel.fit(
+            f"[bold]Processing Files[/bold]\n"
+            f"Image: {image_path.name}\n"
+            f"Mask: {mask_path.name}\n"
+            f"Output: {output_path.name}",
+            border_style="blue",
+            title="🔬 Analysis"
+        ))
+
+        # Step 2: Load image and mask.
+        gray = load_image(image_path)
+        mask_array = load_mask(mask_path)
+        
+        # Validate dimensions match.
+        if gray.shape != mask_array.shape:
+            raise ValueError(f"Image shape {gray.shape} doesn't match mask shape {mask_array.shape}")
+        
+        console.print(f"[green]✓[/green] Image and mask dimensions validated")
+
+        # Step 3: Extract features with neighborhood and texture analysis.
+        neighborhood_radius = float(settings.get('neighborhood_radius', 20.0))
+        extract_texture = str(settings.get('extract_texture_features', 'False')).lower() == 'true'
+        console.print(f"[cyan]Using neighborhood radius:[/cyan] {neighborhood_radius} pixels")
+        console.print(f"[cyan]Texture features:[/cyan] {'enabled' if extract_texture else 'disabled'}")
+        df = process_nuclei(gray, mask_array, neighborhood_radius, extract_texture)
+
+        # Step 4: Save results.
+        save_results(df, output_path)
+
+        # Display completion summary.
         end_time = time.time()
         processing_time = end_time - start_time
 
-        if not df.empty:
-            # Display feature category summary.
-            shape_cols = [col for col in df.columns if any(feat in col.lower() for feat in ['circularity', 'eccentricity', 'solidity', 'aspect', 'compactness'])]
-            size_cols = [col for col in df.columns if any(feat in col.lower() for feat in ['area', 'perimeter', 'diameter', 'axis', 'bbox'])]
-            neighborhood_cols = [col for col in df.columns if any(feat in col.lower() for feat in ['neighbor', 'density', 'cluster', 'boundary'])]
-            texture_cols = [col for col in df.columns if any(feat in col.lower() for feat in ['intensity', 'texture', 'entropy', 'glcm'])]
-
-            # Final results panel.
-            results_panel = Panel(
-                f"[bold green]✅ CONFIG-DRIVEN FEATURE EXTRACTION COMPLETED[/bold green]\n\n"
-                f"[cyan]📊 Results Summary:[/cyan]\n"
-                f"• Total nuclei analyzed: [bold]{len(df)}[/bold]\n"
-                f"• Features per nucleus: [bold]{len(df.columns)}[/bold]\n"
-                f"• Processing time: [bold]{processing_time:.2f} seconds[/bold]\n"
-                f"• Output directory: [bold]{output_dir}[/bold]\n"
-                f"• Config audit: [bold]extract_engineered_features_config_used.ini[/bold]\n\n"
-                f"[cyan]🔬 Feature Categories:[/cyan]\n"
-                f"• Shape features: [bold]{len(shape_cols)}[/bold]\n"
-                f"• Size features: [bold]{len(size_cols)}[/bold]\n"
-                f"• Neighborhood features: [bold]{len(neighborhood_cols)}[/bold]\n"
-                f"• Texture features: [bold]{len(texture_cols)}[/bold]",
-                border_style="green",
-                title="🎉 Success"
-            )
-            console.print(results_panel)
-
-        else:
-            console.print(Panel(
-                "[bold red]❌ No features were extracted.[/bold red]\n\n"
-                "Please check:\n"
-                "• Configuration file contains correct input paths\n"
-                "• Input files exist and are readable\n"
-                "• Mask contains labeled nuclei\n"
-                "• Configuration parameters are correct\n"
-                "• Nuclear size thresholds are appropriate",
-                border_style="red",
-                title="⚠️ Warning"
-            ))
-
-    except Exception as e:
-        console.print(Panel(
-            f"[bold red]💥 Config-driven feature extraction failed:[/bold red]\n\n"
-            f"[red]{str(e)}[/red]\n\n"
-            f"Check the configuration file and ensure all required parameters are present.",
-            border_style="red",
-            title="❌ Error"
+        console.print(Panel.fit(
+            f"[bold green]✅ EXTRACTION COMPLETE[/bold green]\n"
+            f"Processed: {len(df)} nuclei\n"
+            f"Features: {len(df.columns)-1} size & shape features\n"
+            f"Time: {processing_time:.1f} seconds\n"
+            f"Output: {output_path}",
+            border_style="green",
+            title="🎉 Success"
         ))
-        logger.error(f"Feature extraction failed: {e}")
+        
+    except Exception as e:
+        console.print(Panel.fit(
+            f"[bold red]❌ EXTRACTION FAILED[/bold red]\n"
+            f"Error: {str(e)}\n"
+            f"Check input files and try again.",
+            border_style="red",
+            title="💥 Error"
+        ))
         traceback.print_exc()
         raise typer.Exit(1)
 
 
-@app.command()
-def info() -> None:
-    """
-    Display comprehensive list of all available nuclear features for extraction.
-
-    This command provides a detailed overview of all morphological, intensity, texture,
-    and neighborhood features available for nuclear analysis, organized by biological
-    significance and computational complexity for kidney I/R injury research.
-    """
-    console.print("\n[bold blue]🧬 NUCLEAR FEATURE CATEGORIES FOR KIDNEY I/R INJURY ANALYSIS 🧬[/bold blue]\n")
-
-    # Get all available features from the config loader.
-    all_features_config = {'extract_all_features': True}
-    enabled_features = get_enabled_features(all_features_config)
-
-    # Shape Features
-    console.print("[bold cyan]🔸 SHAPE FEATURES:[/bold cyan]")
-    console.print("   [italic]Scientific relevance: Nuclear deformation during apoptosis, necrosis, and stress responses.[/italic]")
-    for feature in enabled_features['shape']:
-        console.print(f"   • [green]{feature}[/green]")
-
-    # Size Features
-    console.print("\n[bold cyan]📏 SIZE FEATURES:[/bold cyan]")
-    console.print("   [italic]Scientific relevance: Nuclear swelling, shrinkage, and size heterogeneity patterns.[/italic]")
-    for feature in enabled_features['size']:
-        console.print(f"   • [green]{feature}[/green]")
-
-    # Neighborhood Features
-    console.print("\n[bold cyan]🏘️ NEIGHBORHOOD FEATURES:[/bold cyan]")
-    console.print("   [italic]Scientific relevance: Tissue architecture, cell migration, and spatial organization changes.[/italic]")
-    for feature in enabled_features['neighborhood']:
-        console.print(f"   • [green]{feature}[/green]")
-
-    # Texture Features
-    console.print("\n[bold cyan]🎨 TEXTURE FEATURES:[/bold cyan]")
-    console.print("   [italic]Scientific relevance: Chromatin organization, condensation patterns, and cellular stress.[/italic]")
-    for feature in enabled_features['texture']:
-        console.print(f"   • [green]{feature}[/green]")
-
-    # Summary
-    total_features = sum(len(feats) for feats in enabled_features.values())
-    console.print(f"\n[bold blue]📊 TOTAL: {total_features} individual features available for extraction[/bold blue]")
-    console.print(f"[bold blue]📚 For detailed feature descriptions and usage examples, see the configuration file.[/bold blue]")
-
-
 if __name__ == "__main__":
-    app()
+    typer.run(main)
