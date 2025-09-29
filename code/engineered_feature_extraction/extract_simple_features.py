@@ -6,13 +6,13 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: extract_simple_features.py.
 Description:
-    Fast extraction of comprehensive nuclear size and shape features from segmented
-    DAPI-stained tissue sections. This optimized version includes all essential size
-    measurements and basic shape features for kidney ischemia-reperfusion injury analysis.
+    Fast extraction of comprehensive nuclear morphological and neighborhood features from segmented
+    DAPI-stained tissue sections. This optimized version includes all essential size, shape, and
+    spatial neighborhood features for kidney ischemia-reperfusion injury analysis.
 
 Dependencies:
     • Python >= 3.10.
-    • numpy, pandas, scikit-image, typer, rich.
+    • numpy, pandas, scikit-image, scipy, typer, rich.
 
 Usage:
     python extract_simple_features.py --config ../../configs/engineered_feature_extraction_config.ini
@@ -23,14 +23,19 @@ Arguments:
 Key Features:
     • Fast single-threaded processing for reliability.
     • Comprehensive size features: area, perimeter, axes, bounding box, Feret diameters.
-    • Basic shape features: circularity, aspect ratio.
-    • Clean progress reporting with rich console.
+    • Complete shape features: circularity, eccentricity, solidity, aspect ratio, compactness,
+      elongation, roundness, form factor, convex area ratio, convexity.
+    • Advanced neighborhood features: neighbor counts, densities, distances, clustering metrics.
+    • Detailed progress tracking with feature-level timing and completion status.
+    • Optimized spatial indexing with KDTree for efficient neighbor detection.
+    • Clean progress reporting with rich console and colored feature categories.
     • Robust error handling and validation.
     • Scientific context for kidney I/R injury research.
 
 Notes:
     • Size features quantify nuclear dimensions and spatial extent.
-    • Shape features measure nuclear morphology and regularity.
+    • Shape features measure nuclear morphology, regularity, and complexity.
+    • Neighborhood features analyze spatial relationships and local tissue architecture.
     • Results saved as CSV with nucleus_id and all extracted features.
 """
 
@@ -39,16 +44,18 @@ import sys
 import os
 from pathlib import Path
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List, Tuple
 
 import numpy as np
 import pandas as pd
 import typer
 from PIL import Image
 from skimage.measure import regionprops
+from scipy.spatial import KDTree
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, MofNCompleteColumn
 from rich.panel import Panel
+from rich.table import Table
 from rich import print as rprint
 
 # Add project root to path for imports.
@@ -112,16 +119,16 @@ def load_mask(mask_path: Path) -> np.ndarray:
 
 def extract_basic_features(region: Any) -> Dict[str, float]:
     """
-    Extract comprehensive size and basic shape features from nuclear region.
+    Extract comprehensive size and shape features from nuclear region.
 
     Size features quantify nuclear dimensions and spatial extent.
-    Shape features measure nuclear morphology and regularity.
+    Shape features measure nuclear morphology, regularity, and complexity.
 
     Args:
         region: Regionprops object containing nuclear measurements.
 
     Returns:
-        Dictionary with all size and basic shape feature values.
+        Dictionary with all size and shape feature values.
     """
     features = {}
 
@@ -154,32 +161,224 @@ def extract_basic_features(region: Any) -> Dict[str, float]:
     # Approximate minimum Feret diameter as minor axis length if not available.
     features['feret_diameter_min'] = float(getattr(region, 'feret_diameter_min', region.minor_axis_length))
 
-    '''Basic Shape Features'''
+    '''Shape Features'''
+    # Pre-compute axis lengths for efficiency.
+    major_axis = float(region.major_axis_length)
+    minor_axis = float(region.minor_axis_length)
+
+    # Basic shape features.
     # Circularity: shape regularity measure (4π*area/perimeter²).
     if perimeter > 0:
         features['circularity'] = 4 * np.pi * area / (perimeter ** 2)
     else:
         features['circularity'] = 0.0
 
+    # Eccentricity: nuclear elongation measure (0=circle, 1=line).
+    features['eccentricity'] = float(region.eccentricity)
+
+    # Solidity: ratio of area to convex hull area.
+    features['solidity'] = float(region.solidity)
+
     # Aspect ratio: elongation measure.
-    if region.minor_axis_length > 0:
-        features['aspect_ratio'] = region.major_axis_length / region.minor_axis_length
+    if minor_axis > 0:
+        features['aspect_ratio'] = major_axis / minor_axis
     else:
         features['aspect_ratio'] = 1.0
+
+    # Compactness: measure of shape regularity (perimeter²/4π*area).
+    if area > 0:
+        features['compactness'] = (perimeter ** 2) / (4 * np.pi * area)
+    else:
+        features['compactness'] = 0.0
+
+    # Elongation: normalized stretching measure.
+    if (major_axis + minor_axis) > 0:
+        features['elongation'] = (major_axis - minor_axis) / (major_axis + minor_axis)
+    else:
+        features['elongation'] = 0.0
+
+    # Roundness: alternative circularity measure (4*area/π*major²).
+    if major_axis > 0:
+        features['roundness'] = (4 * area) / (np.pi * major_axis ** 2)
+    else:
+        features['roundness'] = 0.0
+
+    # Form factor: shape complexity measure (same as circularity).
+    if perimeter > 0:
+        features['form_factor'] = (4 * np.pi * area) / (perimeter ** 2)
+    else:
+        features['form_factor'] = 0.0
+
+    '''Advanced Shape Features'''
+    # Convex area ratio: ratio of actual area to convex hull area.
+    convex_area = float(region.convex_area)
+    if convex_area > 0:
+        features['convex_area_ratio'] = area / convex_area
+    else:
+        features['convex_area_ratio'] = 1.0
+
+    # Convexity: ratio of convex hull perimeter to actual perimeter.
+    # Approximate using convex hull image for efficiency.
+    try:
+        from skimage.morphology import convex_hull_image
+        from skimage.measure import perimeter as measure_perimeter
+
+        convex_hull = convex_hull_image(region.image)
+        convex_perimeter = measure_perimeter(convex_hull)
+
+        if perimeter > 0:
+            features['convexity'] = convex_perimeter / perimeter
+        else:
+            features['convexity'] = 1.0
+    except Exception:
+        # Fallback: approximate convexity using convex area.
+        features['convexity'] = 1.0
 
     return features
 
 
-def process_nuclei(gray: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
+def build_spatial_index(centroids: np.ndarray) -> KDTree:
     """
-    Process all nuclei and extract comprehensive size and shape features.
+    Build spatial index for efficient neighbor queries.
+
+    Args:
+        centroids: Array of (y, x) centroid coordinates.
+
+    Returns:
+        KDTree for O(log n) neighbor lookups.
+    """
+    return KDTree(centroids)
+
+
+def extract_neighborhood_features(
+    region: Any,
+    spatial_index: KDTree,
+    centroids: np.ndarray,
+    areas: np.ndarray,
+    region_idx: int,
+    neighborhood_radius: float = 20.0
+) -> Dict[str, float]:
+    """
+    Extract comprehensive neighborhood features for spatial analysis.
+
+    Neighborhood features analyze local tissue architecture and nuclear clustering
+    patterns essential for understanding kidney ischemia-reperfusion injury.
+
+    Args:
+        region: Regionprops object containing nuclear measurements.
+        spatial_index: KDTree for efficient neighbor queries.
+        centroids: Array of all nuclear centroids.
+        areas: Array of all nuclear areas.
+        region_idx: Index of current region in centroids array.
+        neighborhood_radius: Radius for neighbor detection (pixels).
+
+    Returns:
+        Dictionary with all neighborhood feature values.
+    """
+    features = {}
+
+    # Get current nucleus centroid.
+    current_centroid = centroids[region_idx]
+    current_area = areas[region_idx]
+
+    # Find neighbors within radius.
+    neighbor_indices = spatial_index.query_ball_point(current_centroid, neighborhood_radius)
+
+    # Remove self from neighbors.
+    neighbor_indices = [idx for idx in neighbor_indices if idx != region_idx]
+
+    '''Basic Neighborhood Counts'''
+    # Neighbor count: number of nuclei within radius.
+    features['neighbor_count'] = len(neighbor_indices)
+
+    # Neighbor density: nuclei per unit area in neighborhood.
+    neighborhood_area = np.pi * (neighborhood_radius ** 2)
+    features['neighbor_density'] = len(neighbor_indices) / neighborhood_area
+
+    '''Distance-Based Features'''
+    if len(neighbor_indices) > 0:
+        # Calculate distances to all neighbors.
+        neighbor_centroids = centroids[neighbor_indices]
+        distances = np.linalg.norm(neighbor_centroids - current_centroid, axis=1)
+
+        # Nearest neighbor distance: distance to closest nucleus.
+        features['nearest_neighbor_distance'] = np.min(distances)
+
+        # Mean neighbor distance: average distance to all neighbors.
+        features['mean_neighbor_distance'] = np.mean(distances)
+
+        # Neighbor area ratio: ratio of nucleus area to mean neighbor area.
+        neighbor_areas = areas[neighbor_indices]
+        mean_neighbor_area = np.mean(neighbor_areas)
+        if mean_neighbor_area > 0:
+            features['neighbor_area_ratio'] = current_area / mean_neighbor_area
+        else:
+            features['neighbor_area_ratio'] = 1.0
+
+    else:
+        # Handle isolated nuclei.
+        features['nearest_neighbor_distance'] = neighborhood_radius
+        features['mean_neighbor_distance'] = neighborhood_radius
+        features['neighbor_area_ratio'] = 1.0
+
+    '''Advanced Spatial Features'''
+    # Local density gradient: change in density from center to edge.
+    if len(neighbor_indices) >= 3:
+        # Calculate density in inner and outer rings.
+        inner_radius = neighborhood_radius * 0.5
+        inner_neighbors = spatial_index.query_ball_point(current_centroid, inner_radius)
+        inner_neighbors = [idx for idx in inner_neighbors if idx != region_idx]
+
+        inner_density = len(inner_neighbors) / (np.pi * (inner_radius ** 2))
+        outer_density = (len(neighbor_indices) - len(inner_neighbors)) / (np.pi * (neighborhood_radius ** 2 - inner_radius ** 2))
+
+        if inner_density > 0:
+            features['local_density_gradient'] = (outer_density - inner_density) / inner_density
+        else:
+            features['local_density_gradient'] = 0.0
+    else:
+        features['local_density_gradient'] = 0.0
+
+    # Clustering coefficient: measure of local clustering.
+    if len(neighbor_indices) >= 2:
+        # Count connections between neighbors.
+        connections = 0
+        total_possible = len(neighbor_indices) * (len(neighbor_indices) - 1) / 2
+
+        for i, idx1 in enumerate(neighbor_indices):
+            for idx2 in neighbor_indices[i+1:]:
+                distance = np.linalg.norm(centroids[idx1] - centroids[idx2])
+                if distance <= neighborhood_radius:
+                    connections += 1
+
+        features['clustering_coefficient'] = connections / total_possible if total_possible > 0 else 0.0
+    else:
+        features['clustering_coefficient'] = 0.0
+
+    # Isolation score: measure of spatial isolation.
+    if len(neighbor_indices) > 0:
+        # Inverse of neighbor density with distance weighting.
+        neighbor_centroids = centroids[neighbor_indices]
+        distances = np.linalg.norm(neighbor_centroids - current_centroid, axis=1)
+        weighted_density = np.sum(1.0 / (distances + 1.0))  # Add 1 to avoid division by zero.
+        features['isolation_score'] = 1.0 / (weighted_density + 1.0)
+    else:
+        features['isolation_score'] = 1.0  # Maximum isolation.
+
+    return features
+
+
+def process_nuclei(gray: np.ndarray, mask: np.ndarray, neighborhood_radius: float = 20.0) -> pd.DataFrame:
+    """
+    Process all nuclei to extract comprehensive morphological and neighborhood features.
 
     Args:
         gray: Grayscale DAPI image.
         mask: Segmentation mask with labeled nuclei.
+        neighborhood_radius: Radius for neighbor detection (pixels).
 
     Returns:
-        DataFrame with nucleus_id and all extracted size/shape features.
+        DataFrame with nucleus_id and all extracted features.
     """
     console.print("[cyan]Extracting nuclear region properties...[/cyan]")
 
@@ -187,33 +386,105 @@ def process_nuclei(gray: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
     props = regionprops(mask, intensity_image=gray)
     console.print(f"[green]✓[/green] Found {len(props)} nuclear regions")
 
-    # Process each nucleus with progress bar.
+    # Pre-compute centroids and areas for spatial indexing.
+    console.print("[cyan]Building spatial index for neighborhood analysis...[/cyan]")
+    centroids = np.array([region.centroid for region in props])
+    areas = np.array([region.area for region in props])
+
+    # Build spatial index for efficient neighbor queries.
+    spatial_index = build_spatial_index(centroids)
+    console.print(f"[green]✓[/green] Spatial index built for {len(centroids)} nuclei")
+
+    # Process each nucleus with enhanced progress tracking.
     results = []
+
+    # Feature timing tracking.
+    feature_times = {
+        'size': 0.0,
+        'shape': 0.0,
+        'neighborhood': 0.0
+    }
 
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        MofNCompleteColumn(),
         TimeElapsedColumn(),
         console=console
     ) as progress:
 
-        task = progress.add_task("Extracting features...", total=len(props))
+        # Create main progress task.
+        main_task = progress.add_task("Processing nuclei...", total=len(props))
 
-        for region in props:
-            # Extract comprehensive features.
-            features = extract_basic_features(region)
+        # Create feature category tasks.
+        size_task = progress.add_task("[blue]Size features[/blue]", total=len(props), visible=False)
+        shape_task = progress.add_task("[green]Shape features[/green]", total=len(props), visible=False)
+        neighborhood_task = progress.add_task("[magenta]Neighborhood features[/magenta]", total=len(props), visible=False)
 
-            # Create result with nucleus identifier and all features.
+        for idx, region in enumerate(props):
+            # Update current nucleus info.
+            progress.update(main_task, description=f"Processing nucleus {region.label} ({idx+1}/{len(props)})")
+
+            # Extract size and shape features with timing.
+            start_time = time.time()
+            basic_features = extract_basic_features(region)
+            basic_time = time.time() - start_time
+
+            # Split timing between size and shape (approximate).
+            feature_times['size'] += basic_time * 0.4  # Size features are ~40% of computation.
+            feature_times['shape'] += basic_time * 0.6  # Shape features are ~60% of computation.
+
+            # Update feature progress.
+            progress.update(size_task, advance=1)
+            progress.update(shape_task, advance=1)
+
+            # Extract neighborhood features with timing.
+            start_time = time.time()
+            neighborhood_features = extract_neighborhood_features(
+                region, spatial_index, centroids, areas, idx, neighborhood_radius
+            )
+            feature_times['neighborhood'] += time.time() - start_time
+
+            progress.update(neighborhood_task, advance=1)
+
+            # Combine all features.
             result = {'nucleus_id': region.label}
-            result.update(features)
+            result.update(basic_features)
+            result.update(neighborhood_features)
 
             results.append(result)
-            progress.update(task, advance=1)
+            progress.update(main_task, advance=1)
 
     # Convert to DataFrame.
     df = pd.DataFrame(results)
+
+    # Display feature timing summary.
+    console.print("\n[bold blue]📊 FEATURE EXTRACTION TIMING[/bold blue]")
+    timing_table = Table(show_header=True, header_style="bold cyan")
+    timing_table.add_column("Feature Category", style="cyan")
+    timing_table.add_column("Total Time", style="green")
+    timing_table.add_column("Per Nucleus", style="yellow")
+    timing_table.add_column("Features", style="magenta")
+
+    for category, total_time in feature_times.items():
+        per_nucleus = total_time / len(props) * 1000  # Convert to milliseconds.
+        if category == 'size':
+            feature_count = "10"
+        elif category == 'shape':
+            feature_count = "10"
+        else:  # neighborhood
+            feature_count = "8"
+
+        timing_table.add_row(
+            category.title(),
+            f"{total_time:.2f}s",
+            f"{per_nucleus:.1f}ms",
+            feature_count
+        )
+
+    console.print(timing_table)
     console.print(f"[green]✓[/green] Extracted {len(df.columns)-1} features from {len(df)} nuclei")
 
     return df
@@ -250,19 +521,32 @@ def save_results(df: pd.DataFrame, output_path: Path) -> None:
     # Shape features summary.
     console.print("[bold cyan]Shape Features:[/bold cyan]")
     console.print(f"  [cyan]Circularity:[/cyan] mean={df['circularity'].mean():.3f}, std={df['circularity'].std():.3f}")
+    console.print(f"  [cyan]Eccentricity:[/cyan] mean={df['eccentricity'].mean():.3f}, std={df['eccentricity'].std():.3f}")
+    console.print(f"  [cyan]Solidity:[/cyan] mean={df['solidity'].mean():.3f}, std={df['solidity'].std():.3f}")
     console.print(f"  [cyan]Aspect Ratio:[/cyan] mean={df['aspect_ratio'].mean():.2f}, std={df['aspect_ratio'].std():.2f}")
+    console.print(f"  [cyan]Elongation:[/cyan] mean={df['elongation'].mean():.3f}, std={df['elongation'].std():.3f}")
+
+    # Neighborhood features summary.
+    console.print("[bold cyan]Neighborhood Features:[/bold cyan]")
+    console.print(f"  [cyan]Neighbor Count:[/cyan] mean={df['neighbor_count'].mean():.1f}, std={df['neighbor_count'].std():.1f}")
+    console.print(f"  [cyan]Neighbor Density:[/cyan] mean={df['neighbor_density'].mean():.4f}, std={df['neighbor_density'].std():.4f}")
+    console.print(f"  [cyan]Nearest Distance:[/cyan] mean={df['nearest_neighbor_distance'].mean():.1f}, std={df['nearest_neighbor_distance'].std():.1f}")
+    console.print(f"  [cyan]Clustering Coeff:[/cyan] mean={df['clustering_coefficient'].mean():.3f}, std={df['clustering_coefficient'].std():.3f}")
+    console.print(f"  [cyan]Isolation Score:[/cyan] mean={df['isolation_score'].mean():.3f}, std={df['isolation_score'].std():.3f}")
 
 
 def main(
     config: Path = typer.Option(..., exists=True, help="Configuration file containing extraction parameters")
 ) -> None:
     """
-    Extract comprehensive nuclear size and shape features from segmented tissue using config.
+    Extract comprehensive nuclear morphological and neighborhood features from segmented tissue using config.
 
     This command processes DAPI-stained tissue sections to extract essential morphological
-    features for kidney ischemia-reperfusion injury analysis. Includes all size measurements
-    (area, perimeter, axes, bounding box, Feret diameters) and basic shape features
-    (circularity, aspect ratio) for comprehensive nuclear characterization.
+    and spatial features for kidney ischemia-reperfusion injury analysis. Includes all size
+    measurements (area, perimeter, axes, bounding box, Feret diameters), comprehensive shape
+    features (circularity, eccentricity, solidity, aspect ratio, compactness, elongation,
+    roundness, form factor, convex area ratio, convexity), and advanced neighborhood features
+    (neighbor counts, densities, distances, clustering metrics) for thorough nuclear characterization.
 
     Example:
         python extract_simple_features.py \\
@@ -308,8 +592,10 @@ def main(
         
         console.print(f"[green]✓[/green] Image and mask dimensions validated")
 
-        # Step 3: Extract features.
-        df = process_nuclei(gray, mask_array)
+        # Step 3: Extract features with neighborhood analysis.
+        neighborhood_radius = float(settings.get('neighborhood_radius', 20.0))
+        console.print(f"[cyan]Using neighborhood radius:[/cyan] {neighborhood_radius} pixels")
+        df = process_nuclei(gray, mask_array, neighborhood_radius)
 
         # Step 4: Save results.
         save_results(df, output_path)

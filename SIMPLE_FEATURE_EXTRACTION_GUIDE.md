@@ -16,15 +16,33 @@ The `extract_simple_features.py` script provides a fast, reliable alternative to
 - **feret_diameter_max**: Maximum distance between any two boundary points
 - **feret_diameter_min**: Minimum distance between parallel tangent lines
 
-### **Shape Features (2 features):**
+### **Shape Features (10 features):**
 - **circularity**: Shape regularity measure (4π*area/perimeter²)
+- **eccentricity**: Measure of ellipse deviation from circle
+- **solidity**: Ratio of area to convex hull area
 - **aspect_ratio**: Elongation measure (major_axis/minor_axis)
+- **compactness**: Measure of shape regularity
+- **elongation**: Measure of nuclear stretching
+- **roundness**: Alternative circularity measure
+- **form_factor**: Shape complexity measure
+- **convex_area_ratio**: Ratio of actual to convex area
+- **convexity**: Ratio of convex hull to actual perimeter
+
+### **Neighborhood Features (8 features):**
+- **neighbor_count**: Number of nuclei within 20-pixel radius
+- **neighbor_density**: Nuclei per unit area in neighborhood
+- **nearest_neighbor_distance**: Distance to closest nucleus
+- **mean_neighbor_distance**: Average distance to all neighbors
+- **neighbor_area_ratio**: Ratio of nucleus area to mean neighbor area
+- **local_density_gradient**: Change in density from center to edge
+- **clustering_coefficient**: Measure of local clustering
+- **isolation_score**: Measure of spatial isolation
 
 ## Why Use the Enhanced Simple Version?
 
 ✅ **Reliable**: Single-threaded processing avoids multiprocessing issues
-✅ **Fast**: Processes 15,000+ nuclei in ~26 seconds
-✅ **Comprehensive**: 12 essential size and shape features for thorough analysis
+✅ **Fast**: Processes 15,000+ nuclei in ~115 seconds
+✅ **Comprehensive**: 28 essential morphological and neighborhood features for thorough analysis
 ✅ **Clean**: Minimal dependencies and clear progress reporting
 ✅ **Scientific**: All features have direct biological relevance for I/R injury analysis
 

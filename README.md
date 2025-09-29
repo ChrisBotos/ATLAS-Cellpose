@@ -26,7 +26,8 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 - **CLAHE Parameter Testing**: Systematic contrast enhancement optimization with 63 parameter combinations
 - **Quality Control**: Comprehensive visualization and validation tools
 - **Performance Optimization**: GPU acceleration and intelligent memory management
-- **Granular Feature Control**: Individual selection of 43 engineered features across 4 categories for optimal performance
+- **Comprehensive Feature Extraction**: 28 morphological and neighborhood features with optimized spatial indexing
+- **Nucleus Label Preservation**: Perfect 1:1 mapping between segmentation masks, feature extraction, and clustering results
 - **Adaptive Processing**: Dynamic batch sizing and resource allocation based on feature complexity
 - **Server Compatibility**: Designed for HPC clusters with limited permissions
 
