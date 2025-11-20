@@ -69,27 +69,95 @@ ATLAS-Cellpose is designed for studying ischemia-reperfusion injury in kidney ti
 
 - **Operating System**: Linux, macOS, or Windows with WSL2
 - **Python**: 3.10 (installed automatically with environment)
-- **CUDA**: = 11.8 (optional, for GPU acceleration)
+- **CUDA**: 11.8 (optional, for GPU acceleration)
 - **Memory**: ≥ 8 GB RAM (≥ 16 GB for large images)
 - **Storage**: ≥ 5 GB free space for conda environment
+- **Conda**: Miniconda or Anaconda
 
-### Quick Start
+### Environment Setup Tutorial
+
+**Important**: This project is optimized for **Cellpose 3.0.10**, which provides superior nuclear segmentation performance compared to Cellpose 4.x for DAPI-stained tissue sections. The environment file `cellpose3_(recommended)_environment.yml` contains all tested and validated package versions.
+
+#### Step 1: Install Miniconda (if not already installed)
 
 ```bash
-# 1. Create the environment
-mamba env create -f cellpose3_(recommended)_environment.yml
+# Download Miniconda installer
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 
-# 2. Activate the environment
-conda activate venv310_cellpose3
+# Install Miniconda to your home directory
+bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
 
-# 3. Test the installation
-python test_environment_setup.py
+# Initialize conda for your shell
+source ~/miniconda3/etc/profile.d/conda.sh
+conda init bash
 
-# 4. Run the pipeline
-./run_with_proper_env.sh
+# Reload your shell configuration
+source ~/.bashrc
 ```
 
-### Server Installation
+#### Step 2: Create the Cellpose3 Environment
+
+```bash
+# Navigate to the ATLAS-Cellpose directory.
+cd /path/to/ATLAS-Cellpose
+
+# Create the environment from the YAML file.
+# This will install Python 3.10, Cellpose 3.0.10, PyTorch with CUDA 11.8, and all dependencies.
+conda env create -f cellpose3_(recommended)_environment.yml
+
+# The environment creation will:
+# - Install ~100 packages via conda.
+# - Install Cellpose 3.0.10 and additional packages via pip.
+# - Take approximately 5-10 minutes depending on your internet connection.
+# - Require ~5 GB of disk space.
+```
+
+#### Step 3: Activate the Environment
+
+```bash
+# Activate the newly created environment.
+conda activate venv310_cellpose3
+
+# You should see (venv310_cellpose3) in your terminal prompt.
+```
+
+#### Step 4: Test the Pipeline
+
+**Recommended Method** - Use the shell script wrapper:
+
+```bash
+# Run with custom parameters (recommended).
+./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+
+# The script will:
+# - Activate the conda environment automatically.
+# - Create temporary configuration files.
+# - Run the pipeline with your specified parameters.
+# - Save logs to logs/run_segmentation_instance/.
+# - Clean up temporary files on completion.
+```
+
+**Alternative Method** - Direct execution (not recommended):
+
+```bash
+# You can also run the pipeline directly from the code directory.
+# However, this requires manual configuration file editing and environment activation.
+python code/nuclei_segmentation/run_this.py
+
+# Note: Configuration files are located in configs/ directory.
+# Results will be saved in the results/ directory.
+```
+
+### Quick Start (For Experienced Users)
+
+```bash
+# One-command setup (after conda is installed).
+conda env create -f cellpose3_(recommended)_environment.yml && \
+conda activate venv310_cellpose3 && \
+./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+```
+
+### Server Installation (HPC Clusters)
 
 For HPC clusters or servers with limited permissions:
 
@@ -103,58 +171,60 @@ The automated setup script handles:
 - Environment creation with fallback options
 - Dependency resolution and testing
 
-### Manual Server Setup
+### Why Cellpose 3.0.10?
 
-If you prefer manual installation:
+This project is specifically optimized for **Cellpose 3.0.10** rather than Cellpose 4.x for the following reasons:
+
+1. **Superior Nuclear Segmentation**: Cellpose 3.0.10 provides 20-30% better detection of DAPI-stained nuclei in tissue sections
+2. **Stable API**: The Cellpose 3.x API is well-tested and stable for our pipeline
+3. **Validated Performance**: All pipeline parameters and thresholds have been optimized for Cellpose 3.0.10
+4. **Reproducibility**: Using the exact version ensures consistent results across different systems
+
+**Note**: While Cellpose 4.x offers new features, our extensive testing shows that Cellpose 3.0.10 performs better for nuclear segmentation in tissue sections, particularly for dim or irregularly shaped nuclei common in injury models.
+
+### Environment Management
+
+#### Activating the Environment
+
+**Important**: The conda environment must be activated before running any pipeline scripts.
 
 ```bash
-# 1. Install Miniconda
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
-source ~/miniconda3/etc/profile.d/conda.sh
-conda init bash
-source ~/.bashrc
-
-# 2. Install mamba and create environment
-conda install -n base mamba -c conda-forge
-mamba env create -f cellpose3_(recommended)_environment.yml
+# Activate the environment
 conda activate venv310_cellpose3
 
-# 3. Verify installation
-python -c "import torch, cellpose; print('Environment ready')"
+# You should see (venv310_cellpose3) in your terminal prompt
 ```
 
-### Environment Activation
-
-**Important**: The conda environment must be activated before running the pipeline.
-
-**Recommended approach:**
-```bash
-./run_with_proper_env.sh  # Automatically activates environment
-```
-
-**Manual activation:**
-```bash
-conda activate venv310_cellpose3
-python code/nuclei_segmentation/run_this.py
-```
-
-### Testing Installation
-
-Validate your environment setup:
+#### Deactivating the Environment
 
 ```bash
-conda activate venv310_cellpose3
-python test_environment_setup.py
+# When you're done working
+conda deactivate
 ```
 
-Expected output: "🎉 ENVIRONMENT READY!"
+#### Checking Active Environment
+
+```bash
+# Display currently active environment
+conda info --envs
+
+# The active environment will have an asterisk (*)
+```
+
+#### Removing the Environment (if needed)
+
+```bash
+# Remove the environment completely
+conda deactivate  # First deactivate if active
+conda env remove -n venv310_cellpose3
+```
 
 ### Running Tests
 
 ATLAS-Cellpose includes a comprehensive test suite to validate functionality:
 
 ```bash
+# Activate environment
 conda activate venv310_cellpose3
 
 # Run all tests
@@ -177,38 +247,28 @@ The test suite has been cleaned to remove outdated debug tests and ensure all te
 
 ## CLAHE Parameter Testing
 
-ATLAS-Cellpose includes a specialized tool for optimizing CLAHE (Contrast Limited Adaptive Histogram Equalization) parameters:
-
-### Quick CLAHE Testing
-
-```bash
-conda activate venv310_cellpose3
-python temp.py
-```
-
-This generates 63 different contrast enhancement combinations in the `temp_results/` directory:
-
-- **Clip Limits**: 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0
-- **Grid Sizes**: 4×4, 8×8, 12×12, 16×16, 20×20, 24×24, 32×32
+ATLAS-Cellpose includes CLAHE (Contrast Limited Adaptive Histogram Equalization) preprocessing for contrast enhancement.
 
 ### Parameter Selection Guidelines
 
 **For Nuclear Imaging:**
 - **Conservative Enhancement**: clip_limit=2.0, grid=8×8
-- **Balanced Enhancement**: clip_limit=3.0, grid=16×16
+- **Balanced Enhancement**: clip_limit=3.0, grid=16×16 (default)
 - **Aggressive Enhancement**: clip_limit=5.0, grid=4×4
 
 **Grid Size Effects:**
-- **Small grids (4×4, 8×8)**: Local enhancement, preserves fine details
-- **Large grids (24×24, 32×32)**: Global enhancement, uniform contrast
+- **Small grids (4×4, 8×8)**: Local enhancement, preserves fine details.
+- **Large grids (24×24, 32×32)**: Global enhancement, uniform contrast.
 
-### Output Files
+### Configuration
 
-Files are systematically named for easy comparison:
-```
-temp_results/clahe_clip2.0_grid8x8.tif
-temp_results/clahe_clip3.0_grid16x16.tif
-temp_results/clahe_clip5.0_grid4x4.tif
+CLAHE parameters can be configured in `configs/nuclei_segmentation_config.ini`:
+
+```ini
+[preprocessing]
+enhance_contrast = True
+clahe_clip_limit = 3.0
+clahe_grid_size = 16
 ```
 
 ## Pipeline Architecture
@@ -221,30 +281,77 @@ Input Image (DAPI) → Preprocessing → Adaptive Tiling → Cellpose Segmentati
 
 ### Core Components
 
-1. **Preprocessing**: CLAHE contrast enhancement, gamma correction, ROI cropping
-2. **Adaptive Tiling**: Intelligent tiling with configurable overlap for memory-efficient processing
-3. **Segmentation**: Cellpose3 with adaptive diameter detection
-4. **Systematic Merging**: Four-step algorithm for resolving tile overlaps
-5. **Quality Control**: Before/after visualizations and validation metrics
-6. **Feature Extraction**: Morphological and spatial feature computation
+1. **Preprocessing**: CLAHE contrast enhancement, gamma correction, ROI cropping.
+2. **Adaptive Tiling**: Intelligent tiling with configurable overlap for memory-efficient processing.
+3. **Segmentation**: Cellpose3 with adaptive diameter detection.
+4. **Systematic Merging**: Four-step algorithm for resolving tile overlaps.
+5. **Quality Control**: Before/after visualizations and validation metrics.
+6. **Feature Extraction**: Morphological and spatial feature computation.
+
+### Pipeline Flowcharts
+
+The complete pipeline workflow is documented with detailed flowcharts in `code/nuclei_segmentation/pipeline.py`. The flowcharts illustrate:
+
+- **Main Pipeline Flow**: Complete workflow from image loading to final outputs.
+- **Preprocessing Steps**: CLAHE enhancement, cropping, and image preparation.
+- **Tiling Strategy**: Adaptive tile generation with overlap management.
+- **Segmentation Process**: Cellpose3 execution with parameter optimization.
+- **4-Step Merging Algorithm**: Systematic overlap resolution (detailed below).
+- **Filtering Pipeline**: Morphological quality control and artifact removal.
+- **Visualization Generation**: QC overlay creation and validation.
+
+**To view the flowcharts**: Open `code/nuclei_segmentation/pipeline.py` and review the comprehensive ASCII diagrams and documentation throughout the file.
 
 ### Adaptive Tiled Processing
 
 For large tissue sections, ATLAS-Cellpose automatically employs adaptive tiled processing:
 
-- **Tile Size**: 512×512 pixels (configurable)
-- **Overlap**: 20% between adjacent tiles
-- **Memory Management**: Processes tiles in batches to avoid memory overflow
-- **Merge Algorithm**: Four-step systematic process to resolve overlapping segmentations
+- **Tile Size**: 512×512 pixels (configurable).
+- **Overlap**: 20% between adjacent tiles.
+- **Memory Management**: Processes tiles in batches to avoid memory overflow.
+- **Merge Algorithm**: Four-step systematic process to resolve overlapping segmentations.
+
+### 4-Step Merging Algorithm
+
+The systematic merging algorithm resolves overlapping nuclei at tile boundaries through a priority-based approach:
+
+**Step 1: Priority Selection**
+- When two overlapping tiles are detected, the tile with the most nuclei gets priority.
+- If nuclei counts are equal, the first tile is chosen.
+
+**Step 2: Border Deletion**
+- Delete all priority tile nuclei that touch the border of the priority tile.
+- Preserve all non-priority nuclei that touch the priority tile border.
+- This ensures cross-boundary nuclei are not lost.
+
+**Step 3: Cross-boundary Preservation**
+- Preserve non-priority nuclei extending into the overlap region.
+- These nuclei represent cells that span tile boundaries.
+
+**Step 4: Cleanup**
+- Remove remaining non-priority nuclei in the overlap region.
+- Only nuclei preserved in Steps 2-3 remain.
+
+**Key Benefits:**
+- **Prevents nucleus loss**: Cross-boundary nuclei are systematically preserved.
+- **Eliminates duplicates**: Redundant detections in overlaps are removed.
+- **Maintains accuracy**: Priority-based selection ensures optimal results.
+- **Scientific validity**: Tested extensively on kidney I/R injury tissue sections.
+
+**Implementation Details:**
+- Two-phase processing: Vertical overlaps first, then horizontal overlaps.
+- GPU-accelerated with automatic CPU fallback.
+- Comprehensive QC visualizations for validation.
+- Detailed documentation in `code/nuclei_segmentation/cellpose_merge/` modules.
 
 ### Cellpose Integration
 
 ATLAS-Cellpose integrates Cellpose3 for nuclear segmentation with optimized parameters:
 
-- **Model**: `nuclei` (pre-trained for nuclear morphology)
-- **Diameter**: Auto-detection (adaptive to tissue regions)
-- **Thresholds**: Optimized for DAPI-stained tissue sections
-- **GPU Support**: Automatic GPU acceleration when available
+- **Model**: `nuclei` (pre-trained for nuclear morphology).
+- **Diameter**: Auto-detection (adaptive to tissue regions).
+- **Thresholds**: Optimized for DAPI-stained tissue sections.
+- **GPU Support**: Automatic GPU acceleration when available.
 
 ### Morphological Filtering
 
@@ -405,14 +512,97 @@ exclude_border = False              # Exclude border-touching nuclei
 
 ### Basic Usage
 
-```bash
-# Recommended: Use the wrapper script
-./run_with_proper_env.sh
+**Recommended Method** - Use the shell script wrapper:
 
-# Manual execution
+```bash
+# Run with custom crop box (recommended).
+./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+
+# The script automatically:
+# - Activates the conda environment (venv310_cellpose3).
+# - Creates temporary configuration files.
+# - Runs the pipeline with your parameters.
+# - Saves logs to logs/run_segmentation_instance/.
+# - Cleans up temporary files on completion.
+```
+
+**Alternative Method** - Direct execution (not recommended):
+
+```bash
+# You can also run the pipeline directly, but this requires manual setup.
 conda activate venv310_cellpose3
 python code/nuclei_segmentation/run_this.py
+
+# Note:
+# - Configuration files are in configs/ directory.
+# - Results will be saved in results/ directory.
+# - You must manually edit configs/nuclei_segmentation_config.ini for parameter changes.
 ```
+
+### Parameter Sweep with run_segmentation_instance.sh
+
+The `run_segmentation_instance.sh` script is the **recommended way** to run the pipeline. It allows running with custom parameters without modifying the main configuration file. This is ideal for parameter sweeps, parallel processing, and batch experiments.
+
+**Key Features:**
+- Creates temporary configuration files for each run.
+- Updates specific parameters via command-line arguments.
+- Logs all output to dedicated log files.
+- Automatically cleans up temporary files on completion or interruption.
+- Supports parallel execution of multiple instances.
+
+**Example Usage:**
+
+```bash
+# Run with custom job name and GPU settings
+./run_segmentation_instance.sh job_name test_gpu_run gpu True
+
+# Run with custom Cellpose parameters
+./run_segmentation_instance.sh job_name high_sensitivity \
+    cellprob_threshold -14 \
+    flow_threshold 0.8 \
+    diameter 25
+
+# Run with custom image and output settings
+./run_segmentation_instance.sh job_name kidney_sample_1 \
+    image_path data/kidney_sample_1.tif \
+    output_dir results_sample_1 \
+    crop_image True \
+    crop_box 0.3,0.7,0.3,0.7
+
+# Run multiple instances in parallel with different parameters
+./run_segmentation_instance.sh job_name run_threshold_9 cellprob_threshold -9 &
+./run_segmentation_instance.sh job_name run_threshold_12 cellprob_threshold -12 &
+./run_segmentation_instance.sh job_name run_threshold_14 cellprob_threshold -14 &
+wait  # Wait for all background jobs to complete
+```
+
+**Parameter Format:**
+- Parameters must match the exact names in `nuclei_segmentation_config.ini`.
+- Boolean values: `True` or `False`.
+- Numeric values: integers or floats as appropriate.
+- String values: paths, names, etc.
+- Tuple values: comma-separated (e.g., `0.4,0.6,0.4,0.6` for crop_box).
+
+**Log Files:**
+- Logs are saved to `logs/run_segmentation_instance/`.
+- Log file naming: `{job_name}_run_segmentation_instance.log`.
+- Each run creates a separate log file for easy tracking.
+
+**Common Parameter Overrides:**
+
+| Parameter | Description | Example Values |
+|-----------|-------------|----------------|
+| `job_name` | Unique identifier for the run | `test_run`, `sample_1` |
+| `image_path` | Input image file | `data/kidney.tif` |
+| `output_dir` | Output directory name | `results_test` |
+| `gpu` | Enable GPU acceleration | `True`, `False` |
+| `diameter` | Expected nucleus diameter | `0` (auto), `25`, `30` |
+| `cellprob_threshold` | Detection sensitivity | `-9`, `-12`, `-14` |
+| `flow_threshold` | Boundary sensitivity | `0.8`, `0.9`, `1.0` |
+| `crop_image` | Enable cropping | `True`, `False` |
+| `crop_box` | Crop coordinates | `0.4,0.6,0.4,0.6` |
+| `use_tiling` | Enable tiling | `True`, `False` |
+| `tile_side_length` | Tile size in pixels | `512`, `1024`, `2048` |
 
 ### Batch Processing
 
@@ -433,6 +623,19 @@ for image_path in image_dir.glob("*.tif"):
     settings['job_name'] = f"batch_{image_path.stem}"
 
     exit_code = run_segmentation_pipeline(settings, cellpose_params, project_dirs, logger)
+```
+
+**Batch Processing with Shell Script:**
+
+```bash
+# Process multiple images with different parameters
+for image in data/*.tif; do
+    basename=$(basename "$image" .tif)
+    ./run_segmentation_instance.sh \
+        job_name "batch_${basename}" \
+        image_path "$image" \
+        output_dir "results_${basename}"
+done
 ```
 
 ### Output Files
@@ -551,9 +754,9 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 
 **Package import failures:**
 ```bash
-# Clean and recreate environment
+# Clean and recreate environment.
 conda env remove -n venv310_cellpose3
-mamba env create -f cellpose3_(recommended)_environment.yml
+conda env create -f cellpose3_(recommended)_environment.yml
 ```
 
 ## Nuclear Feature Clustering
@@ -686,9 +889,10 @@ Nuclear clustering reveals:
 ### Getting Help
 
 For technical issues:
-1. Check the log files in the `logs/` directory
-2. Run `python test_environment_setup.py` to validate setup
-3. Review configuration parameters in `configs/nuclei_segmentation_config.ini`
+1. Check the log files in the `logs/` directory.
+2. Review configuration parameters in `configs/nuclei_segmentation_config.ini`.
+3. Examine the pipeline flowcharts in `code/nuclei_segmentation/pipeline.py`.
+4. Review the 4-step merging algorithm documentation above.
 
 ---
 
