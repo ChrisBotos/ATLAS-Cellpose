@@ -1,7 +1,7 @@
 # Nuclei Segmentation Environment with Cellpose 3.0.
 # Author: Christos Botos.
 # Usage:
-#   mamba env create -f cellpose3_(recommended)_environment.yml
+#   conda env create -f cellpose3_(recommended)_environment.yml
 #   conda activate venv310_cellpose3
 #   python test_environment_setup.py
 
@@ -88,3 +88,4 @@ dependencies:
       - shellingham==1.5.4
       - lazy-loader==0.3
       - legacy-api-wrap==1.4
+      - rich==13.6.0
