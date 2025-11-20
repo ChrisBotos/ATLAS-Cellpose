@@ -1,18 +1,36 @@
-# Nuclei Segmentation Pipeline for Tissue Analysis
+# ATLAS-Cellpose
+## Adaptive Tiled Local Analysis Segmentation
 
-A computational pipeline for analyzing nuclear morphology and spatial organization in tissue sections, with specific optimization for ischemia-reperfusion (I/R) injury studies.
+**A memory-efficient computational pipeline for large-scale nuclear segmentation and morphological analysis in tissue sections**
 
 **Authors**: Christos Botos and Benedetta Manzato
 **Affiliation**: Human Genetics Department, Leiden University Medical Center
 **PI**: Ahmed Mahfouz
 
+---
+
+### Abstract
+
+ATLAS-Cellpose is a computational framework that enables memory-efficient analysis of large tissue sections through adaptive tiled processing combined with Cellpose3 deep learning segmentation. The method addresses the computational challenge of analyzing gigapixel tissue images by partitioning them into manageable tiles with systematic overlap resolution. ATLAS-Cellpose implements a four-step merging algorithm that preserves cross-boundary nuclei while eliminating redundant detections, enabling accurate quantification of nuclear morphology and spatial organization in large tissue sections. The pipeline has been optimized for ischemia-reperfusion injury studies in kidney tissue, providing comprehensive feature extraction (up to 40 morphological, spatial, and texture features) with perfect nucleus tracking throughout the analysis workflow. ATLAS-Cellpose is designed for high-performance computing environments and supports both GPU-accelerated and CPU-based processing.
+
 ## Overview
 
-This pipeline combines Cellpose3-based deep learning segmentation with advanced image processing to extract quantitative features from DAPI-stained nuclei. It addresses the computational challenges of processing large tissue sections while maintaining biological accuracy.
+ATLAS-Cellpose (**A**daptive **T**iled **L**ocal **A**nalysis **S**egmentation) is a specialized computational framework that integrates Cellpose3 deep learning segmentation with adaptive tiled processing and advanced image analysis. The pipeline addresses the computational challenges of processing large tissue sections through intelligent tiling strategies, systematic overlap resolution, and comprehensive morphological feature extraction from DAPI-stained nuclei.
+
+### Method Innovation
+
+The ATLAS approach enables analysis of tissue sections that exceed available memory constraints by:
+
+1. **Adaptive Tiling**: Dynamically partitioning large images into manageable tiles with configurable overlap
+2. **Local Analysis**: Processing each tile independently while maintaining global context
+3. **Systematic Merging**: Resolving tile boundaries through a four-step algorithm that preserves cross-boundary nuclei
+4. **Memory Efficiency**: Processing gigapixel images on standard workstations without memory overflow
+
+This combination of adaptive tiling and local analysis makes ATLAS-Cellpose particularly suitable for whole-slide imaging and large tissue section analysis where traditional approaches fail due to memory limitations.
 
 ### Research Applications
 
-The pipeline is designed for studying ischemia-reperfusion injury in kidney tissue, enabling quantitative analysis of:
+ATLAS-Cellpose is designed for studying ischemia-reperfusion injury in kidney tissue, enabling quantitative analysis of:
 - Nuclear morphology changes across time points
 - Spatial organization of cellular responses
 - Cell death pathway markers (apoptosis, pyroptosis, necroptosis, ferroptosis)
@@ -20,9 +38,9 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 
 ## Key Features
 
+- **Adaptive Tiled Processing**: Memory-efficient handling of large tissue sections through intelligent tiling with configurable overlap
 - **Cellpose3 Integration**: Optimized nuclear segmentation with adaptive diameter detection
-- **Tiled Processing**: Memory-efficient handling of large tissue sections
-- **Two-Phase Merging**: Systematic four-step algorithm for resolving tile overlaps while preserving cross-boundary nuclei
+- **Systematic Overlap Resolution**: Four-step merging algorithm for resolving tile boundaries while preserving cross-boundary nuclei
 - **CLAHE Parameter Testing**: Systematic contrast enhancement optimization with 63 parameter combinations
 - **Quality Control**: Comprehensive visualization and validation tools
 - **Performance Optimization**: GPU acceleration and intelligent memory management
@@ -33,13 +51,17 @@ The pipeline is designed for studying ischemia-reperfusion injury in kidney tiss
 
 ## Table of Contents
 
+- [Overview](#overview)
+- [Key Features](#key-features)
 - [Installation](#installation)
 - [Pipeline Architecture](#pipeline-architecture)
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Scientific Applications](#scientific-applications)
 - [Performance](#performance)
+- [Nuclear Feature Clustering](#nuclear-feature-clustering)
 - [Troubleshooting](#troubleshooting)
+- [Citation](#citation)
 
 ## Installation
 
@@ -130,7 +152,7 @@ Expected output: "🎉 ENVIRONMENT READY!"
 
 ### Running Tests
 
-The pipeline includes a comprehensive test suite to validate functionality:
+ATLAS-Cellpose includes a comprehensive test suite to validate functionality:
 
 ```bash
 conda activate venv310_cellpose3
@@ -145,8 +167,8 @@ python -m pytest tests/test_white_segmentation_masks_performance.py -v  # Perfor
 ```
 
 **Test Coverage:**
-- **Core Pipeline**: Segmentation, tiling, preprocessing, and feature extraction
-- **Merge Algorithms**: Two-phase merging, 4-step CPU algorithm, GPU integration
+- **Core Pipeline**: Segmentation, adaptive tiling, preprocessing, and feature extraction
+- **Merge Algorithms**: Systematic merging, 4-step CPU algorithm, GPU integration
 - **Performance**: Memory efficiency, large image handling, optimization
 - **Visualization**: Color generation, overlay creation, QC tools
 - **Integration**: End-to-end pipeline validation
@@ -155,7 +177,7 @@ The test suite has been cleaned to remove outdated debug tests and ensure all te
 
 ## CLAHE Parameter Testing
 
-The pipeline includes a specialized tool for optimizing CLAHE (Contrast Limited Adaptive Histogram Equalization) parameters:
+ATLAS-Cellpose includes a specialized tool for optimizing CLAHE (Contrast Limited Adaptive Histogram Equalization) parameters:
 
 ### Quick CLAHE Testing
 
@@ -191,33 +213,33 @@ temp_results/clahe_clip5.0_grid4x4.tif
 
 ## Pipeline Architecture
 
-The pipeline follows a modular workflow optimized for large tissue sections:
+ATLAS-Cellpose follows a modular workflow optimized for large tissue sections:
 
 ```
-Input Image (DAPI) → Preprocessing → Tiling → Cellpose Segmentation → Merging → Filtering → Quality Control → Feature Extraction
+Input Image (DAPI) → Preprocessing → Adaptive Tiling → Cellpose Segmentation → Systematic Merging → Filtering → Quality Control → Feature Extraction
 ```
 
 ### Core Components
 
 1. **Preprocessing**: CLAHE contrast enhancement, gamma correction, ROI cropping
-2. **Tiling**: Adaptive tiling with overlap for memory-efficient processing
+2. **Adaptive Tiling**: Intelligent tiling with configurable overlap for memory-efficient processing
 3. **Segmentation**: Cellpose3 with adaptive diameter detection
-4. **Merging**: Four-step algorithm for resolving tile overlaps
+4. **Systematic Merging**: Four-step algorithm for resolving tile overlaps
 5. **Quality Control**: Before/after visualizations and validation metrics
 6. **Feature Extraction**: Morphological and spatial feature computation
 
-### Tiled Processing
+### Adaptive Tiled Processing
 
-For large tissue sections, the pipeline automatically uses tiled processing:
+For large tissue sections, ATLAS-Cellpose automatically employs adaptive tiled processing:
 
 - **Tile Size**: 512×512 pixels (configurable)
 - **Overlap**: 20% between adjacent tiles
 - **Memory Management**: Processes tiles in batches to avoid memory overflow
-- **Merge Algorithm**: Four-step process to resolve overlapping segmentations
+- **Merge Algorithm**: Four-step systematic process to resolve overlapping segmentations
 
 ### Cellpose Integration
 
-The pipeline uses Cellpose3 for nuclear segmentation with optimized parameters:
+ATLAS-Cellpose integrates Cellpose3 for nuclear segmentation with optimized parameters:
 
 - **Model**: `nuclei` (pre-trained for nuclear morphology)
 - **Diameter**: Auto-detection (adaptive to tissue regions)
@@ -226,7 +248,7 @@ The pipeline uses Cellpose3 for nuclear segmentation with optimized parameters:
 
 ### Morphological Filtering
 
-The pipeline includes comprehensive morphological filtering to remove segmentation artifacts:
+ATLAS-Cellpose includes comprehensive morphological filtering to remove segmentation artifacts:
 
 - **Size Filtering**: Removes objects that are too small (debris) or too large (merged nuclei)
 - **Shape Filtering**: Filters based on circularity, solidity, and eccentricity
@@ -244,7 +266,7 @@ The pipeline includes comprehensive morphological filtering to remove segmentati
 
 ### Optimized Feature Extraction
 
-The pipeline includes both a comprehensive feature extraction system (43 features) and a streamlined simple extraction system (up to 40 features) with granular control:
+ATLAS-Cellpose includes both a comprehensive feature extraction system (43 features) and a streamlined simple extraction system (up to 40 features) with granular control:
 
 #### Feature Categories
 
@@ -327,7 +349,7 @@ extract_texture_features = True     # Enable for chromatin analysis (40 features
 
 ## Configuration
 
-The pipeline is configured through `configs/nuclei_segmentation_config.ini`:
+ATLAS-Cellpose is configured through `configs/nuclei_segmentation_config.ini`:
 
 ### Key Parameters
 
@@ -415,7 +437,7 @@ for image_path in image_dir.glob("*.tif"):
 
 ### Output Files
 
-The pipeline generates:
+ATLAS-Cellpose generates:
 
 - **Segmentation masks**: `segmentation_masks.npy` (labeled nuclei)
 - **Quality control images**: Before/after merge visualizations
@@ -445,7 +467,7 @@ Features include:
 
 ### Ischemia-Reperfusion Injury Analysis
 
-The pipeline enables quantitative analysis of nuclear changes in kidney I/R injury:
+ATLAS-Cellpose enables quantitative analysis of nuclear changes in kidney I/R injury:
 
 - **Time-course studies**: Compare nuclear morphology across recovery time points
 - **Spatial analysis**: Map cellular responses within tissue architecture
@@ -456,7 +478,7 @@ The pipeline enables quantitative analysis of nuclear changes in kidney I/R inju
 
 1. **Image acquisition**: DAPI-stained tissue sections
 2. **Preprocessing**: Contrast enhancement and ROI selection
-3. **Segmentation**: Automated nuclear detection with Cellpose3
+3. **Segmentation**: Automated nuclear detection with adaptive tiled processing
 4. **Feature extraction**: Morphological and spatial measurements
 5. **Analysis**: Statistical comparison across conditions/time points
 
@@ -670,8 +692,20 @@ For technical issues:
 
 ---
 
-**Repository**: [github.com/ChrisBotos/Nuclei-Segmentation-with-Cellpose](https://github.com/ChrisBotos/Nuclei-Segmentation-with-Cellpose)
+## Citation
+
+If you use ATLAS-Cellpose in your research, please cite:
+
+```
+Botos, C., Manzato, B., & Mahfouz, A. (2025). ATLAS-Cellpose: Adaptive Tiled Local Analysis
+Segmentation for Large-Scale Tissue Image Analysis. [Journal Name], [Volume], [Pages].
+```
+
+---
+
+**Repository**: [github.com/ChrisBotos/ATLAS-Cellpose](https://github.com/ChrisBotos/ATLAS-Cellpose)
 **Contact**: botoschristos@gmail.com
+**License**: [Specify License]
 
 
 

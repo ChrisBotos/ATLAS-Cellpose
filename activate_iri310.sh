@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Activation script for the iri310 conda environment.
+# Activation script for the ATLAS310 conda environment.
 # This script activates the environment and provides helpful information.
 #
 
@@ -8,11 +8,11 @@
 source ~/miniconda3/etc/profile.d/conda.sh
 
 # Activate the environment
-conda activate iri310
+conda activate ATLAS310
 
 # Check if activation was successful
-if [[ "$CONDA_DEFAULT_ENV" == "iri310" ]]; then
-    echo "✅ Successfully activated iri310 environment!"
+if [[ "$CONDA_DEFAULT_ENV" == "ATLAS310" ]]; then
+    echo "✅ Successfully activated ATLAS310 environment!"
     echo ""
     echo "Environment details:"
     echo "- Python: $(python --version)"
@@ -33,7 +33,7 @@ if [[ "$CONDA_DEFAULT_ENV" == "iri310" ]]; then
     echo "To deactivate the environment, run:"
     echo "  conda deactivate"
 else
-    echo "❌ Failed to activate iri310 environment!"
+    echo "❌ Failed to activate ATLAS310 environment!"
     echo "Make sure the environment exists. To create it, run:"
     echo "  mamba env create -f environment.yml"
     exit 1

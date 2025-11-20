@@ -63,7 +63,7 @@ dependencies:
 ## 3. Create the environment:
 ##    mamba env create -f cellpose4_environment.yml
 ## 4. Activate the environment:
-##    conda activate iri310
+##    conda activate ATLAS310
 ## 5. Test the environment:
 ##    python test_environment.py
 ##

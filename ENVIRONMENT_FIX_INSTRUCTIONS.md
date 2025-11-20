@@ -6,7 +6,7 @@ Run these commands in your WSL terminal:
 
 ```bash
 # Navigate to project directory
-cd /mnt/c/Projects/Nuclei-Segmentation-with-Cellpose
+cd /mnt/c/Projects/ATLAS-Cellpose
 
 # Remove broken environment
 conda env remove -n venv310_cellpose3 -y
@@ -31,7 +31,7 @@ If you prefer the automated script:
 
 ```bash
 # Navigate to project directory
-cd /mnt/c/Projects/Nuclei-Segmentation-with-Cellpose
+cd /mnt/c/Projects/ATLAS-Cellpose
 
 # Make script executable and run
 chmod +x fix_environment.sh

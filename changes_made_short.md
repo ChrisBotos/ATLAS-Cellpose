@@ -1,6 +1,19 @@
 # Changes Made - Brief Summary
 
-This document provides a numbered list of all major changes made to the I/R Injury Spatial Multiomics Analysis Pipeline.
+This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
+
+## November 20, 2025 - Professional Rebranding to ATLAS-Cellpose
+
+103. **Tool Renaming** - Renamed pipeline from "Nuclei Segmentation Pipeline" to "ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation)"
+104. **Professional Abstract Addition** - Added comprehensive abstract suitable for methods journal publication
+105. **Method Innovation Section** - Added detailed explanation of ATLAS approach and its advantages for large tissue sections
+106. **Enhanced Overview** - Expanded overview with emphasis on adaptive tiling and memory-efficient processing
+107. **Systematic Terminology Updates** - Updated all references throughout README to reflect ATLAS-Cellpose branding
+108. **Citation Section Addition** - Added professional citation template for academic publications
+109. **License Information** - Added license placeholder for publication requirements
+110. **Table of Contents Enhancement** - Updated TOC to include all major sections including citation
+111. **Professional Tone Refinement** - Ensured all language is suitable for methods journal submission
+112. **Comprehensive Documentation Review** - Verified all sections maintain professional scientific standards
 
 ## July 25, 2025 - Environment Issues Resolution and Server Deployment
 
