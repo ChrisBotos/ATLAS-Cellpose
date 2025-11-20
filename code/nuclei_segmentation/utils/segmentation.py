@@ -139,7 +139,6 @@ def _run_single_pass_cellpose(model, image: np.ndarray, cellpose_params: dict, l
     If Cellpose crashes we return a zero‑filled mask so that downstream logic
     remains robust.  All comments are full sentences.
     """
-    # Todo apply parallelization of the tiles for faster segmentation.
 
     logger.info("Running full‑image Cellpose segmentation (no tiling).")
     try:

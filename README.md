@@ -77,7 +77,7 @@ ATLAS-Cellpose is designed for studying ischemia-reperfusion injury in kidney ti
 
 ```bash
 # 1. Create the environment
-mamba env create -f cellpose3_environment.yml
+mamba env create -f cellpose3_(recommended)_environment.yml
 
 # 2. Activate the environment
 conda activate venv310_cellpose3
@@ -117,7 +117,7 @@ source ~/.bashrc
 
 # 2. Install mamba and create environment
 conda install -n base mamba -c conda-forge
-mamba env create -f cellpose3_environment.yml
+mamba env create -f cellpose3_(recommended)_environment.yml
 conda activate venv310_cellpose3
 
 # 3. Verify installation
@@ -553,7 +553,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```bash
 # Clean and recreate environment
 conda env remove -n venv310_cellpose3
-mamba env create -f cellpose3_environment.yml
+mamba env create -f cellpose3_(recommended)_environment.yml
 ```
 
 ## Nuclear Feature Clustering

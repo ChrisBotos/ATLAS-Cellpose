@@ -2,6 +2,12 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
+## November 20, 2025 - Requirements.txt Update for Cellpose3 Environment
+
+104. **Updated requirements.txt** - Synchronized all package versions with `cellpose3_(recommended)_environment.yml` for CUDA 11.8 compatibility
+105. **Updated README.md** - Changed all references from `cellpose3_environment.yml` to `cellpose3_(recommended)_environment.yml`
+106. **Updated cellpose3_(recommended)_environment.yml** - Fixed usage comment to reference correct filename
+
 ## November 20, 2025 - Professional Rebranding to ATLAS-Cellpose
 
 103. **Tool Renaming** - Renamed pipeline from "Nuclei Segmentation Pipeline" to "ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation)"
