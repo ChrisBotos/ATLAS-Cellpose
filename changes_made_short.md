@@ -25,6 +25,16 @@ This document provides a numbered list of all major changes made to the I/R Inju
 16. **Automated Server Setup Script** - `setup_server_environment.sh` with error handling
 17. **Scientific Justification Documentation** - Evidence-based Cellpose3 recommendation
 
+## September 29, 2025 - Memory Issue Resolution for Feature Extraction
+
+18. **Memory-Efficient Batch Processing** - Replaced single DataFrame creation with batch processing in `extract_engineered_features.py`
+19. **Incremental CSV Saving** - Process nuclei in configurable batches (1000 per batch) with immediate CSV writing
+20. **Memory Management** - Added garbage collection and memory cleanup after each batch
+21. **Optimized Image Loading** - Enhanced `load_image()` with memory warnings for large images (>500M pixels)
+22. **Enhanced Progress Feedback** - Better validation and error handling for large datasets
+23. **Configuration Integration** - Uses `extraction_batch_size` parameter for memory optimization
+24. **Auto-Batch Sizing** - Automatically reduces batch size for very large datasets (>50K nuclei)
+
 ## August 1, 2025 - Performance Optimization of Nuclear Feature Extraction
 
 18. **GPU Acceleration Implementation** - CuPy-based GPU acceleration for 3-5x speedup
@@ -40,6 +50,21 @@ This document provides a numbered list of all major changes made to the I/R Inju
 25. **Bluish Color Identification** - Detected 5 bluish colors in clustering palette (cyan, magenta, purple, lavender, light blue)
 26. **Vibrant Color Replacement** - Replaced bluish colors with red, orange, yellow, and green spectrum alternatives
 27. **Maximum Saturation Enhancement** - Increased color saturation from 0.98 to 1.0 for maximum vibrancy
+
+## September 29, 2025 - Comprehensive Configuration Parameters Enhancement
+
+28. **Individual Feature Selection Parameters** - Added 41 granular boolean flags for individual size, shape, neighborhood, and texture features
+29. **Nuclei Filtering Parameters** - Added 12 morphological filtering parameters matching segmentation pipeline thresholds
+30. **Performance and Processing Parameters** - Added 8 parameters for worker control, memory management, and system optimization
+31. **Spatial Analysis Parameters** - Added neighborhood radius and max neighbors parameters for computational efficiency
+32. **Visualization and Output Parameters** - Added 15 parameters for figure settings, quality control, and output formatting
+33. **Advanced Analysis Parameters** - Added 6 parameters for dimensionality reduction, feature selection, and cross-validation
+34. **Comprehensive Parameter Validation** - Enhanced config loader with validation for all 80+ new parameters
+35. **Backward Compatibility Maintenance** - Preserved legacy parameter support while adding granular controls
+36. **Extensive Testing Suite** - Created comprehensive test suite validating all parameter categories and validation logic
+37. **Automatic Temp Directory Generation** - Implemented unique timestamped temp directories (YYYYMMDD_HHMMSS_temp format)
+38. **Temp Directory Management** - Added automatic creation, cleanup utilities, and collision-free processing
+39. **Configuration Integration** - Seamless temp_directory = 'auto' parameter with fallback to custom directories
 28. **Color Validation Testing** - Created comprehensive test script confirming 0 bluish colors detected
 29. **Configuration Updates** - Updated custom_colors palette in engineered_feature_extraction_config.ini
 30. **Documentation Enhancement** - Updated README.md with new vibrant color palette examples

@@ -44,6 +44,7 @@ Notes:
 import traceback
 import sys
 import os
+import gc
 from pathlib import Path
 import time
 from typing import Dict, Any, List, Tuple
@@ -73,54 +74,76 @@ from code.engineered_feature_extraction.utils.config_loader import load_feature_
 
 # Initialize console and CLI.
 console = Console()
-app = typer.Typer(help="Simple nuclear feature extraction for kidney I/R injury analysis.")
+app = typer.Typer(help="Nuclear feature extraction for kidney I/R injury analysis.")
 
 
 def load_image(image_path: Path) -> np.ndarray:
     """
-    Load DAPI image from file.
-    
+    Load DAPI image from file with memory-efficient approach for large images.
+
     Args:
         image_path: Path to image file.
-        
+
     Returns:
         Grayscale image array.
     """
     console.print(f"[cyan]Loading image:[/cyan] {image_path}")
-    
+
     if not image_path.exists():
         raise FileNotFoundError(f"Image file not found: {image_path}")
-    
-    # Load image and convert to grayscale if needed.
-    img = Image.open(image_path)
-    if img.mode != 'L':
-        img = img.convert('L')
-    
-    gray = np.array(img)
+
+    # Check image size first to determine loading strategy.
+    with Image.open(image_path) as img:
+        image_size = img.size
+        image_pixels = image_size[0] * image_size[1]
+        console.print(f"[blue]ℹ[/blue] Image dimensions: {image_size[0]} x {image_size[1]} ({image_pixels:,} pixels)")
+
+        # For very large images (>500M pixels), provide memory warning.
+        if image_pixels > 500_000_000:
+            console.print(f"[yellow]⚠[/yellow] Large image detected ({image_pixels/1e6:.1f}M pixels). Loading may take time...")
+
+        # Convert to grayscale if needed.
+        if img.mode != 'L':
+            console.print(f"[cyan]Converting from {img.mode} to grayscale...[/cyan]")
+            img = img.convert('L')
+
+        # Load image array.
+        gray = np.array(img)
+
     console.print(f"[green]✓[/green] Image loaded: {gray.shape} pixels")
-    
+
     return gray
 
 
 def load_mask(mask_path: Path) -> np.ndarray:
     """
-    Load segmentation mask from numpy file.
-    
+    Load segmentation mask from numpy file with memory-efficient approach.
+
     Args:
         mask_path: Path to mask file (.npy).
-        
+
     Returns:
         Integer mask array with labeled nuclei.
     """
     console.print(f"[cyan]Loading mask:[/cyan] {mask_path}")
-    
+
     if not mask_path.exists():
         raise FileNotFoundError(f"Mask file not found: {mask_path}")
-    
+
+    # First, try to get mask info without loading entire array.
+    console.print(f"[cyan]Analyzing mask file...[/cyan]")
+
+    # Load mask - for very large masks, this might take time.
     mask = np.load(mask_path)
-    num_nuclei = len(np.unique(mask)) - 1  # Subtract background.
-    console.print(f"[green]✓[/green] Mask loaded: {num_nuclei} nuclei detected")
-    
+
+    # Count unique nuclei efficiently.
+    console.print(f"[cyan]Counting nuclei...[/cyan]")
+    unique_labels = np.unique(mask)
+    num_nuclei = len(unique_labels) - 1  # Subtract background (label 0).
+    max_label = unique_labels.max()
+
+    console.print(f"[green]✓[/green] Mask loaded: {num_nuclei:,} nuclei detected (max label: {max_label:,})")
+
     return mask
 
 
@@ -477,29 +500,32 @@ def extract_texture_features(
     return features
 
 
-def process_nuclei(
+def process_nuclei_batch(
     gray: np.ndarray,
     mask: np.ndarray,
+    output_path: Path,
     neighborhood_radius: float = 20.0,
-    extract_texture: bool = False
-) -> pd.DataFrame:
+    extract_texture: bool = False,
+    batch_size: int = 5000
+) -> None:
     """
     Process all nuclei to extract comprehensive morphological, neighborhood, and texture features.
+    Uses memory-efficient batch processing to handle large datasets without memory overflow.
 
     Args:
         gray: Grayscale DAPI image.
         mask: Segmentation mask with labeled nuclei.
+        output_path: Path where to save the final CSV file.
         neighborhood_radius: Radius for neighbor detection (pixels).
         extract_texture: Whether to extract texture features (computationally expensive).
-
-    Returns:
-        DataFrame with nucleus_id and all extracted features.
+        batch_size: Number of nuclei to process in each batch (default: 5000).
     """
     console.print("[cyan]Extracting nuclear region properties...[/cyan]")
+    console.print(f"[blue]ℹ[/blue] This may take several minutes for large datasets...")
 
-    # Extract region properties from mask.
+    # Extract region properties from mask - this is memory intensive for large datasets.
     props = regionprops(mask, intensity_image=gray)
-    console.print(f"[green]✓[/green] Found {len(props)} nuclear regions")
+    console.print(f"[green]✓[/green] Found {len(props):,} nuclear regions")
 
     # Pre-compute centroids and areas for spatial indexing.
     console.print("[cyan]Building spatial index for neighborhood analysis...[/cyan]")
@@ -510,8 +536,13 @@ def process_nuclei(
     spatial_index = build_spatial_index(centroids)
     console.print(f"[green]✓[/green] Spatial index built for {len(centroids)} nuclei")
 
-    # Process each nucleus with enhanced progress tracking.
-    results = []
+    # Calculate optimal batch size based on available memory.
+    total_nuclei = len(props)
+    if total_nuclei > 50000:  # For very large datasets, use smaller batches.
+        batch_size = min(batch_size, 2000)
+        console.print(f"[yellow]⚠[/yellow] Large dataset detected ({total_nuclei:,} nuclei). Using batch size: {batch_size}")
+    else:
+        console.print(f"[blue]ℹ[/blue] Using batch size: {batch_size}")
 
     # Feature timing tracking.
     feature_times = {
@@ -520,6 +551,14 @@ def process_nuclei(
         'neighborhood': 0.0,
         'texture': 0.0
     }
+
+    # Initialize CSV file with headers.
+    first_batch = True
+    csv_written = False
+
+    # Process nuclei in batches to avoid memory overflow.
+    num_batches = (total_nuclei + batch_size - 1) // batch_size
+    console.print(f"[blue]ℹ[/blue] Processing {total_nuclei:,} nuclei in {num_batches} batches")
 
     with Progress(
         SpinnerColumn(),
@@ -532,58 +571,96 @@ def process_nuclei(
     ) as progress:
 
         # Create main progress task.
-        main_task = progress.add_task("Processing nuclei...", total=len(props))
+        main_task = progress.add_task("Processing nuclei...", total=total_nuclei)
 
-        # Create feature category tasks.
-        size_task = progress.add_task("[blue]Size features[/blue]", total=len(props), visible=False)
-        shape_task = progress.add_task("[green]Shape features[/green]", total=len(props), visible=False)
-        neighborhood_task = progress.add_task("[magenta]Neighborhood features[/magenta]", total=len(props), visible=False)
-        texture_task = progress.add_task("[cyan]Texture features[/cyan]", total=len(props), visible=False)
+        # Create batch progress task.
+        batch_task = progress.add_task("Current batch", total=batch_size, visible=False)
 
-        for idx, region in enumerate(props):
-            # Update current nucleus info.
-            progress.update(main_task, description=f"Processing nucleus {region.label} ({idx+1}/{len(props)})")
+        for batch_idx in range(num_batches):
+            # Calculate batch boundaries.
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, total_nuclei)
+            current_batch_size = end_idx - start_idx
 
-            # Extract size and shape features with timing.
-            start_time = time.time()
-            basic_features = extract_basic_features(region)
-            basic_time = time.time() - start_time
+            console.print(f"[cyan]Processing batch {batch_idx + 1}/{num_batches}:[/cyan] nuclei {start_idx + 1}-{end_idx}")
 
-            # Split timing between size and shape (approximate).
-            feature_times['size'] += basic_time * 0.4  # Size features are ~40% of computation.
-            feature_times['shape'] += basic_time * 0.6  # Shape features are ~60% of computation.
+            # Reset batch progress.
+            progress.update(batch_task, completed=0, total=current_batch_size, visible=True)
 
-            # Update feature progress.
-            progress.update(size_task, advance=1)
-            progress.update(shape_task, advance=1)
+            # Process current batch.
+            batch_results = []
 
-            # Extract neighborhood features with timing.
-            start_time = time.time()
-            neighborhood_features = extract_neighborhood_features(
-                region, spatial_index, centroids, areas, idx, neighborhood_radius
-            )
-            feature_times['neighborhood'] += time.time() - start_time
+            for idx in range(start_idx, end_idx):
+                region = props[idx]
 
-            progress.update(neighborhood_task, advance=1)
+                # Update progress descriptions.
+                progress.update(main_task, description=f"Processing nucleus {region.label} ({idx+1}/{total_nuclei})")
+                progress.update(batch_task, description=f"Batch {batch_idx + 1}: nucleus {region.label}")
 
-            # Extract texture features with timing.
-            start_time = time.time()
-            texture_features = extract_texture_features(region, gray, extract_texture)
-            feature_times['texture'] += time.time() - start_time
+                # Extract size and shape features with timing.
+                start_time = time.time()
+                basic_features = extract_basic_features(region)
+                basic_time = time.time() - start_time
 
-            progress.update(texture_task, advance=1)
+                # Split timing between size and shape (approximate).
+                feature_times['size'] += basic_time * 0.4  # Size features are ~40% of computation.
+                feature_times['shape'] += basic_time * 0.6  # Shape features are ~60% of computation.
 
-            # Combine all features.
-            result = {'nucleus_id': region.label}
-            result.update(basic_features)
-            result.update(neighborhood_features)
-            result.update(texture_features)
+                # Extract neighborhood features with timing.
+                start_time = time.time()
+                neighborhood_features = extract_neighborhood_features(
+                    region, spatial_index, centroids, areas, idx, neighborhood_radius
+                )
+                feature_times['neighborhood'] += time.time() - start_time
 
-            results.append(result)
-            progress.update(main_task, advance=1)
+                # Extract texture features with timing.
+                start_time = time.time()
+                texture_features = extract_texture_features(region, gray, extract_texture)
+                feature_times['texture'] += time.time() - start_time
 
-    # Convert to DataFrame.
-    df = pd.DataFrame(results)
+                # Combine all features.
+                result = {'nucleus_id': region.label}
+                result.update(basic_features)
+                result.update(neighborhood_features)
+                result.update(texture_features)
+
+                batch_results.append(result)
+
+                # Update progress.
+                progress.update(main_task, advance=1)
+                progress.update(batch_task, advance=1)
+
+            # Convert batch to DataFrame and save.
+            batch_df = pd.DataFrame(batch_results)
+
+            # Save batch to CSV (append mode after first batch).
+            if first_batch:
+                batch_df.to_csv(output_path, index=False, float_format='%.6f', mode='w')
+                first_batch = False
+                csv_written = True
+                console.print(f"[green]✓[/green] Saved batch {batch_idx + 1}: {len(batch_df)} nuclei (created new file)")
+            else:
+                batch_df.to_csv(output_path, index=False, float_format='%.6f', mode='a', header=False)
+                console.print(f"[green]✓[/green] Saved batch {batch_idx + 1}: {len(batch_df)} nuclei (appended to file)")
+
+            # Clear batch results to free memory.
+            del batch_results
+            del batch_df
+
+            # Force garbage collection after each batch.
+            gc.collect()
+
+        # Hide batch progress when done.
+        progress.update(batch_task, visible=False)
+
+    if not csv_written:
+        console.print("[red]✗[/red] No data was written to CSV file")
+        return
+
+    # Read final CSV to get total count and display summary.
+    console.print(f"[cyan]Reading final results for summary...[/cyan]")
+    final_df = pd.read_csv(output_path)
+    total_features = len(final_df.columns) - 1  # Subtract nucleus_id column.
 
     # Display feature timing summary.
     console.print("\n[bold blue]📊 FEATURE EXTRACTION TIMING[/bold blue]")
@@ -594,7 +671,7 @@ def process_nuclei(
     timing_table.add_column("Features", style="magenta")
 
     for category, total_time in feature_times.items():
-        per_nucleus = total_time / len(props) * 1000  # Convert to milliseconds.
+        per_nucleus = total_time / total_nuclei * 1000  # Convert to milliseconds.
         if category == 'size':
             feature_count = "10"
         elif category == 'shape':
@@ -612,63 +689,35 @@ def process_nuclei(
         )
 
     console.print(timing_table)
-    console.print(f"[green]✓[/green] Extracted {len(df.columns)-1} features from {len(df)} nuclei")
-
-    return df
-
-
-def save_results(df: pd.DataFrame, output_path: Path) -> None:
-    """
-    Save feature extraction results to CSV file.
-    
-    Args:
-        df: DataFrame with extracted features.
-        output_path: Path for output CSV file.
-    """
-    console.print(f"[cyan]Saving results to:[/cyan] {output_path}")
-    
-    # Create output directory if needed.
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Save to CSV with proper formatting.
-    df.to_csv(output_path, index=False, float_format='%.6f')
-    
-    console.print(f"[green]✓[/green] Results saved: {len(df)} nuclei with {len(df.columns)-1} features")
+    console.print(f"[green]✓[/green] Extracted {total_features} features from {len(final_df):,} nuclei")
+    console.print(f"[green]✓[/green] Results saved to: {output_path}")
 
     # Display summary statistics for key features.
     console.print("\n[bold blue]📊 FEATURE SUMMARY[/bold blue]")
+    summary_table = Table(show_header=True, header_style="bold cyan")
+    summary_table.add_column("Feature", style="cyan")
+    summary_table.add_column("Mean", style="green")
+    summary_table.add_column("Std", style="yellow")
+    summary_table.add_column("Min", style="red")
+    summary_table.add_column("Max", style="magenta")
 
-    # Size features summary.
-    console.print("[bold cyan]Size Features:[/bold cyan]")
-    console.print(f"  [cyan]Area:[/cyan] mean={df['area'].mean():.1f}, std={df['area'].std():.1f}")
-    console.print(f"  [cyan]Perimeter:[/cyan] mean={df['perimeter'].mean():.1f}, std={df['perimeter'].std():.1f}")
-    console.print(f"  [cyan]Major Axis:[/cyan] mean={df['major_axis_length'].mean():.1f}, std={df['major_axis_length'].std():.1f}")
-    console.print(f"  [cyan]Minor Axis:[/cyan] mean={df['minor_axis_length'].mean():.1f}, std={df['minor_axis_length'].std():.1f}")
+    # Key morphological features.
+    key_features = ['area', 'perimeter', 'circularity', 'eccentricity', 'solidity']
+    for feature in key_features:
+        if feature in final_df.columns:
+            summary_table.add_row(
+                feature.title(),
+                f"{final_df[feature].mean():.3f}",
+                f"{final_df[feature].std():.3f}",
+                f"{final_df[feature].min():.3f}",
+                f"{final_df[feature].max():.3f}"
+            )
 
-    # Shape features summary.
-    console.print("[bold cyan]Shape Features:[/bold cyan]")
-    console.print(f"  [cyan]Circularity:[/cyan] mean={df['circularity'].mean():.3f}, std={df['circularity'].std():.3f}")
-    console.print(f"  [cyan]Eccentricity:[/cyan] mean={df['eccentricity'].mean():.3f}, std={df['eccentricity'].std():.3f}")
-    console.print(f"  [cyan]Solidity:[/cyan] mean={df['solidity'].mean():.3f}, std={df['solidity'].std():.3f}")
-    console.print(f"  [cyan]Aspect Ratio:[/cyan] mean={df['aspect_ratio'].mean():.2f}, std={df['aspect_ratio'].std():.2f}")
-    console.print(f"  [cyan]Elongation:[/cyan] mean={df['elongation'].mean():.3f}, std={df['elongation'].std():.3f}")
+    console.print(summary_table)
 
-    # Neighborhood features summary.
-    console.print("[bold cyan]Neighborhood Features:[/bold cyan]")
-    console.print(f"  [cyan]Neighbor Count:[/cyan] mean={df['neighbor_count'].mean():.1f}, std={df['neighbor_count'].std():.1f}")
-    console.print(f"  [cyan]Neighbor Density:[/cyan] mean={df['neighbor_density'].mean():.4f}, std={df['neighbor_density'].std():.4f}")
-    console.print(f"  [cyan]Nearest Distance:[/cyan] mean={df['nearest_neighbor_distance'].mean():.1f}, std={df['nearest_neighbor_distance'].std():.1f}")
-    console.print(f"  [cyan]Clustering Coeff:[/cyan] mean={df['clustering_coefficient'].mean():.3f}, std={df['clustering_coefficient'].std():.3f}")
-    console.print(f"  [cyan]Isolation Score:[/cyan] mean={df['isolation_score'].mean():.3f}, std={df['isolation_score'].std():.3f}")
+    # Clean up final_df to free memory.
+    del final_df
 
-    # Texture features summary (if available).
-    if 'intensity_mean' in df.columns:
-        console.print("[bold cyan]Texture Features:[/bold cyan]")
-        console.print(f"  [cyan]Intensity Mean:[/cyan] mean={df['intensity_mean'].mean():.1f}, std={df['intensity_mean'].std():.1f}")
-        console.print(f"  [cyan]Intensity Std:[/cyan] mean={df['intensity_std'].mean():.1f}, std={df['intensity_std'].std():.1f}")
-        console.print(f"  [cyan]Texture Entropy:[/cyan] mean={df['texture_entropy'].mean():.3f}, std={df['texture_entropy'].std():.3f}")
-        console.print(f"  [cyan]GLCM Contrast:[/cyan] mean={df['glcm_contrast'].mean():.3f}, std={df['glcm_contrast'].std():.3f}")
-        console.print(f"  [cyan]GLCM Homogeneity:[/cyan] mean={df['glcm_homogeneity'].mean():.3f}, std={df['glcm_homogeneity'].std():.3f}")
 
 
 def main(
@@ -689,7 +738,7 @@ def main(
         python extract_engineered_features.py \\
             --config ../../configs/engineered_feature_extraction_config.ini
     """
-    console.print("\n[bold blue]🧬 SIMPLE NUCLEAR FEATURE EXTRACTION 🧬[/bold blue]\n")
+    console.print("\n[bold blue]🧬 NUCLEAR FEATURE EXTRACTION 🧬[/bold blue]\n")
 
     try:
         start_time = time.time()
@@ -729,15 +778,24 @@ def main(
         
         console.print(f"[green]✓[/green] Image and mask dimensions validated")
 
-        # Step 3: Extract features with neighborhood and texture analysis.
+        # Step 3: Extract features with neighborhood and texture analysis using batch processing.
         neighborhood_radius = float(settings.get('neighborhood_radius', 20.0))
         extract_texture = str(settings.get('extract_texture_features', 'False')).lower() == 'true'
+        batch_size = int(settings.get('extraction_batch_size', 1000))  # Use config batch size.
+
         console.print(f"[cyan]Using neighborhood radius:[/cyan] {neighborhood_radius} pixels")
         console.print(f"[cyan]Texture features:[/cyan] {'enabled' if extract_texture else 'disabled'}")
-        df = process_nuclei(gray, mask_array, neighborhood_radius, extract_texture)
+        console.print(f"[cyan]Batch size:[/cyan] {batch_size} nuclei per batch")
 
-        # Step 4: Save results.
-        save_results(df, output_path)
+        # Process nuclei in batches and save directly to CSV.
+        process_nuclei_batch(gray, mask_array, output_path, neighborhood_radius, extract_texture, batch_size)
+
+        # Step 4: Validate output file.
+        if not output_path.exists():
+            console.print(f"[red]✗[/red] Feature extraction failed - output file not created")
+            raise FileNotFoundError(f"Output file not created: {output_path}")
+
+        console.print(f"[green]✓[/green] Feature extraction completed successfully")
 
         # Display completion summary.
         end_time = time.time()

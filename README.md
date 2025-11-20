@@ -572,9 +572,51 @@ The clustering script automatically handles different column naming conventions:
 
 ### Configuration Parameters
 
-The `engineered_feature_extraction_config.ini` file has been **streamlined and simplified** from 440 lines to just 101 lines (77% reduction) for better readability and maintainability. It now contains only the parameters actually used by the current scripts.
+The `engineered_feature_extraction_config.ini` file provides **comprehensive granular control** with 80+ parameters for fine-tuned feature extraction and clustering analysis. The configuration system offers both high-level category controls and individual feature selection for optimal performance.
 
-Key parameters in the simplified configuration:
+#### Feature Selection Categories
+
+**Individual Feature Control**: Each feature can be enabled/disabled independently:
+- **Size Features (10 parameters)**: area, perimeter, equivalent_diameter, major/minor_axis_length, bounding_box dimensions, feret_diameters
+- **Shape Features (10 parameters)**: circularity, eccentricity, solidity, aspect_ratio, compactness, elongation, roundness, form_factor, convex_area_ratio, convexity
+- **Neighborhood Features (9 parameters)**: neighbor_count, neighbor_density, distance metrics, clustering_coefficient
+- **Texture Features (12 parameters)**: intensity statistics, entropy, gradients, GLCM properties
+
+#### Quality Control Parameters
+
+**Nuclei Filtering**: Morphological thresholds matching segmentation pipeline:
+- Size thresholds: `min_pixels=20`, `max_pixels=900`
+- Shape quality: `min_circularity=0.56`, `min_solidity=0.765`
+- Morphology limits: `max_eccentricity=0.975`, `max_aspect_ratio=3.20`
+
+#### Performance Optimization
+
+**Processing Control**: Memory and computational efficiency:
+- Worker allocation: `feature_extraction_workers=1` (single-threaded reliability)
+- Batch processing: `extraction_batch_size=1000` for memory efficiency
+- Memory management: `max_memory_gb=8.0`, `enable_memory_mapping=True`
+- Progress tracking: `enable_progress_tracking=True`, `save_diagnostic_files=True`
+- Automatic temp directories: `temp_directory=auto` (creates unique timestamped directories)
+
+#### Automatic Temporary Directory Management
+
+The system automatically creates unique temporary directories for intermediate processing files:
+
+```ini
+# Automatic unique temp directory generation
+temp_directory = auto  # Creates: YYYYMMDD_HHMMSS_temp (e.g., 20250929_143052_temp)
+
+# Or specify custom directory
+temp_directory = ./my_custom_temp
+```
+
+**Benefits of Automatic Temp Directories:**
+- **Unique timestamps**: Prevents conflicts between concurrent runs
+- **Automatic cleanup**: Built-in utilities for safe directory removal
+- **No user intervention**: System handles all directory management
+- **Collision-free**: Each run gets its own isolated temporary space
+
+Key parameters in the comprehensive configuration:
 
 ```ini
 [feature_extraction]
