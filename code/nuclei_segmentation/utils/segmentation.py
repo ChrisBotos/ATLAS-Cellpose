@@ -52,8 +52,14 @@ from pathlib import Path
 import numpy as np
 from numpy.lib.format import open_memmap
 
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+
 from .tiling import split_image_into_tiles
 from cellpose_merge.merge_tiles import merge_masks_streaming
+
+# Initialize Rich console for formatted output.
+console = Console()
 
 # Alias for readability.
 MaskReturn = Tuple[np.memmap, List[None], int]

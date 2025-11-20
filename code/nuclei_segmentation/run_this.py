@@ -39,10 +39,15 @@ import traceback
 import json
 from pathlib import Path
 
+from rich.console import Console
+
 from utils.project_setup import load_config
 from utils.logging_utils import setup_logging
 from utils.debug_utils import setup_debug
 from pipeline import run_segmentation_pipeline
+
+# Initialize Rich console for formatted output.
+console = Console()
 
 
 def main():
@@ -81,8 +86,6 @@ def main():
         logger = setup_logging(settings["output_dir"], debug_mode)
         snap = setup_debug(settings)
 
-        logger.info("==== Kidney I/R Nuclei Segmentation Pipeline Started ====")
-
         # 5) Run the pipeline.
         exit_code = run_segmentation_pipeline(
             settings,
@@ -96,8 +99,9 @@ def main():
 
     except Exception as e:
         # Always print full traceback—no swallowing errors.
-        print(f"[FATAL ERROR] {e}", flush=True)
-        print(traceback.format_exc(), flush=True)
+        console.print(f"\n[red bold]✗ FATAL ERROR[/red bold]: {e}\n")
+        console.print("[red]Traceback:[/red]")
+        console.print(traceback.format_exc())
         return 1
 
 

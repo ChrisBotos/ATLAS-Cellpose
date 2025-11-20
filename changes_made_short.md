@@ -2,6 +2,39 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
+## November 20, 2025 - Debug Mode and Rich Console Integration - FIXED MARKUP ERRORS
+
+132. **Fixed Rich Markup Syntax** - Replaced incorrect `[1m]` and `[/1m]` with proper `[bold]` and `[/bold]` tags throughout
+133. **Updated logging_utils.py** - Integrated Rich library with RichHandler, set show_level=False to hide "INFO" prefix, conditional console output based on debug_mode
+134. **Updated pipeline.py** - Added Rich console integration, fixed all markup syntax errors, updated setup_model() to use Rich formatting
+135. **Updated run_this.py** - Added Rich console for fatal error handling with corrected markup syntax
+136. **Updated segmentation.py** - Added Rich console and Progress imports (partial - needs completion)
+137. **Console Handler Levels** - When debug_mode=False: only WARNING+ shown on console; when debug_mode=True: INFO+ shown on console; DEBUG always file-only
+138. **Color-Coded Messages** - Implemented Rich formatting: [cyan] for info, [green]✓ for success, [red]✗ for errors, [yellow]⚠ for warnings
+139. **Formatted Numbers** - Used [bold cyan] for highlighting important numerical values instead of incorrect ANSI codes
+
+## November 20, 2025 - Fixed DEBUG Prints in overlay_masks.py
+
+140. **Added debug_mode parameter to OverlayConfig** - Added debug_mode: bool = False to control verbose output
+141. **Created debug_print() helper function** - Global function that only prints when _DEBUG_MODE flag is True
+142. **Replaced all 53 DEBUG print statements** - Converted print(f"DEBUG: ...") to debug_print(f"...") throughout overlay_masks.py
+143. **Set global debug mode flag** - Added global _DEBUG_MODE flag set from config.debug_mode in overlay() function
+144. **Updated config_dict** - Added debug_mode to config dictionary passed to worker processes
+145. **Fixed pipeline.py debug_mode reference** - Changed from undefined debug_mode variable to settings.get("debug_mode", False)
+146. **Added --debug CLI flag** - Added command line argument for debug mode in overlay_masks.py main()
+147. **Replaced all WARNING prints** - Converted 15 WARNING prints to console.print with [yellow]⚠[/yellow] formatting
+148. **Replaced all ERROR prints** - Converted ERROR prints to console.print with [red]✗[/red] formatting
+149. **Updated success messages** - Final overlay completion messages now use Rich formatting with [green]✓[/green]
+150. **Made config output conditional** - Processing configuration only shown when debug_mode=True
+
+**REMAINING WORK:**
+- Complete refactoring of segmentation.py (88 logger calls need review)
+- Update all utility files in code/nuclei_segmentation/utils/
+- Update all files in code/nuclei_segmentation/cellpose_merge/
+- Update engineered_feature_extraction scripts
+- Add Rich Progress bars where appropriate
+- Test that debug_mode=False produces clean, minimal output
+
 ## November 20, 2025 - README Cleanup and Documentation Enhancement
 
 121. **Removed Outdated Mamba References** - Replaced all mamba commands with conda commands (mamba is optional, not required).

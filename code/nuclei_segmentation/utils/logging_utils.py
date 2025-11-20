@@ -21,6 +21,12 @@ from datetime import datetime
 import numpy as np
 import imageio
 
+from rich.console import Console
+from rich.logging import RichHandler
+
+# Initialize Rich console for formatted output.
+console = Console()
+
 
 def setup_logging(output_dir, debug_mode=False):
     """
@@ -29,6 +35,7 @@ def setup_logging(output_dir, debug_mode=False):
     Creates a dual-output logging system that writes detailed logs to both a file
     and the console. The file logger captures all details including timestamps,
     while the console logger provides a more concise output for interactive use.
+    Uses Rich library for beautiful formatted console output.
 
     Args:
         output_dir: Directory where log files will be saved.
@@ -58,7 +65,6 @@ def setup_logging(output_dir, debug_mode=False):
 
     # Create formatters for different outputs.
     file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_formatter = logging.Formatter('%(levelname)s - %(message)s')
 
     # File handler for complete logging.
     fh = logging.FileHandler(log_file)
@@ -66,22 +72,35 @@ def setup_logging(output_dir, debug_mode=False):
     fh.setLevel(logging.DEBUG if debug_mode else logging.INFO)
     logger.addHandler(fh)
 
-    # Console handler for interactive feedback.
-    ch = logging.StreamHandler(sys.stdout)
-    ch.setFormatter(console_formatter)
-    ch.setLevel(logging.INFO)  # Console always shows INFO and above.
-    logger.addHandler(ch)
+    # Rich console handler for beautiful interactive feedback.
+    # When debug_mode=False, only show WARNING and above on console.
+    # When debug_mode=True, show INFO and above on console.
+    # DEBUG messages always only go to the log file.
+    rich_handler = RichHandler(
+        console=console,
+        show_time=False,
+        show_path=False,
+        show_level=False,  # Don't show log level prefix.
+        markup=True,
+        rich_tracebacks=True,
+        tracebacks_show_locals=debug_mode
+    )
+    # Set console handler level based on debug_mode.
+    rich_handler.setLevel(logging.INFO if debug_mode else logging.WARNING)
+    logger.addHandler(rich_handler)
 
-    logger.info("===== Nuclei Segmentation Pipeline Started =====")
-    logger.info(f"Log file: {log_file}")
+    # Print startup message with Rich formatting.
+    console.print("\n[cyan bold]═════ Nuclei Segmentation Pipeline Started ═════[/cyan bold]\n")
+    console.print(f"[blue]ℹ[/blue] Log file: [dim]{log_file}[/dim]")
 
     # Note: Config file backup is now handled in the load_config function.
     # We log the existence of the backup file if it exists.
     config_backup_path = os.path.join(output_dir, "config_used.ini")
     if os.path.exists(config_backup_path):
-        logger.info(f"Configuration file is backed up at: {config_backup_path}")
+        console.print(f"[blue]ℹ[/blue] Configuration backed up at: [dim]{config_backup_path}[/dim]")
     else:
-        logger.warning("Configuration backup file not found. This should have been created during config loading.")
+        if debug_mode:
+            console.print("[yellow]⚠[/yellow] Configuration backup file not found")
 
     return logger
 
@@ -109,6 +128,8 @@ def setup_debug(settings):
     debug_dir = os.path.join(settings["output_dir"], "debug")
     os.makedirs(debug_dir, exist_ok=True)
 
+    console.print(f"[blue]ℹ[/blue] Debug mode enabled - snapshots will be saved to: [dim]{debug_dir}[/dim]")
+
     def snap(tag, arr):
         """
         Save an intermediate processing result as a debug image.
@@ -133,7 +154,11 @@ def setup_debug(settings):
 
         # Save with timestamp to avoid overwriting previous debug images.
         timestamp = datetime.now().strftime("%H%M%S")
-        imageio.imwrite(os.path.join(debug_dir, f"{tag}_{timestamp}.tif"), v)
+        output_path = os.path.join(debug_dir, f"{tag}_{timestamp}.tif")
+        imageio.imwrite(output_path, v)
+
+        console.print(f"[dim]  Debug snapshot saved: {tag}[/dim]")
+
         return arr  # Return the original array for inline use.
 
     return snap

@@ -49,6 +49,8 @@ from skimage import io as skio
 import torch
 from cellpose import models
 
+from rich.console import Console
+
 from utils.preprocessing import preprocess_image
 from utils.segmentation import run_cellpose_on_tiles
 from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
@@ -57,6 +59,9 @@ from utils.overlay_masks import overlay
 from utils.filter_masks import filter_masks_programmatic
 
 from cellpose_merge.merge_tiles import merge_masks_streaming
+
+# Initialize Rich console for formatted output.
+console = Console()
 
 
 def log_config(logger, settings, CELLPOSE_PARAMS):
@@ -69,7 +74,7 @@ def log_config(logger, settings, CELLPOSE_PARAMS):
             logger.debug(f"{k}: {v}")
 
 
-def setup_model(CELLPOSE_PARAMS, logger):
+def setup_model(CELLPOSE_PARAMS, logger, debug_mode=False):
     """
     Initialize Cellpose model for nuclear segmentation with configurable version support.
 
@@ -82,6 +87,8 @@ def setup_model(CELLPOSE_PARAMS, logger):
         Must include 'use_cellpose4' boolean parameter.
     logger : logging.Logger
         Logger instance for status reporting.
+    debug_mode : bool
+        If True, shows detailed parameter information.
 
     Returns
     -------
@@ -95,33 +102,36 @@ def setup_model(CELLPOSE_PARAMS, logger):
 
     # Log which Cellpose version is being used.
     cellpose_version = "Cellpose4" if use_cellpose4 else "Cellpose3"
-    logger.info(f"Using {cellpose_version} for nuclei segmentation")
+    console.print(f"\n[cyan]Initializing {cellpose_version} model...[/cyan]")
 
     if use_cellpose4:
         # Use CellposeModel (Cellpose4) with model_type parameter.
         model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
-        logger.info(f"Initialized Cellpose4 model: {model_type}")
+        console.print(f"[green]✓[/green] Cellpose4 model initialized: [bold]{model_type}[/bold]")
     else:
         # Try to use Cellpose (Cellpose3) with model_type parameter.
         # Note: This requires Cellpose3 to be installed instead of Cellpose4.
         try:
             model = models.Cellpose(model_type=model_type, gpu=(device == 'cuda'))
-            logger.info(f"Initialized Cellpose3 model: {model_type}")
+            console.print(f"[green]✓[/green] Cellpose3 model initialized: [bold]{model_type}[/bold]")
         except AttributeError:
-            logger.warning("Cellpose3 API not available in current installation.")
-            logger.warning("Falling back to Cellpose4 (CellposeModel) for compatibility.")
-            logger.warning("To use true Cellpose3, please install cellpose<4.0")
+            console.print("[yellow]⚠[/yellow] Cellpose3 API not available, falling back to Cellpose4")
+            if debug_mode:
+                logger.warning("To use true Cellpose3, please install cellpose<4.0")
             model = models.CellposeModel(model_type=model_type, gpu=(device == 'cuda'))
-            logger.info(f"Using Cellpose4 model as fallback: {model_type}")
-            # Update the parameter to reflect actual usage
+            console.print(f"[green]✓[/green] Using Cellpose4 model as fallback: [bold]{model_type}[/bold]")
+            # Update the parameter to reflect actual usage.
             CELLPOSE_PARAMS["use_cellpose4"] = True
 
-    logger.info(f"Using device: {device}")
+    # Display device information.
     if device == 'cuda':
         try:
-            logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
+            gpu_name = torch.cuda.get_device_name(0)
+            console.print(f"[green]✓[/green] Using GPU: [bold]{gpu_name}[/bold]")
         except Exception:
-            logger.warning("Failed to get CUDA device name.")
+            console.print(f"[green]✓[/green] Using device: [bold]{device}[/bold]")
+    else:
+        console.print(f"[blue]ℹ[/blue] Using device: [bold]{device}[/bold]")
 
     # Log key Cellpose parameters for adaptive diameter detection.
     diameter = CELLPOSE_PARAMS.get("diameter", 0)
@@ -129,15 +139,16 @@ def setup_model(CELLPOSE_PARAMS, logger):
     cellprob_threshold = CELLPOSE_PARAMS.get("cellprob_threshold", -9.0)
     flow_threshold = CELLPOSE_PARAMS.get("flow_threshold", 0.4)
 
-    logger.info(f"Cellpose parameters: diameter={diameter} (0/None=auto-detect), resample={resample}")
-    logger.info(f"Detection thresholds: cellprob={cellprob_threshold}, flow={flow_threshold}")
+    if debug_mode:
+        console.print(f"[dim]  Parameters: diameter={diameter}, resample={resample}[/dim]")
+        console.print(f"[dim]  Thresholds: cellprob={cellprob_threshold}, flow={flow_threshold}[/dim]")
 
     if (diameter == 0 or diameter is None) and resample:
-        logger.info("ADAPTIVE DIAMETER: Adaptive diameter detection enabled - will optimize per tile")
+        console.print("[cyan]  Mode: Adaptive diameter detection enabled[/cyan]")
     elif (diameter == 0 or diameter is None) and not resample:
-        logger.warning("WARNING: diameter=0/None with resample=False may not work optimally")
+        console.print("[yellow]⚠[/yellow] Warning: diameter=0/None with resample=False may not work optimally")
     else:
-        logger.info(f"FIXED DIAMETER: Fixed diameter mode: {diameter}px")
+        console.print(f"[cyan]  Mode: Fixed diameter = [bold]{diameter}px[/bold][/cyan]")
 
     return model
 
@@ -270,10 +281,16 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
         Path(output_dir / "visualizations").mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Creating high-quality overlay: {image_path} × {mask_path}")
+
+        # Import OverlayConfig to pass debug_mode.
+        from utils.overlay_masks import OverlayConfig
+
+        overlay_config = OverlayConfig(debug_mode=settings.get("debug_mode", False))
         overlay(
             image_path=image_path,
             mask_path=mask_path,
             output_path=overlay_output_path,
+            config=overlay_config
         )
 
         logger.info("Overlay generation completed successfully")
@@ -294,6 +311,9 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         int: 0 if successful, 1 otherwise.
     """
     try:
+        # Get debug mode setting.
+        debug_mode = settings.get("debug_mode", False)
+
         # Log current configuration.
         log_config(logger, settings, CELLPOSE_PARAMS)
 
@@ -304,11 +324,12 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
 
         # Check image exists.
         if not image_path.exists():
+            console.print(f"[red]✗[/red] Image file not found: {image_path}")
             logger.error(f"Image file not found: {image_path}")
             return 1
 
-        logger.info(f"Image path: {image_path}")
-        logger.info(f"Output directory: {output_dir}")
+        console.print(f"\n[cyan]Input image:[/cyan] [dim]{image_path}[/dim]")
+        console.print(f"[cyan]Output directory:[/cyan] [dim]{output_dir}[/dim]")
 
         if settings.get("use_previous_results"):
             # Use the already-resolved path from settings to avoid path concatenation issues.
@@ -329,15 +350,16 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
 
         if not settings.get("skip_and_copy_segmentation", False) or not settings.get("use_previous_results", False):
             # Step 2: Load Cellpose model (with GPU if available).
-            model = setup_model(CELLPOSE_PARAMS, logger)
+            model = setup_model(CELLPOSE_PARAMS, logger, debug_mode)
 
             # Step 3: Segmentation.
-            logger.info("Running Cellpose segmentation...")
+            console.print("\n[cyan]Running Cellpose segmentation...[/cyan]")
             masks, flows, total_cells = run_cellpose_on_tiles(model, image, CELLPOSE_PARAMS, settings, logger)
 
             # Step 4: Save raw outputs.
             save_outputs(masks, flows, output_dir, logger)
-            logger.info("Segmentation outputs saved to: {}".format(output_dir / "masks" / "segmentation_masks.npy"))
+            if debug_mode:
+                logger.info("Segmentation outputs saved to: {}".format(output_dir / "masks" / "segmentation_masks.npy"))
         else:
             # If non_merged_segmentation_masks.npy exists, load it instead of segmentation_masks.npy.
             if (previous_results_dir / "masks" / "non_merged_segmentation_masks.npy").exists():
@@ -351,7 +373,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
         if not settings.get("skip_and_copy_merging", False) or not settings.get("use_previous_results", False):
             # Step 5: Merge masks in tile overlaps.
             if settings.get("use_tiling", False):
-                logger.info("Merging masks across tile overlaps...")
+                console.print("\n[cyan]Merging masks across tile overlaps...[/cyan]")
 
                 # Convert fractional overlap to pixels for the merge function.
                 # This ensures consistency with the segmentation tiling parameters.
@@ -366,7 +388,8 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                 # Ensure overlap doesn't exceed half the tile size.
                 overlap_pixels = min(overlap_pixels, tile_size // 2)
 
-                logger.info(f"Tile merge parameters: tile_size={tile_size}, overlap={overlap_pixels} pixels")
+                if debug_mode:
+                    console.print(f"[dim]  Tile size: {tile_size}px, overlap: {overlap_pixels}px[/dim]")
 
                 # Determine the correct path for tile masks based on whether using previous results.
                 if settings.get("use_previous_results", False) and settings.get("skip_and_copy_segmentation", False):
@@ -403,21 +426,23 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             logger.info("Skipped merging.")
 
         if masks is None or masks.size == 0:
+            console.print("[red]✗[/red] No segmentation masks returned. Aborting.")
             logger.error("No segmentation masks returned. Aborting.")
             return 1
 
-        logger.info(f"Segmentation completed. Total cells: {total_cells}")
+        console.print(f"\n[green]✓[/green] Segmentation completed: [bold cyan]{total_cells:,}[/bold cyan] nuclei detected")
 
         if not settings.get("skip_and_copy_postprocessing", False) or not settings.get("use_previous_results", False):
             # Step 6: Postprocess with edge refinement and/or watershed.
             masks = apply_postprocessing(image, masks, settings, output_dir, logger)
         else:
-            logger.info("Skipped postprocessing.")
+            if debug_mode:
+                console.print("[dim]  Skipped postprocessing[/dim]")
 
         if not settings.get("skip_and_copy_filtering", False) or not settings.get("use_previous_results", False):
             # Step 7: Apply morphological filtering to remove artifacts.
             if settings.get("use_filtering", True):
-                logger.info("Applying morphological filtering...")
+                console.print("\n[cyan]Applying morphological filtering...[/cyan]")
                 original_count = int(masks.max())
                 masks = filter_masks_programmatic(
                     masks=masks,
@@ -427,7 +452,8 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     intensity_image=image if settings.get("use_intensity_filtering", False) else None
                 )
                 filtered_count = int(masks.max())
-                logger.info(f"Filtering completed: {original_count} → {filtered_count} nuclei")
+                removed = original_count - filtered_count
+                console.print(f"[green]✓[/green] Filtering completed: [bold cyan]{original_count:,}[/bold cyan] → [bold cyan]{filtered_count:,}[/bold cyan] nuclei ([red]{removed:,}[/red] removed)")
 
                 # Save filtered masks to main masks directory.
                 np.save(Path(output_dir) / "masks" / "segmentation_masks_filtered.npy", masks)
@@ -435,27 +461,34 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     skio.imsave(Path(output_dir) / "masks" / "segmentation_masks_filtered.tif",
                                masks.astype(np.uint32), plugin="tifffile")
                 except Exception as e:
-                    logger.warning(f"Could not write filtered TIFF: {e}")
+                    if debug_mode:
+                        logger.warning(f"Could not write filtered TIFF: {e}")
             else:
-                logger.info("Morphological filtering disabled in configuration.")
+                if debug_mode:
+                    console.print("[dim]  Morphological filtering disabled[/dim]")
         else:
-            logger.info("Skipped filtering.")
+            if debug_mode:
+                console.print("[dim]  Skipped filtering[/dim]")
 
         if not settings.get("skip_and_copy_visualization", False) or not settings.get("use_previous_results", False):
             # Step 8: Overlay generation (cropped + full).
-            # Determine correct paths for overlay generation based on pipeline configuration.
+            console.print("\n[cyan]Generating visualization overlays...[/cyan]")
 
+            # Determine correct paths for overlay generation based on pipeline configuration.
             # Image path: use previous results if preprocessing was skipped.
             if settings.get("use_previous_results", False) and settings.get("skip_and_copy_preprocessing", False):
                 overlay_image_path = previous_results_dir / "preprocessed" / "first.tif"
-                logger.info(f"Using preprocessed image from previous results for overlays: {overlay_image_path}")
+                if debug_mode:
+                    logger.info(f"Using preprocessed image from previous results for overlays: {overlay_image_path}")
             else:
                 overlay_image_path = Path(output_dir) / "preprocessed" / "first.tif"
-                logger.info(f"Using preprocessed image from current run for overlays: {overlay_image_path}")
+                if debug_mode:
+                    logger.info(f"Using preprocessed image from current run for overlays: {overlay_image_path}")
 
             # Mask path: always use the current output directory masks (either from segmentation or merging).
             overlay_mask_path = Path(output_dir) / "masks" / "segmentation_masks.npy"
-            logger.info(f"Using segmentation masks for overlays: {overlay_mask_path}")
+            if debug_mode:
+                logger.info(f"Using segmentation masks for overlays: {overlay_mask_path}")
 
             # Determine previous results directory if using previous results.
             prev_results_dir = None
@@ -471,16 +504,18 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                 previous_results_dir=prev_results_dir
             )
         else:
-            logger.info("Skipped visualizations.")
+            if debug_mode:
+                console.print("[dim]  Skipped visualizations[/dim]")
 
         # Step 9: Optional debug snapshot.
         if snap:
             snap.capture("end_of_pipeline", {"masks": masks})
 
-        logger.info("===== Pipeline Completed Successfully =====")
+        console.print("\n[green bold]═════ Pipeline Completed Successfully ═════[/green bold]\n")
         return 0
 
     except Exception as e:
+        console.print(f"\n[red]✗[/red] Fatal pipeline error: {e}")
         logger.error(f"Fatal pipeline error: {e}")
         logger.debug(traceback.format_exc())
         return 1
