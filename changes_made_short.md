@@ -2,11 +2,43 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
-## November 20, 2025 - Requirements.txt Update for Cellpose3 Environment
+## November 20, 2025 - README Cleanup and Documentation Enhancement
+
+121. **Removed Outdated Mamba References** - Replaced all mamba commands with conda commands (mamba is optional, not required).
+122. **Removed test_environment_setup.py References** - Removed references to non-existent test script from README.
+123. **Removed temp.py CLAHE Testing Section** - Replaced with configuration-based CLAHE parameter documentation.
+124. **Enhanced Shell Script Documentation** - Added comprehensive documentation for run_segmentation_instance.sh as recommended method.
+125. **Added Pipeline Flowcharts Section** - Documented flowcharts available in pipeline.py for user reference.
+126. **Added 4-Step Merging Algorithm Documentation** - Comprehensive explanation of the systematic merging process with scientific context.
+127. **Updated Basic Usage Section** - Emphasized shell script as recommended method, direct execution as alternative.
+128. **Updated Quick Start Section** - Changed to use shell script instead of test_environment_setup.py.
+129. **Updated Getting Help Section** - Removed test script reference, added pipeline flowcharts and merging algorithm references.
+130. **Updated pipeline.py Header** - Fixed outdated "Cellpose4" reference to "Cellpose3 (recommended)".
+131. **Enhanced Installation Instructions** - Streamlined to 4 steps, emphasized shell script usage for testing.
+132. **Improved CLAHE Documentation** - Replaced temp.py testing with configuration-based parameter guidelines.
+
+## November 20, 2025 - Parameter Sweep Script Implementation
+
+109. **Completely Rewrote run_segmentation_instance.sh** - Adapted from simulation project to nuclei segmentation pipeline with same parameter search logic
+110. **Temporary Configuration Management** - Creates unique temporary config files for each run with automatic cleanup
+111. **Command-Line Parameter Updates** - Updates any config parameter via command-line arguments (e.g., `job_name test_run gpu True diameter 30`)
+112. **Parallel Processing Support** - Enables running multiple pipeline instances with different parameters simultaneously
+113. **Comprehensive Logging System** - Logs all output to `logs/run_segmentation_instance/` with job-specific log files
+114. **Automatic Log File Renaming** - Renames log files based on job_name from updated configuration
+115. **Graceful Cleanup on Interruption** - Trap handlers ensure temporary files are cleaned up even if script is interrupted
+116. **Conda Environment Integration** - Automatically activates venv310_cellpose3 environment before running pipeline
+117. **Temporary Python Wrapper** - Creates wrapper script to pass custom config path to pipeline via environment variable
+118. **Enhanced README Documentation** - Added comprehensive usage section with parameter sweep examples and common parameter table
+119. **Fixed Module Import Paths** - Corrected Python path setup in temporary wrapper to use `code.nuclei_segmentation` module structure
+120. **Created PARAMETER_SWEEP_GUIDE.md** - Comprehensive 150-line guide with usage examples, troubleshooting, and best practices
+
+## November 20, 2025 - Requirements.txt Update and Installation Tutorial
 
 104. **Updated requirements.txt** - Synchronized all package versions with `cellpose3_(recommended)_environment.yml` for CUDA 11.8 compatibility
-105. **Updated README.md** - Changed all references from `cellpose3_environment.yml` to `cellpose3_(recommended)_environment.yml`
-106. **Updated cellpose3_(recommended)_environment.yml** - Fixed usage comment to reference correct filename
+105. **Updated README.md Installation Section** - Added comprehensive 6-step environment setup tutorial with detailed explanations
+106. **Added Cellpose 3.0.10 Justification** - Documented why Cellpose 3.0.10 is recommended over Cellpose 4.x (20-30% better nuclear detection)
+107. **Enhanced Environment Management Section** - Added instructions for activating, deactivating, checking, and removing environments
+108. **Updated cellpose3_(recommended)_environment.yml** - Fixed usage comment to reference correct filename
 
 ## November 20, 2025 - Professional Rebranding to ATLAS-Cellpose
 

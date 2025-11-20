@@ -5,15 +5,18 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: pipeline.py.
 Description:
-    Modular segmentation flow using Cellpose4 with DAPI-stained nuclear features.
+    Modular segmentation flow using Cellpose3 (recommended) with DAPI-stained nuclear features.
+    This pipeline implements the ATLAS-Cellpose workflow with adaptive tiled processing,
+    systematic 4-step merging, and comprehensive quality control.
 
 Dependencies:
-    • Python >= 3.7.
+    • Python >= 3.10.
     • numpy, skimage, torch, cellpose.
     • Custom utility modules for preprocessing, segmentation, watershed, and visualization.
 
 Usage:
     Not meant to be run directly. Imported by run_this.py.
+    Recommended execution: ./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
 
 Inputs:
     • DAPI-stained images of tissue sections.
@@ -28,13 +31,15 @@ Outputs:
 Key Features:
     • Modular pipeline architecture for flexible processing.
     • GPU acceleration when available.
-    • Tiling support for large images.
+    • Adaptive tiling support for large images.
+    • 4-step systematic merging algorithm for tile overlap resolution.
     • Post-processing with edge refinement and watershed.
     • Comprehensive logging and error handling.
 
 Notes:
-    • This module is part of the nuclei segmentation package for tissue analysis.
+    • This module is part of the ATLAS-Cellpose nuclei segmentation package.
     • It implements the core segmentation workflow but is not meant to be run directly.
+    • See README.md for complete pipeline documentation and flowcharts.
 """
 
 import traceback
