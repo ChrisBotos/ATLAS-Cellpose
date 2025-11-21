@@ -159,24 +159,24 @@ def crop_image(image: np.ndarray, crop_box, logger=None) -> np.ndarray:
 
     Args:
         image (np.ndarray): Input image.
-        crop_box: Tuple of (y0, y1, x0, x1), either relative (0–1) or absolute.
+        crop_box: Tuple of (x0, x1, y0, y1), either relative (0–1) or absolute.
         logger: Logger object.
 
     Returns:
         np.ndarray: Cropped image.
     """
     h, w = image.shape
-    y0, y1, x0, x1 = crop_box
+    x0, x1, y0, y1 = crop_box
 
     if all(0 <= val <= 1 for val in crop_box):
-        y0, y1 = int(y0 * h), int(y1 * h)
         x0, x1 = int(x0 * w), int(x1 * w)
+        y0, y1 = int(y0 * h), int(y1 * h)
         if logger:
-            logger.info(f"Cropping with relative bbox: ({y0}:{y1}, {x0}:{x1})")
+            logger.info(f"Cropping with relative bbox: (x={x0}:{x1}, y={y0}:{y1})")
     else:
-        y0, y1, x0, x1 = map(int, crop_box)
+        x0, x1, y0, y1 = map(int, crop_box)
         if logger:
-            logger.info(f"Cropping with absolute bbox: ({y0}:{y1}, {x0}:{x1})")
+            logger.info(f"Cropping with absolute bbox: (x={x0}:{x1}, y={y0}:{y1})")
 
     y0, y1 = max(0, y0), min(h, y1)
     x0, x1 = max(0, x0), min(w, x1)

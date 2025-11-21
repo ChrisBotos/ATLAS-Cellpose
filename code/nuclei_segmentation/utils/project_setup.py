@@ -67,7 +67,7 @@ def load_config(config_path=None):
         "upscale_factor": config.getint("general", "upscale_factor", fallback=1),
         "crop_image": config.getboolean("general", "crop_image", fallback=False),
         "enhance_contrast": config.getboolean("general", "enhance_contrast", fallback=False),
-        "crop_box": get_tuple(config, "general", "crop_box", default=(0, 1, 0, 1)),
+        "crop_box": get_tuple(config, "general", "crop_box", default=(0, 1, 0, 1)),  # (x0, x1, y0, y1).
         "debug_mode": config.getboolean("debug", "debug_mode", fallback=False),
 
         "enhance_dim": config.getboolean("gamma_correction", "enhance_dim", fallback=False),

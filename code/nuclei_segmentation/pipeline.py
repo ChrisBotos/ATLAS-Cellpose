@@ -16,7 +16,7 @@ Dependencies:
 
 Usage:
     Not meant to be run directly. Imported by run_this.py.
-    Recommended execution: ./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+    Recommended execution: ./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
 
 Inputs:
     • DAPI-stained images of tissue sections.

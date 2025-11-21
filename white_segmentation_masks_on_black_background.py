@@ -16,7 +16,7 @@ Dependencies:
 
 Usage:
     python white_segmentation_masks_on_black_background.py \
-        --mask results/20250726_001612_full_ss_bIRI2_cpu-merge_cellpose3_diameter0/masks/segmentation_masks.npy \
+        --mask results/20250726_001612_full_ss_bIRI2_cpu_cellpose3_diameter0/masks/segmentation_masks.npy \
         --output data/ss_bIRI3_binary_mask.tif \
         --chunk-size 2048 --compression lzw --progress
 

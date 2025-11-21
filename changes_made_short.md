@@ -2,6 +2,17 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
+## November 21, 2025 - Crop Box Coordinate Format Fix
+
+174. **Changed crop_box format from (y0,y1,x0,x1) to (x0,x1,y0,y1)** - More intuitive coordinate ordering matching standard (x,y) convention
+175. **Updated crop_image() function in preprocessing.py** - Changed unpacking order and documentation to reflect new format
+176. **Updated config file comments** - Changed from "y_start,y_end,x_start,x_end" to "x_start,x_end,y_start,y_end" in nuclei_segmentation_config.ini
+177. **Updated default crop_box value** - Set to 0.38,0.42,0.32,0.36 (top-left quadrant) for testing
+178. **Updated project_setup.py** - Added inline comment documenting (x0,x1,y0,y1) format
+179. **Updated pipeline.py example** - Changed example from "0.44,0.48,0.44,0.48" to "0.38,0.42,0.32,0.36"
+180. **Updated README.md documentation** - Fixed all 6 crop_box examples throughout README to use new format with clear (x_start,x_end,y_start,y_end) notation
+181. **Enhanced logging messages** - Changed from "({y0}:{y1}, {x0}:{x1})" to "(x={x0}:{x1}, y={y0}:{y1})" for clarity
+
 ## November 21, 2025 - Publication-Ready README Enhancement
 
 164. **Enhanced Abstract** - Emphasized dual benefits: memory constraints AND adaptive diameter optimization for heterogeneous tissue

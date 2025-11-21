@@ -129,9 +129,9 @@ conda activate venv310_cellpose3
 ```bash
 # Run with custom parameters (recommended).
 # Add your image to the project directory "data" and update the image_path in the command below.
-# The crop_box coordinates are provided as a comma-separated string.
+# The crop_box coordinates are provided as a comma-separated string (x_start, x_end, y_start, y_end).
 # The crop_box is a percentage of the image size (0-1). Use it to run the pipeline on a small sample of your image.
-./run_segmentation_instance.sh crop_box image_path "path/to/your/image.tif" "0.44,0.48,0.44,0.48"
+./run_segmentation_instance.sh crop_box image_path "path/to/your/image.tif" "0.38,0.42,0.32,0.36"
 
 # The script will:
 # - Activate the conda environment automatically.
@@ -158,7 +158,7 @@ python code/nuclei_segmentation/run_this.py
 # One-command setup (after conda is installed).
 conda env create -f cellpose3_(recommended)_environment.yml && \
 conda activate venv310_cellpose3 && \
-./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
 ```
 
 ### Why Cellpose 3.0.10?
@@ -474,8 +474,8 @@ exclude_border = False              # Exclude border-touching nuclei
 **Recommended Method** - Use the shell script wrapper:
 
 ```bash
-# Run with custom crop box (recommended).
-./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+# Run with custom crop box (recommended) - format: x_start,x_end,y_start,y_end.
+./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
 
 # The script automatically:
 # - Activates the conda environment (venv310_cellpose3).
@@ -540,7 +540,7 @@ wait  # Wait for all background jobs to complete
 - Boolean values: `True` or `False`.
 - Numeric values: integers or floats as appropriate.
 - String values: paths, names, etc.
-- Tuple values: comma-separated (e.g., `0.4,0.6,0.4,0.6` for crop_box).
+- Tuple values: comma-separated (e.g., `0.38,0.42,0.32,0.36` for crop_box in format x_start,x_end,y_start,y_end).
 
 **Log Files:**
 - Logs are saved to `logs/run_segmentation_instance/`.
@@ -559,7 +559,7 @@ wait  # Wait for all background jobs to complete
 | `cellprob_threshold` | Detection sensitivity | `-9`, `-12`, `-14` |
 | `flow_threshold` | Boundary sensitivity | `0.8`, `0.9`, `1.0` |
 | `crop_image` | Enable cropping | `True`, `False` |
-| `crop_box` | Crop coordinates | `0.4,0.6,0.4,0.6` |
+| `crop_box` | Crop coordinates (x0,x1,y0,y1) | `0.38,0.42,0.32,0.36` |
 | `use_tiling` | Enable tiling | `True`, `False` |
 | `tile_side_length` | Tile size in pixels | `512`, `1024`, `2048` |
 
