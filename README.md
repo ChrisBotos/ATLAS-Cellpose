@@ -127,7 +127,10 @@ conda activate venv310_cellpose3
 
 ```bash
 # Run with custom parameters (recommended).
-./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
+# Add your image to the project directory "data" and update the image_path in the command below.
+# The crop_box coordinates are provided as a comma-separated string.
+# The crop_box is a percentage of the image size (0-1). Use it to run the pipeline on a small sample of your image.
+./run_segmentation_instance.sh crop_box image_path "path/to/your/image.tif" "0.44,0.48,0.44,0.48"
 
 # The script will:
 # - Activate the conda environment automatically.
@@ -157,20 +160,6 @@ conda activate venv310_cellpose3 && \
 ./run_segmentation_instance.sh crop_box "0.44,0.48,0.44,0.48"
 ```
 
-### Server Installation (HPC Clusters)
-
-For HPC clusters or servers with limited permissions:
-
-```bash
-# Use the automated setup script
-bash setup_server_environment.sh
-```
-
-The automated setup script handles:
-- Miniconda installation in user directory
-- Environment creation with fallback options
-- Dependency resolution and testing
-
 ### Why Cellpose 3.0.10?
 
 This project is specifically optimized for **Cellpose 3.0.10** rather than Cellpose 4.x for the following reasons:
@@ -181,43 +170,7 @@ This project is specifically optimized for **Cellpose 3.0.10** rather than Cellp
 4. **Reproducibility**: Using the exact version ensures consistent results across different systems
 
 **Note**: While Cellpose 4.x offers new features, our extensive testing shows that Cellpose 3.0.10 performs better for nuclear segmentation in tissue sections, particularly for dim or irregularly shaped nuclei common in injury models.
-
-### Environment Management
-
-#### Activating the Environment
-
-**Important**: The conda environment must be activated before running any pipeline scripts.
-
-```bash
-# Activate the environment
-conda activate venv310_cellpose3
-
-# You should see (venv310_cellpose3) in your terminal prompt
-```
-
-#### Deactivating the Environment
-
-```bash
-# When you're done working
-conda deactivate
-```
-
-#### Checking Active Environment
-
-```bash
-# Display currently active environment
-conda info --envs
-
-# The active environment will have an asterisk (*)
-```
-
-#### Removing the Environment (if needed)
-
-```bash
-# Remove the environment completely
-conda deactivate  # First deactivate if active
-conda env remove -n venv310_cellpose3
-```
+The pipeline is still compatible with Cellpose 4.x, but we recommend using Cellpose 3.0.10 for optimal results.
 
 ### Running Tests
 

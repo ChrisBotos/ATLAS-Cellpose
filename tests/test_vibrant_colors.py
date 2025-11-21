@@ -58,133 +58,99 @@ logger = logging.getLogger(__name__)
 def test_vibrant_color_generation() -> bool:
     """
     Test the enhanced vibrant color generation system.
-    
-    Returns:
-        True if test passes, False otherwise.
-        
+
     This function tests the enhanced color palette to ensure it generates
     vibrant, high-contrast colors suitable for scientific visualization.
     """
     logger.info("Testing vibrant color generation system.")
-    
-    try:
-        # Import the enhanced color generation functions.
-        sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction' / 'utils'))
-        from generate_contrast_colors import generate_color_palette
 
-        # Test neon config by creating it manually.
-        neon_alpha = 250
-        neon_saturation = 1.0
-        
-        # Test 1: Generate vibrant colors with enhanced settings.
-        logger.info("Test 1: Generating vibrant color palette.")
-        vibrant_colors = generate_color_palette(
-            n=8,
-            alpha=240,           # High alpha for visibility.
-            saturation=0.98,     # Maximum saturation.
-            background="dark",
-            contrast_ratio=4.0
-        )
-        
-        # Verify we got the expected number of colors.
-        if len(vibrant_colors) != 8:
-            logger.error(f"✗ Expected 8 colors, got {len(vibrant_colors)}")
-            return False
-        
-        # Check that colors are vibrant (high saturation).
-        vibrant_count = 0
-        for cluster_id, (r, g, b, a) in vibrant_colors.items():
-            # Calculate color saturation.
-            max_rgb = max(r, g, b)
-            min_rgb = min(r, g, b)
-            saturation = (max_rgb - min_rgb) / max_rgb if max_rgb > 0 else 0
-            
-            # Check alpha is high enough.
-            if a < 200:
-                logger.error(f"✗ Color {cluster_id} alpha too low: {a}")
-                return False
-            
-            # Count highly saturated colors.
-            if saturation > 0.7:  # High saturation threshold.
-                vibrant_count += 1
-        
-        if vibrant_count < 6:  # At least 75% should be highly saturated.
-            logger.error(f"✗ Only {vibrant_count}/8 colors are highly saturated")
-            return False
-        
-        logger.info(f"✓ Generated {len(vibrant_colors)} vibrant colors with {vibrant_count} highly saturated")
-        
-        # Test 2: Test neon configuration values.
-        logger.info("Test 2: Testing neon color configuration values.")
+    # Import the enhanced color generation functions.
+    sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction' / 'utils'))
+    from generate_contrast_colors import generate_color_palette
 
-        # Verify neon config has maximum settings.
-        if neon_alpha < 240:
-            logger.error(f"✗ Neon config alpha too low: {neon_alpha}")
-            return False
+    # Test neon config by creating it manually.
+    neon_alpha = 250
+    neon_saturation = 1.0
 
-        if neon_saturation < 0.98:
-            logger.error(f"✗ Neon config saturation too low: {neon_saturation}")
-            return False
+    # Test 1: Generate vibrant colors with enhanced settings.
+    logger.info("Test 1: Generating vibrant color palette.")
+    vibrant_colors = generate_color_palette(
+        n=8,
+        alpha=240,           # High alpha for visibility.
+        saturation=0.98,     # Maximum saturation.
+        background="dark",
+        contrast_ratio=4.0
+    )
 
-        logger.info("✓ Neon configuration values are optimal for maximum visibility")
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"✗ Vibrant color generation test failed: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+    # Verify we got the expected number of colors.
+    assert len(vibrant_colors) == 8, f"Expected 8 colors, got {len(vibrant_colors)}"
+
+    # Check that colors are vibrant (high saturation).
+    vibrant_count = 0
+    for cluster_id, (r, g, b, a) in vibrant_colors.items():
+        # Calculate color saturation.
+        max_rgb = max(r, g, b)
+        min_rgb = min(r, g, b)
+        saturation = (max_rgb - min_rgb) / max_rgb if max_rgb > 0 else 0
+
+        # Check alpha is high enough.
+        assert a >= 200, f"Color {cluster_id} alpha too low: {a}"
+
+        # Count highly saturated colors.
+        if saturation > 0.7:  # High saturation threshold.
+            vibrant_count += 1
+
+    assert vibrant_count >= 6, f"Only {vibrant_count}/8 colors are highly saturated"
+
+    logger.info(f"✓ Generated {len(vibrant_colors)} vibrant colors with {vibrant_count} highly saturated")
+
+    # Test 2: Test neon configuration values.
+    logger.info("Test 2: Testing neon color configuration values.")
+
+    # Verify neon config has maximum settings.
+    assert neon_alpha >= 240, f"Neon config alpha too low: {neon_alpha}"
+    assert neon_saturation >= 0.98, f"Neon config saturation too low: {neon_saturation}"
+
+    logger.info("✓ Neon configuration values are optimal for maximum visibility")
 
 
-def test_color_contrast_levels() -> bool:
+def test_color_contrast_levels():
     """
     Test that generated colors have sufficient contrast for scientific use.
-    
-    Returns:
-        True if test passes, False otherwise.
-        
+
     This function validates that the enhanced colors meet scientific
     visualization standards for contrast and accessibility.
     """
     logger.info("Testing color contrast levels.")
-    
-    try:
-        # Import color functions.
-        sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction' / 'utils'))
-        from generate_contrast_colors import generate_color_palette, calculate_contrast_ratio
-        
-        # Generate test colors.
-        test_colors = generate_color_palette(
-            n=10,
-            alpha=240,
-            saturation=0.98,
-            background="dark",
-            contrast_ratio=4.0
-        )
-        
-        # Test contrast against dark background.
-        dark_bg = (0, 0, 0)  # Black background.
-        low_contrast_count = 0
-        
-        for cluster_id, (r, g, b, a) in test_colors.items():
-            contrast = calculate_contrast_ratio((r, g, b), dark_bg)
-            
-            if contrast < 3.0:  # Minimum for scientific visualization.
-                low_contrast_count += 1
-                logger.warning(f"⚠ Color {cluster_id} has low contrast: {contrast:.2f}")
-        
-        if low_contrast_count > 2:  # Allow up to 2 colors with lower contrast.
-            logger.error(f"✗ Too many colors ({low_contrast_count}) have low contrast")
-            return False
-        
-        logger.info(f"✓ Color contrast validation passed ({low_contrast_count} low-contrast colors)")
-        
-        return True
-        
-    except Exception as e:
-        logger.error(f"✗ Color contrast test failed: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+
+    # Import color functions.
+    sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction' / 'utils'))
+    from generate_contrast_colors import generate_color_palette, calculate_contrast_ratio
+
+    # Generate test colors.
+    test_colors = generate_color_palette(
+        n=10,
+        alpha=240,
+        saturation=0.98,
+        background="dark",
+        contrast_ratio=4.0
+    )
+
+    # Test contrast against dark background.
+    dark_bg = (0, 0, 0)  # Black background.
+    low_contrast_count = 0
+
+    for cluster_id, (r, g, b, a) in test_colors.items():
+        contrast = calculate_contrast_ratio((r, g, b), dark_bg)
+
+        if contrast < 3.0:  # Minimum for scientific visualization.
+            low_contrast_count += 1
+            logger.warning(f"⚠ Color {cluster_id} has low contrast: {contrast:.2f}")
+
+    assert low_contrast_count <= 2, \
+        f"Too many colors ({low_contrast_count}) have low contrast"
+
+    logger.info(f"✓ Color contrast validation passed ({low_contrast_count} low-contrast colors)")
 
 
 def create_color_preview(output_path: Path) -> bool:

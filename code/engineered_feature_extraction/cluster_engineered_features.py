@@ -98,8 +98,8 @@ import shutil
 console = Console()
 
 # Import color generation utilities.
-from utils.generate_contrast_colors import generate_color_palette, colors_to_hex_list
-from utils.color_config import ColorConfig, load_color_config
+from code.engineered_feature_extraction.utils.generate_contrast_colors import generate_color_palette, colors_to_hex_list
+from code.engineered_feature_extraction.utils.color_config import ColorConfig, load_color_config
 
 # Import feature extraction configuration utilities.
 from code.engineered_feature_extraction.utils.config_loader import load_feature_extraction_config

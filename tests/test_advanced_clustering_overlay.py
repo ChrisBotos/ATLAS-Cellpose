@@ -73,20 +73,20 @@ def create_test_data(output_dir: Path) -> tuple:
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Create synthetic DAPI image (512x512).
+    # Create synthetic DAPI image (512x512) - grayscale.
     image_size = (512, 512)
-    synthetic_image = np.random.randint(20, 200, (*image_size, 3), dtype=np.uint8)
-    
+    synthetic_image = np.random.randint(20, 200, image_size, dtype=np.uint8)
+
     # Add some structure to make it look more realistic.
     for i in range(50):  # Add some bright spots (nuclei).
         x, y = np.random.randint(50, image_size[0]-50, 2)
         radius = np.random.randint(8, 20)
-        
+
         # Create circular bright regions.
         yy, xx = np.ogrid[:image_size[0], :image_size[1]]
         mask = (xx - x) ** 2 + (yy - y) ** 2 <= radius ** 2
-        synthetic_image[mask] = np.random.randint(150, 255, (np.sum(mask), 3))
-    
+        synthetic_image[mask] = np.random.randint(150, 255, np.sum(mask))
+
     image_path = output_dir / 'test_image.tif'
     Image.fromarray(synthetic_image).save(image_path)
     
@@ -133,140 +133,111 @@ def create_test_data(output_dir: Path) -> tuple:
     return image_path, mask_path, features_csv_path
 
 
-def test_cluster_mask_generation() -> bool:
+def test_cluster_mask_generation():
     """
     Test cluster mask generation from nuclear labels and cluster assignments.
-    
-    Returns:
-        True if test passes, False otherwise.
-        
+
     This function tests the core functionality of converting nuclear labels
     and cluster assignments into a cluster mask for overlay processing.
     """
     logger.info("Testing cluster mask generation.")
-    
-    try:
-        # Import the clustering functions.
-        sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
-        from cluster_engineered_features import create_cluster_mask
-        
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            
-            # Create test data.
-            image_path, mask_path, features_csv_path = create_test_data(tmp_path)
-            
-            # Create test cluster assignments.
-            nuclear_labels = np.arange(1, 31)  # 30 nuclei.
-            cluster_labels = np.random.randint(0, 3, 30)  # 3 clusters.
-            
-            # Test cluster mask generation.
-            cluster_mask_path = tmp_path / 'cluster_mask.npy'
-            result_path = create_cluster_mask(mask_path, nuclear_labels, cluster_labels, cluster_mask_path)
-            
-            # Verify the cluster mask was created.
-            if not result_path.exists():
-                logger.error("✗ Cluster mask file was not created.")
-                return False
-            
-            # Load and validate cluster mask.
-            cluster_mask = np.load(result_path)
-            original_mask = np.load(mask_path)
-            
-            # Check dimensions match.
-            if cluster_mask.shape != original_mask.shape:
-                logger.error(f"✗ Cluster mask shape mismatch: {cluster_mask.shape} vs {original_mask.shape}")
-                return False
-            
-            # Check that cluster values are in expected range.
-            unique_clusters = np.unique(cluster_mask[cluster_mask > 0])
-            expected_clusters = np.unique(cluster_labels) + 1  # +1 because of background offset.
-            
-            if not np.array_equal(np.sort(unique_clusters), np.sort(expected_clusters)):
-                logger.error(f"✗ Cluster values mismatch: {unique_clusters} vs {expected_clusters}")
-                return False
-            
-            logger.info("✓ Cluster mask generation test passed.")
-            return True
-            
-    except Exception as e:
-        logger.error(f"✗ Cluster mask generation test failed: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+
+    # Import the clustering functions.
+    sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
+    from cluster_engineered_features import create_cluster_mask
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        # Create test data.
+        image_path, mask_path, features_csv_path = create_test_data(tmp_path)
+
+        # Create test cluster assignments.
+        nuclear_labels = np.arange(1, 31)  # 30 nuclei.
+        cluster_labels = np.random.randint(0, 3, 30)  # 3 clusters.
+
+        # Test cluster mask generation.
+        cluster_mask_path = tmp_path / 'cluster_mask.npy'
+        result_path = create_cluster_mask(mask_path, nuclear_labels, cluster_labels, cluster_mask_path)
+
+        # Verify the cluster mask was created.
+        assert result_path.exists(), "Cluster mask file was not created"
+
+        # Load and validate cluster mask.
+        cluster_mask = np.load(result_path)
+        original_mask = np.load(mask_path)
+
+        # Check dimensions match.
+        assert cluster_mask.shape == original_mask.shape, \
+            f"Cluster mask shape mismatch: {cluster_mask.shape} vs {original_mask.shape}"
+
+        # Check that cluster values are in expected range.
+        unique_clusters = np.unique(cluster_mask[cluster_mask > 0])
+        expected_clusters = np.unique(cluster_labels) + 1  # +1 because of background offset.
+
+        assert np.array_equal(np.sort(unique_clusters), np.sort(expected_clusters)), \
+            f"Cluster values mismatch: {unique_clusters} vs {expected_clusters}"
+
+        logger.info("✓ Cluster mask generation test passed.")
 
 
-def test_overlay_integration() -> bool:
+def test_overlay_integration():
     """
     Test integration with advanced overlay utilities.
-    
-    Returns:
-        True if test passes, False otherwise.
-        
+
     This function tests the integration between the clustering script and
     the advanced overlay utilities, including configuration handling and
     fallback mechanisms.
     """
     logger.info("Testing overlay integration.")
-    
-    try:
-        # Import the clustering functions.
-        sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
-        from cluster_engineered_features import create_cluster_overlay_advanced, OVERLAY_AVAILABLE
-        
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            tmp_path = Path(tmp_dir)
-            
-            # Create test data.
-            image_path, mask_path, features_csv_path = create_test_data(tmp_path)
-            
-            # Create test cluster assignments.
-            nuclear_labels = np.arange(1, 31)  # 30 nuclei.
-            cluster_labels = np.random.randint(0, 3, 30)  # 3 clusters.
-            
-            # Create test color palette.
-            color_palette = {
-                0: (255, 0, 0, 200),    # Red.
-                1: (0, 255, 0, 200),    # Green.
-                2: (0, 0, 255, 200)     # Blue.
-            }
-            
-            # Test overlay creation.
-            overlay_path = tmp_path / 'test_overlay.tif'
-            
-            # Test with small parameters for fast execution.
-            create_cluster_overlay_advanced(
-                image_path=image_path,
-                mask_path=mask_path,
-                nuclear_labels=nuclear_labels,
-                cluster_labels=cluster_labels,
-                color_palette=color_palette,
-                output_path=overlay_path,
-                tile_size=256,  # Small tiles for testing.
-                workers=2,      # Limited workers for testing.
-                alpha=0.5,
-                gpu=False,      # Disable GPU for testing stability.
-                memory_limit_mb=1024
-            )
-            
-            # Verify overlay was created.
-            if not overlay_path.exists():
-                logger.error("✗ Overlay file was not created.")
-                return False
-            
-            # Check file size is reasonable.
-            file_size = overlay_path.stat().st_size
-            if file_size < 1000:  # Should be at least 1KB.
-                logger.error(f"✗ Overlay file too small: {file_size} bytes")
-                return False
-            
-            logger.info(f"✓ Overlay integration test passed. File size: {file_size} bytes")
-            logger.info(f"✓ Advanced overlay available: {OVERLAY_AVAILABLE}")
-            return True
-            
-    except Exception as e:
-        logger.error(f"✗ Overlay integration test failed: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+
+    # Import the clustering functions.
+    sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
+    from cluster_engineered_features import create_cluster_overlay_advanced
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+
+        # Create test data.
+        image_path, mask_path, features_csv_path = create_test_data(tmp_path)
+
+        # Create test cluster assignments.
+        nuclear_labels = np.arange(1, 31)  # 30 nuclei.
+        cluster_labels = np.random.randint(0, 3, 30)  # 3 clusters.
+
+        # Create test color palette.
+        color_palette = {
+            0: (255, 0, 0, 200),    # Red.
+            1: (0, 255, 0, 200),    # Green.
+            2: (0, 0, 255, 200)     # Blue.
+        }
+
+        # Test overlay creation.
+        overlay_path = tmp_path / 'test_overlay.tif'
+
+        # Test with small parameters for fast execution.
+        create_cluster_overlay_advanced(
+            image_path=image_path,
+            mask_path=mask_path,
+            nuclear_labels=nuclear_labels,
+            cluster_labels=cluster_labels,
+            color_palette=color_palette,
+            output_path=overlay_path,
+            tile_size=256,  # Small tiles for testing.
+            workers=2,      # Limited workers for testing.
+            alpha=0.5,
+            gpu=False,      # Disable GPU for testing stability.
+            memory_limit_mb=1024
+        )
+
+        # Verify overlay was created.
+        assert overlay_path.exists(), "Overlay file was not created"
+
+        # Check file size is reasonable.
+        file_size = overlay_path.stat().st_size
+        assert file_size >= 1000, f"Overlay file too small: {file_size} bytes"
+
+        logger.info(f"✓ Overlay integration test passed. File size: {file_size} bytes")
 
 
 def main():

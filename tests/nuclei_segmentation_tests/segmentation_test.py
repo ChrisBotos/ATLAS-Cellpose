@@ -58,12 +58,13 @@ def dummy_cellpose_params() -> dict:
 
 
 @pytest.fixture
-def dummy_settings() -> dict:
+def dummy_settings(tmp_path) -> dict:
     """Settings for tiling."""
     return {
         "tile_side_length": 64,     # forces tiling on the 128×128 dummy image.
         "tile_overlap": 8,          # Pixels.
         "use_tiling": True,
+        "output_dir": str(tmp_path),  # Required for saving tile masks.
     }
 
 
@@ -77,14 +78,17 @@ def dummy_logger():
 def mock_model():
     """Return a fake Cellpose model whose eval() always succeeds."""
 
-    def fake_eval(image, **kwargs) -> Tuple[np.ndarray, list, None]:
+    def fake_eval(image, **kwargs) -> Tuple[np.ndarray, list, None, None]:
         h, w = image.shape[:2]
-        mask  = np.ones((h, w), dtype=np.uint32)          # single object.
+        mask  = np.ones((h, w), dtype=np.uint32)          # single object with label 1.
         flows = [np.zeros((2, h, w)), np.zeros((h, w))]   # dummy XY + prob.
-        return mask, flows, None
+        # Return 4-tuple to match Cellpose4 format (masks, flows, styles, diameters).
+        return mask, flows, None, None
 
     m = MagicMock()
     m.eval.side_effect = fake_eval
+    # Add diam_mean attribute for diameter logging.
+    m.diam_mean = 17.0
     return m
 
 

@@ -46,6 +46,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 import logging
+import pytest
 
 # Configure logging for test output.
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
@@ -99,180 +100,140 @@ def test_column_name_compatibility() -> bool:
     clustering script correctly reads CSV files with lowercase column names.
     """
     logger.info("Testing column name compatibility for clustering script.")
-    
+
+    # Import the clustering functions.
+    sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
+    from cluster_engineered_features import load_nuclear_features, prepare_feature_matrix
+
+    # Create temporary test file.
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
+        tmp_path = Path(tmp_file.name)
+
     try:
-        # Import the clustering functions.
-        sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
-        from cluster_engineered_features import load_nuclear_features, prepare_feature_matrix
-        
-        # Create temporary test file.
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
-            tmp_path = Path(tmp_file.name)
-        
-        try:
-            # Create test data.
-            create_test_features_csv(tmp_path)
-            
-            # Test loading features with lowercase column names.
-            logger.info("Testing load_nuclear_features function.")
-            df = load_nuclear_features(tmp_path)
-            
-            # Verify required columns are present.
-            required_cols = ['label', 'centroid_x', 'centroid_y']
-            missing_cols = [col for col in required_cols if col not in df.columns]
-            
-            if missing_cols:
-                logger.error(f"✗ Missing required columns: {missing_cols}")
-                return False
-            
-            logger.info("✓ Successfully loaded features with lowercase column names.")
-            
-            # Test feature matrix preparation.
-            logger.info("Testing prepare_feature_matrix function.")
-            features, feature_names, nuclear_labels = prepare_feature_matrix(df)
-            
-            # Verify outputs.
-            if features.shape[0] != len(df):
-                logger.error(f"✗ Feature matrix has wrong number of rows: {features.shape[0]} vs {len(df)}")
-                return False
-            
-            if len(nuclear_labels) != len(df):
-                logger.error(f"✗ Nuclear labels have wrong length: {len(nuclear_labels)} vs {len(df)}")
-                return False
-            
-            # Verify nuclear labels match the 'label' column.
-            expected_labels = df['label'].values
-            if not np.array_equal(nuclear_labels, expected_labels):
-                logger.error("✗ Nuclear labels don't match expected values.")
-                return False
-            
-            logger.info("✓ Successfully prepared feature matrix with correct labels.")
-            logger.info(f"✓ Feature matrix shape: {features.shape}")
-            logger.info(f"✓ Number of feature columns: {len(feature_names)}")
-            
-            return True
-            
-        finally:
-            # Clean up temporary file.
-            if tmp_path.exists():
-                tmp_path.unlink()
-                
-    except Exception as e:
-        logger.error(f"✗ Test failed with exception: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+        # Create test data.
+        create_test_features_csv(tmp_path)
+
+        # Test loading features with lowercase column names.
+        logger.info("Testing load_nuclear_features function.")
+        df = load_nuclear_features(tmp_path)
+
+        # Verify required columns are present.
+        required_cols = ['label', 'centroid_x', 'centroid_y']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        assert not missing_cols, f"Missing required columns: {missing_cols}"
+
+        logger.info("✓ Successfully loaded features with lowercase column names.")
+
+        # Test feature matrix preparation.
+        logger.info("Testing prepare_feature_matrix function.")
+        features, feature_names, nuclear_labels = prepare_feature_matrix(df)
+
+        # Verify outputs.
+        assert features.shape[0] == len(df), \
+            f"Feature matrix has wrong number of rows: {features.shape[0]} vs {len(df)}"
+
+        assert len(nuclear_labels) == len(df), \
+            f"Nuclear labels have wrong length: {len(nuclear_labels)} vs {len(df)}"
+
+        # Verify nuclear labels match the 'label' column.
+        expected_labels = df['label'].values
+        assert np.array_equal(nuclear_labels, expected_labels), \
+            "Nuclear labels don't match expected values"
+
+        logger.info("✓ Successfully prepared feature matrix with correct labels.")
+        logger.info(f"✓ Feature matrix shape: {features.shape}")
+        logger.info(f"✓ Number of feature columns: {len(feature_names)}")
+
+    finally:
+        # Clean up temporary file.
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
-def test_csv_format_validation() -> bool:
+def test_csv_format_validation():
     """
     Test CSV format validation with various column name scenarios.
-    
-    Returns:
-        True if all validation tests pass, False otherwise.
-        
+
     This function tests edge cases and ensures robust error handling for
     different CSV formats and column name variations.
     """
     logger.info("Testing CSV format validation.")
-    
+
+    sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
+    from cluster_engineered_features import load_nuclear_features
+
+    # Test 1: Missing required column.
+    logger.info("Test 1: CSV missing 'label' column.")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
+        tmp_path = Path(tmp_file.name)
+
     try:
-        sys.path.append(str(Path(__file__).parent.parent / 'code' / 'engineered_feature_extraction'))
-        from cluster_engineered_features import load_nuclear_features
-        
-        # Test 1: Missing required column.
-        logger.info("Test 1: CSV missing 'label' column.")
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
-            tmp_path = Path(tmp_file.name)
-        
-        try:
-            # Create CSV without 'label' or 'nucleus_id' column.
-            test_data = pd.DataFrame({
-                'centroid_x': [100, 200],
-                'centroid_y': [150, 250],
-                'area': [120, 180]
-            })
-            test_data.to_csv(tmp_path, index=False)
+        # Create CSV without 'label' or 'nucleus_id' column.
+        test_data = pd.DataFrame({
+            'centroid_x': [100, 200],
+            'centroid_y': [150, 250],
+            'area': [120, 180]
+        })
+        test_data.to_csv(tmp_path, index=False)
 
-            # This should raise an error.
-            try:
-                load_nuclear_features(tmp_path)
-                logger.error("✗ Expected error for missing nucleus identifier column, but none occurred.")
-                return False
-            except ValueError as e:
-                if "Missing required nucleus identifier column" in str(e):
-                    logger.info("✓ Correctly detected missing nucleus identifier column.")
-                else:
-                    logger.error(f"✗ Unexpected error message: {str(e)}")
-                    return False
-                    
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        
-        # Test 2: Correct lowercase columns.
-        logger.info("Test 2: CSV with correct lowercase columns.")
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
-            tmp_path = Path(tmp_file.name)
-        
-        try:
-            test_data = pd.DataFrame({
-                'label': [1, 2, 3],
-                'centroid_x': [100, 200, 300],
-                'centroid_y': [150, 250, 350],
-                'area': [120, 180, 200],
-                'circularity': [0.8, 0.9, 0.7]
-            })
-            test_data.to_csv(tmp_path, index=False)
-            
-            df = load_nuclear_features(tmp_path)
-            if len(df) != 3:
-                logger.error(f"✗ Expected 3 rows, got {len(df)}")
-                return False
-            
-            logger.info("✓ Successfully loaded CSV with correct lowercase columns.")
-            
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+        # This should raise an error.
+        with pytest.raises(ValueError, match="Missing required nucleus identifier column"):
+            load_nuclear_features(tmp_path)
+        logger.info("✓ Correctly detected missing nucleus identifier column.")
 
-        # Test 2: CSV with 'nucleus_id' column should be accepted and renamed.
-        try:
-            test_data = pd.DataFrame({
-                'nucleus_id': [1, 2],
-                'centroid_x': [100, 200],
-                'centroid_y': [150, 250],
-                'area': [120, 180],
-                'circularity': [0.8, 0.9]
-            })
-            test_data.to_csv(tmp_path, index=False)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
-            # This should work and rename 'nucleus_id' to 'label'.
-            df = load_nuclear_features(tmp_path)
+    # Test 2: Correct lowercase columns.
+    logger.info("Test 2: CSV with correct lowercase columns.")
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
+        tmp_path = Path(tmp_file.name)
 
-            if 'label' not in df.columns:
-                logger.error("✗ Expected 'nucleus_id' to be renamed to 'label'.")
-                return False
+    try:
+        test_data = pd.DataFrame({
+            'label': [1, 2, 3],
+            'centroid_x': [100, 200, 300],
+            'centroid_y': [150, 250, 350],
+            'area': [120, 180, 200],
+            'circularity': [0.8, 0.9, 0.7]
+        })
+        test_data.to_csv(tmp_path, index=False)
 
-            if 'nucleus_id' in df.columns:
-                logger.error("✗ Original 'nucleus_id' column should be renamed.")
-                return False
+        df = load_nuclear_features(tmp_path)
+        assert len(df) == 3, f"Expected 3 rows, got {len(df)}"
 
-            logger.info("✓ Successfully accepted 'nucleus_id' column and renamed to 'label'.")
+        logger.info("✓ Successfully loaded CSV with correct lowercase columns.")
 
-        except Exception as e:
-            logger.error(f"✗ Unexpected error with 'nucleus_id' column: {str(e)}")
-            return False
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
+    # Test 3: CSV with 'nucleus_id' column should be accepted and renamed.
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
+        tmp_path = Path(tmp_file.name)
 
-        return True
-        
-    except Exception as e:
-        logger.error(f"✗ CSV format validation failed: {str(e)}")
-        logger.error(traceback.format_exc())
-        return False
+    try:
+        test_data = pd.DataFrame({
+            'nucleus_id': [1, 2],
+            'centroid_x': [100, 200],
+            'centroid_y': [150, 250],
+            'area': [120, 180],
+            'circularity': [0.8, 0.9]
+        })
+        test_data.to_csv(tmp_path, index=False)
+
+        # This should work and rename 'nucleus_id' to 'label'.
+        df = load_nuclear_features(tmp_path)
+
+        assert 'label' in df.columns, "Expected 'nucleus_id' to be renamed to 'label'"
+        assert 'nucleus_id' not in df.columns, "Original 'nucleus_id' column should be renamed"
+
+        logger.info("✓ Successfully accepted 'nucleus_id' column and renamed to 'label'.")
+
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
 
 
 def main():

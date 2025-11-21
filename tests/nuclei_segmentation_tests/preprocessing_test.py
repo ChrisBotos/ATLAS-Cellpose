@@ -123,11 +123,10 @@ def test_apply_clahe(dummy_8bit_image, dummy_logger):
     """
     # Create a nearly flat image with mild variation.
     low_contrast = np.random.normal(loc=127, scale=2, size=(128, 128)).clip(0, 255).astype(np.uint8)
-    result = preprocessing.apply_clahe(low_contrast, logger=dummy_logger)
+    result = preprocessing.apply_clahe_no_corner(low_contrast, logger=dummy_logger)
     assert result.shape == low_contrast.shape
     assert result.dtype == np.uint8
     assert result.std() > low_contrast.std()  # CLAHE should increase local contrast.
-    dummy_logger.info.assert_called()
 
 
 

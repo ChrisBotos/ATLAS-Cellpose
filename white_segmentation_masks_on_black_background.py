@@ -104,6 +104,10 @@ def check_memory_safety(required_gb: float, limit_gb: float, logger: logging.Log
 
 def estimate_memory_requirements(shape: Tuple[int, ...], dtype: np.dtype) -> float:
     """Estimate memory requirements for array operations in GB."""
+    # Ensure dtype is a proper dtype object.
+    if not isinstance(dtype, np.dtype):
+        dtype = np.dtype(dtype)
+
     # Base array size.
     base_size = np.prod(shape) * dtype.itemsize
 
