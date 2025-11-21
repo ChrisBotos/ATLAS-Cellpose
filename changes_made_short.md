@@ -2,6 +2,30 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
+## November 21, 2025 - Critical Filtering Bug Fix and Overlay Generation
+
+182. **CRITICAL BUG FIX: Fixed nucleus merging in filtering** - Replaced binary relabeling with proper label renumbering in filter_masks.py (line 533-539)
+    - **Bug**: `relabel(filtered_masks > 0, connectivity=2)` was treating mask as binary and re-segmenting, causing nearby nuclei to merge into single objects
+    - **Impact**: 5,948 nuclei incorrectly reduced to 374 (93.7% loss) due to merging, not filtering
+    - **Fix**: Changed to `enumerate(passed_labels, start=1)` to renumber labels consecutively while preserving individual nucleus boundaries
+    - **Result**: Filtering now correctly removes only failed nuclei without merging passed nuclei
+183. **Fixed filtering default behavior** - Changed default from `True` to `False` in pipeline.py to respect config setting (line 444)
+184. **Relaxed default filtering thresholds** - Made defaults more permissive to avoid over-filtering:
+    - max_pixels: 900 → 5000 (allow larger nuclei)
+    - min_circularity: 0.56 → 0.30 (allow more irregular shapes)
+    - min_solidity: 0.765 → 0.60 (allow more concave nuclei)
+    - max_eccentricity: 0.975 → 0.99 (allow more elongated nuclei)
+    - min_aspect_ratio: 0.50 → 0.30 (allow more elongated shapes)
+    - max_aspect_ratio: 3.20 → 5.00 (allow highly elongated nuclei)
+    - max_hole_fraction: 0.001 → 0.10 (allow nuclei with internal holes)
+185. **Added dual overlay generation** - Pipeline now creates both unfiltered and filtered overlays when filtering is enabled:
+    - `full_image_overlay_unfiltered.tif` - Shows all detected nuclei before filtering
+    - `full_image_overlay_filtered.tif` - Shows only nuclei that passed filtering criteria
+186. **Enhanced overlay naming** - Added `overlay_suffix` parameter to `generate_overlays()` function for flexible naming
+187. **Saved unfiltered masks** - Pipeline now saves `segmentation_masks_unfiltered.npy` before applying filters
+188. **Added filtering status tracking** - Pipeline tracks whether filtering was applied to determine overlay generation strategy
+189. **Improved user feedback** - Console messages now indicate which overlay type is being created (unfiltered vs filtered)
+
 ## November 21, 2025 - Crop Box Coordinate Format Fix
 
 174. **Changed crop_box format from (y0,y1,x0,x1) to (x0,x1,y0,y1)** - More intuitive coordinate ordering matching standard (x,y) convention

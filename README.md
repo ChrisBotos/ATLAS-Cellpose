@@ -314,7 +314,7 @@ ATLAS-Cellpose integrates Cellpose3 for deep learning-based nuclear segmentation
 
 ### Morphological Filtering
 
-ATLAS-Cellpose implements comprehensive morphological filtering to remove segmentation artifacts while preserving biological nuclei:
+ATLAS-Cellpose implements optional morphological filtering to remove segmentation artifacts while preserving biological nuclei:
 
 - **Size Filtering**: Removes debris (too small) and merged nuclei (too large)
 - **Shape Filtering**: Eliminates non-nuclear objects based on circularity, solidity, and eccentricity
@@ -322,13 +322,19 @@ ATLAS-Cellpose implements comprehensive morphological filtering to remove segmen
 - **Hole Detection**: Filters objects with excessive internal holes characteristic of segmentation errors
 - **Border Exclusion**: Optional removal of nuclei contacting image borders
 
-**Default Thresholds (validated on kidney tissue):**
-- Size: 20-900 pixels (captures typical nuclear size range)
-- Circularity: 0.56-1.00 (moderately circular to perfect circle)
-- Solidity: 0.765-1.00 (solid objects with minimal concavity)
-- Eccentricity: 0.00-0.975 (circular to moderately elongated)
-- Aspect Ratio: 0.50-3.20 (excludes extremely elongated artifacts)
-- Hole Fraction: 0.00-0.001 (minimal internal holes permitted)
+**Default Thresholds (permissive to avoid over-filtering):**
+- Size: 20-5000 pixels (captures wide range of nuclear sizes)
+- Circularity: 0.30-1.00 (allows irregular shapes)
+- Solidity: 0.60-1.00 (allows moderate concavity)
+- Eccentricity: 0.00-0.99 (allows elongated nuclei)
+- Aspect Ratio: 0.30-5.00 (allows highly elongated shapes)
+- Hole Fraction: 0.00-0.10 (allows nuclei with internal holes)
+
+**Dual Overlay Generation**: When filtering is enabled, the pipeline generates two overlays for comparison:
+- `full_image_overlay_unfiltered.tif` - All detected nuclei before filtering
+- `full_image_overlay_filtered.tif` - Only nuclei passing filter criteria
+
+**Note**: Filtering is disabled by default (`use_filtering = False`). Enable only if you observe significant artifacts in your segmentation results. The default thresholds are intentionally permissive and should be adjusted based on your specific tissue type and imaging conditions.
 
 ### Optimized Feature Extraction
 
@@ -441,19 +447,19 @@ tile_overlap = 0.2                  # 20% overlap between tiles
 qc_overlays = True                  # Generate QC images
 
 [filtering]
-use_filtering = True                # Enable morphological filtering
+use_filtering = False               # Enable morphological filtering (disabled by default)
 min_pixels = 20                     # Minimum nucleus size (pixels)
-max_pixels = 900                    # Maximum nucleus size (pixels)
-min_circularity = 0.56              # Minimum circularity (0=line, 1=circle)
+max_pixels = 5000                   # Maximum nucleus size (pixels)
+min_circularity = 0.30              # Minimum circularity (0=line, 1=circle)
 max_circularity = 1.00              # Maximum circularity
-min_solidity = 0.765                # Minimum solidity (convex hull ratio)
+min_solidity = 0.60                 # Minimum solidity (convex hull ratio)
 max_solidity = 1.00                 # Maximum solidity
 min_eccentricity = 0.00             # Minimum eccentricity (0=circle, 1=line)
-max_eccentricity = 0.975            # Maximum eccentricity
-min_aspect_ratio = 0.50             # Minimum aspect ratio (major/minor axis)
-max_aspect_ratio = 3.20             # Maximum aspect ratio
+max_eccentricity = 0.99             # Maximum eccentricity
+min_aspect_ratio = 0.30             # Minimum aspect ratio (major/minor axis)
+max_aspect_ratio = 5.00             # Maximum aspect ratio
 min_hole_fraction = 0.00            # Minimum hole fraction
-max_hole_fraction = 0.001           # Maximum hole fraction
+max_hole_fraction = 0.10            # Maximum hole fraction (allows internal holes)
 exclude_border = False              # Exclude border-touching nuclei
 ```
 

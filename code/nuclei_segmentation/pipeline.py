@@ -208,7 +208,7 @@ def apply_postprocessing(image, masks, settings, output_dir, logger):
     return masks
 
 
-def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=None, previous_results_dir=None):
+def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=None, previous_results_dir=None, overlay_suffix=""):
     """
     Generate visualization overlays for cell segmentation results.
 
@@ -231,6 +231,8 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
         Path to the segmentation masks file. If None, defaults to output_dir/masks/segmentation_masks.npy.
     previous_results_dir : str or Path, optional
         Path to previous results directory for accessing preprocessed images when using previous results.
+    overlay_suffix : str, optional
+        Suffix to append to overlay filenames (e.g., "_unfiltered" or "_filtered").
     """
     try:
         # Determine paths for overlay generation based on provided parameters or defaults.
@@ -277,7 +279,8 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
         )
 
         # Generate full-image overlay for comprehensive visualization.
-        overlay_output_path = Path(output_dir) / "visualizations" / "full_image_overlay.tif"
+        overlay_filename = f"full_image_overlay{overlay_suffix}.tif"
+        overlay_output_path = Path(output_dir) / "visualizations" / overlay_filename
         Path(output_dir / "visualizations").mkdir(parents=True, exist_ok=True)
 
         logger.info(f"Creating high-quality overlay: {image_path} × {mask_path}")
@@ -293,7 +296,7 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
             config=overlay_config
         )
 
-        logger.info("Overlay generation completed successfully")
+        logger.info(f"Overlay generation completed successfully: {overlay_filename}")
 
     except Exception as e:
         logger.warning(f"Overlay generation failed: {e}")
@@ -439,11 +442,19 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             if debug_mode:
                 console.print("[dim]  Skipped postprocessing[/dim]")
 
+        # Store whether filtering will be applied for overlay generation.
+        filtering_enabled = False
+
         if not settings.get("skip_and_copy_filtering", False) or not settings.get("use_previous_results", False):
             # Step 7: Apply morphological filtering to remove artifacts.
-            if settings.get("use_filtering", True):
+            if settings.get("use_filtering", False):
+                filtering_enabled = True
                 console.print("\n[cyan]Applying morphological filtering...[/cyan]")
                 original_count = int(masks.max())
+
+                # Save unfiltered masks before filtering.
+                np.save(Path(output_dir) / "masks" / "segmentation_masks_unfiltered.npy", masks)
+
                 masks = filter_masks_programmatic(
                     masks=masks,
                     settings=settings,
@@ -485,24 +496,58 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                 if debug_mode:
                     logger.info(f"Using preprocessed image from current run for overlays: {overlay_image_path}")
 
-            # Mask path: always use the current output directory masks (either from segmentation or merging).
-            overlay_mask_path = Path(output_dir) / "masks" / "segmentation_masks.npy"
-            if debug_mode:
-                logger.info(f"Using segmentation masks for overlays: {overlay_mask_path}")
-
             # Determine previous results directory if using previous results.
             prev_results_dir = None
             if settings.get("use_previous_results", False):
                 prev_results_dir = previous_results_dir
 
-            generate_overlays(
-                output_dir=output_dir,
-                settings=settings,
-                logger=logger,
-                image_path=overlay_image_path,
-                mask_path=overlay_mask_path,
-                previous_results_dir=prev_results_dir
-            )
+            # Generate overlays based on filtering status.
+            if filtering_enabled:
+                # Generate unfiltered overlay.
+                console.print("[cyan]  Creating unfiltered overlay...[/cyan]")
+                overlay_mask_path_unfiltered = Path(output_dir) / "masks" / "segmentation_masks_unfiltered.npy"
+                if debug_mode:
+                    logger.info(f"Using unfiltered segmentation masks for overlay: {overlay_mask_path_unfiltered}")
+
+                generate_overlays(
+                    output_dir=output_dir,
+                    settings=settings,
+                    logger=logger,
+                    image_path=overlay_image_path,
+                    mask_path=overlay_mask_path_unfiltered,
+                    previous_results_dir=prev_results_dir,
+                    overlay_suffix="_unfiltered"
+                )
+
+                # Generate filtered overlay.
+                console.print("[cyan]  Creating filtered overlay...[/cyan]")
+                overlay_mask_path_filtered = Path(output_dir) / "masks" / "segmentation_masks_filtered.npy"
+                if debug_mode:
+                    logger.info(f"Using filtered segmentation masks for overlay: {overlay_mask_path_filtered}")
+
+                generate_overlays(
+                    output_dir=output_dir,
+                    settings=settings,
+                    logger=logger,
+                    image_path=overlay_image_path,
+                    mask_path=overlay_mask_path_filtered,
+                    previous_results_dir=prev_results_dir,
+                    overlay_suffix="_filtered"
+                )
+            else:
+                # No filtering applied, generate single overlay.
+                overlay_mask_path = Path(output_dir) / "masks" / "segmentation_masks.npy"
+                if debug_mode:
+                    logger.info(f"Using segmentation masks for overlays: {overlay_mask_path}")
+
+                generate_overlays(
+                    output_dir=output_dir,
+                    settings=settings,
+                    logger=logger,
+                    image_path=overlay_image_path,
+                    mask_path=overlay_mask_path,
+                    previous_results_dir=prev_results_dir
+                )
         else:
             if debug_mode:
                 console.print("[dim]  Skipped visualizations[/dim]")

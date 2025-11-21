@@ -499,19 +499,21 @@ def filter_masks_programmatic(
         logger.info("Starting morphological filtering of segmentation masks...")
 
     # Create filtering thresholds from settings.
+    # Default values are intentionally permissive to avoid over-filtering.
+    # Users should adjust these based on their specific tissue and imaging conditions.
     th = Thresholds(
         min_pixels=settings.get("min_pixels", 20),
-        max_pixels=settings.get("max_pixels", 900),
-        min_circularity=settings.get("min_circularity", 0.56),
+        max_pixels=settings.get("max_pixels", 5000),
+        min_circularity=settings.get("min_circularity", 0.30),
         max_circularity=settings.get("max_circularity", 1.00),
-        min_solidity=settings.get("min_solidity", 0.765),
+        min_solidity=settings.get("min_solidity", 0.60),
         max_solidity=settings.get("max_solidity", 1.00),
         min_eccentricity=settings.get("min_eccentricity", 0.00),
-        max_eccentricity=settings.get("max_eccentricity", 0.975),
-        min_aspect_ratio=settings.get("min_aspect_ratio", 0.50),
-        max_aspect_ratio=settings.get("max_aspect_ratio", 3.20),
+        max_eccentricity=settings.get("max_eccentricity", 0.99),
+        min_aspect_ratio=settings.get("min_aspect_ratio", 0.30),
+        max_aspect_ratio=settings.get("max_aspect_ratio", 5.00),
         min_hole_fraction=settings.get("min_hole_fraction", 0.00),
-        max_hole_fraction=settings.get("max_hole_fraction", 0.001),
+        max_hole_fraction=settings.get("max_hole_fraction", 0.10),
         exclude_border=settings.get("exclude_border", False),
     )
 
@@ -530,12 +532,11 @@ def filter_masks_programmatic(
 
     # Create filtered mask by keeping only passed labels.
     filtered_masks = np.zeros_like(masks)
-    for label in passed_labels:
-        filtered_masks[masks == label] = label
 
-    # Relabel to ensure consecutive labeling.
-    from skimage.measure import label as relabel
-    filtered_masks = relabel(filtered_masks > 0, connectivity=2)
+    # Renumber labels consecutively starting from 1.
+    # This preserves individual nuclei boundaries without merging.
+    for new_label, old_label in enumerate(passed_labels, start=1):
+        filtered_masks[masks == old_label] = new_label
 
     # Save filtering results.
     filter_dir = Path(output_dir) / "filtering"
