@@ -3,9 +3,9 @@
 
 **A memory-efficient computational pipeline for large-scale nuclear segmentation and morphological analysis in tissue sections**
 
-**Authors**: Christos Botos and Benedetta Manzato
+**Authors**: Christos Botos (coder) and Benedetta Manzato (day-to-day supervisor)
 **Affiliation**: Human Genetics Department, Leiden University Medical Center
-**PI**: Ahmed Mahfouz
+**PI**: Ahmed Mahfouz (project supervisor)
 
 ---
 
@@ -182,11 +182,6 @@ conda activate venv310_cellpose3
 
 # Run all tests
 python -m pytest tests/ -v
-
-# Run specific test categories
-python -m pytest tests/nuclei_segmentation_tests/ -v  # Core pipeline tests
-python -m pytest tests/test_gpu_merge_4step_integration.py -v  # GPU merge tests
-python -m pytest tests/test_white_segmentation_masks_performance.py -v  # Performance tests
 ```
 
 **Test Coverage:**
@@ -220,8 +215,8 @@ CLAHE parameters can be configured in `configs/nuclei_segmentation_config.ini`:
 ```ini
 [preprocessing]
 enhance_contrast = True
-clahe_clip_limit = 3.0
-clahe_grid_size = 16
+clahe_clip_limit = 5.0
+clahe_grid_size = 32
 ```
 
 ## Pipeline Architecture
@@ -862,28 +857,4 @@ Segmentation for Large-Scale Tissue Image Analysis. [Journal Name], [Volume], [P
 
 **Repository**: [github.com/ChrisBotos/ATLAS-Cellpose](https://github.com/ChrisBotos/ATLAS-Cellpose)
 **Contact**: botoschristos@gmail.com
-**License**: [Specify License]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+**License**: MIT
