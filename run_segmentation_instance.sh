@@ -200,9 +200,14 @@ done
 job_name_from_config=$(grep "^job_name" "$TEMP_CONFIG_FILE" | awk -F' *= *' '{print $2}')
 if [ -n "$job_name_from_config" ]; then
     new_LOG_FILE="${LOG_DIR}/${job_name_from_config}_${script_basename%.sh}.log"
-    mv "$LOG_FILE" "$new_LOG_FILE"
-    LOG_FILE="$new_LOG_FILE"
-    log_info "Log file renamed to reflect job name: $LOG_FILE."
+    # Only rename if the new log file path is different from the current one.
+    if [ "$LOG_FILE" != "$new_LOG_FILE" ]; then
+        mv "$LOG_FILE" "$new_LOG_FILE"
+        LOG_FILE="$new_LOG_FILE"
+        log_info "Log file renamed to reflect job name: $LOG_FILE."
+    else
+        log_info "Log file name already matches job name: $LOG_FILE."
+    fi
 fi
 
 # ------------------------------------------------------------------------------

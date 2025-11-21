@@ -526,3 +526,18 @@ Expanded the simple feature extraction script to include all essential size and 
      - **Default (28 features)**: ~324 nuclei/second processing speed
      - **With texture (40 features)**: ~215 nuclei/second with comprehensive chromatin analysis
 102. **User Flexibility** - Texture features available as research option but disabled by default for routine morphological analysis
+
+## November 21, 2025 - Binary Mask Visualization Integration
+
+190. **Created Binary Mask Visualization Utility** - Refactored `white_segmentation_masks_on_black_background.py` into `code/nuclei_segmentation/utils/binary_mask_visualization.py`
+191. **Fixed PIL Import** - Corrected import statement from `import Image` to `from PIL import Image`
+192. **Integrated into Pipeline** - Added automatic binary mask generation after filtering step in `pipeline.py`
+193. **Smart Mask Selection** - Generates both filtered and unfiltered binary masks when filtering is enabled
+194. **Optimized for ViT Input** - Binary masks (white on black) optimized for Vision Transformer input
+195. **Memory-Efficient Processing** - Chunked processing for gigantic images with configurable memory limits
+196. **Automatic Output Location** - Saves to `results/<run_name>/visualizations/` directory
+197. **Configurable Parameters** - Supports `binary_mask_chunk_size`, `binary_mask_memory_limit`, and `binary_mask_compression` settings
+198. **Rich Console Integration** - Progress messages with cyan formatting and success indicators
+199. **Updated README Documentation** - Added binary mask visualizations to Output Files and Morphological Filtering sections
+200. **Removed Old Script** - Deleted standalone `white_segmentation_masks_on_black_background.py` from root directory
+201. **Fixed Log File Rename Bug** - Added check in `run_segmentation_instance.sh` to prevent renaming log file to itself when job names match

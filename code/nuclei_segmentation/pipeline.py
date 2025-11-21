@@ -57,6 +57,7 @@ from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_m
 from utils.visualization import small_segmentation_overlay
 from utils.overlay_masks import overlay
 from utils.filter_masks import filter_masks_programmatic
+from utils.binary_mask_visualization import generate_binary_mask_visualization
 
 from cellpose_merge.merge_tiles import merge_masks_streaming
 
@@ -474,9 +475,48 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                 except Exception as e:
                     if debug_mode:
                         logger.warning(f"Could not write filtered TIFF: {e}")
+
+                # Generate binary mask visualizations for both filtered and unfiltered masks.
+                console.print("\n[cyan]Generating binary mask visualizations...[/cyan]")
+
+                # Load unfiltered masks for visualization.
+                unfiltered_masks = np.load(Path(output_dir) / "masks" / "segmentation_masks_unfiltered.npy")
+
+                # Generate unfiltered binary mask visualization.
+                generate_binary_mask_visualization(
+                    masks=unfiltered_masks,
+                    output_dir=output_dir,
+                    logger=logger,
+                    suffix="_unfiltered",
+                    chunk_size=settings.get("binary_mask_chunk_size", 2048),
+                    memory_limit_gb=settings.get("binary_mask_memory_limit", 8.0),
+                    compression=settings.get("binary_mask_compression", "lzw")
+                )
+
+                # Generate filtered binary mask visualization.
+                generate_binary_mask_visualization(
+                    masks=masks,
+                    output_dir=output_dir,
+                    logger=logger,
+                    suffix="_filtered",
+                    chunk_size=settings.get("binary_mask_chunk_size", 2048),
+                    memory_limit_gb=settings.get("binary_mask_memory_limit", 8.0),
+                    compression=settings.get("binary_mask_compression", "lzw")
+                )
             else:
                 if debug_mode:
                     console.print("[dim]  Morphological filtering disabled[/dim]")
+
+                # Generate single binary mask visualization when filtering is disabled.
+                generate_binary_mask_visualization(
+                    masks=masks,
+                    output_dir=output_dir,
+                    logger=logger,
+                    suffix="",
+                    chunk_size=settings.get("binary_mask_chunk_size", 2048),
+                    memory_limit_gb=settings.get("binary_mask_memory_limit", 8.0),
+                    compression=settings.get("binary_mask_compression", "lzw")
+                )
         else:
             if debug_mode:
                 console.print("[dim]  Skipped filtering[/dim]")

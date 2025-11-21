@@ -330,9 +330,13 @@ ATLAS-Cellpose implements optional morphological filtering to remove segmentatio
 - Aspect Ratio: 0.30-5.00 (allows highly elongated shapes)
 - Hole Fraction: 0.00-0.10 (allows nuclei with internal holes)
 
-**Dual Overlay Generation**: When filtering is enabled, the pipeline generates two overlays for comparison:
+**Dual Overlay Generation**: When filtering is enabled, the pipeline generates two sets of visualizations for comparison:
 - `full_image_overlay_unfiltered.tif` - All detected nuclei before filtering
 - `full_image_overlay_filtered.tif` - Only nuclei passing filter criteria
+- `binary_mask_unfiltered.tif` - Binary mask of all detected nuclei (white on black)
+- `binary_mask_filtered.tif` - Binary mask of filtered nuclei (white on black)
+
+**Binary Mask Visualizations**: The pipeline automatically generates binary mask images where pixels inside any mask region are set to white (255) and all other pixels to black (0). These visualizations are optimized for Vision Transformer (ViT) input and provide a clear view of the segmented regions. The binary masks use memory-efficient chunked processing to handle gigantic images and are saved with LZW compression to minimize file sizes.
 
 **Note**: Filtering is disabled by default (`use_filtering = False`). Enable only if you observe significant artifacts in your segmentation results. The default thresholds are intentionally permissive and should be adjusted based on your specific tissue type and imaging conditions.
 
@@ -609,6 +613,10 @@ ATLAS-Cellpose generates:
 
 - **Segmentation masks**: `segmentation_masks.npy` (labeled nuclei)
 - **Quality control images**: Before/after merge visualizations
+- **Binary mask visualizations**: White segmentation masks on black background (optimized for ViT input)
+  - `binary_mask.tif` - Single visualization when filtering is disabled
+  - `binary_mask_unfiltered.tif` - All detected nuclei before filtering
+  - `binary_mask_filtered.tif` - Only nuclei passing filter criteria
 - **Feature data**: Morphological and spatial features (CSV format)
 - **Configuration snapshot**: Reproducible parameter settings
 - **Log files**: Detailed processing information
