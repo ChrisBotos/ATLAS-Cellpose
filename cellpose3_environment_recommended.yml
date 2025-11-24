@@ -3,7 +3,6 @@
 # Usage:
 #   conda env create -f cellpose3_environment_recommended.yml
 #   conda activate venv310_cellpose3
-#   python test_environment_setup.py
 
 name: venv310_cellpose3
 channels:
