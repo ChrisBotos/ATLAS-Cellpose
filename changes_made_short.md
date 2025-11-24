@@ -553,3 +553,18 @@ Expanded the simple feature extraction script to include all essential size and 
 208. **Debug Mode Verification** - Validated all debug prints controlled by `debug_mode` flag with Rich formatting
 209. **Configuration Validation** - Verified all parameters documented and match actual code usage
 210. **Publication Readiness Confirmed** - Codebase is publication-ready with only one minor obsolete test file disabled
+
+## November 24, 2025 - HPC Cluster Examples Publication Review
+
+211. **Removed Personal Information** - Replaced hardcoded email `hcty03@gmail.com` with generic placeholder `YOUR_EMAIL@example.com`
+212. **Fixed Misleading Job Names** - Renamed CPU script job from `compare_whole_feature_extraction` to `atlas_cellpose_cpu`
+213. **Created Comprehensive Cluster Documentation** - Added `cluster_examples/README.md` with 300+ lines of usage instructions
+214. **Enhanced GPU Script** - Added detailed header, improved logging, CUDA verification, better error handling, exit code tracking
+215. **Enhanced CPU Script** - Added detailed header, improved logging consistency, Python version verification, better path handling
+216. **Added HPC Section to Main README** - New comprehensive section with quick start, customization requirements, parameter sweeps
+217. **Resource Estimation Tables** - Added guidelines for GPU and CPU job resource allocation based on image size
+218. **Parameter Sweep Examples** - Documented how to run multiple jobs with different parameters for optimization
+219. **Batch Processing Guide** - Added SLURM job array examples for processing multiple images in parallel
+220. **Monitoring and Debugging** - Comprehensive commands for job status checking, output viewing, and troubleshooting
+221. **Best Practices Documentation** - Professional recommendations for cluster usage and resource optimization
+222. **Cluster Examples Publication-Ready** - Scripts now generic, well-documented, and suitable for publication

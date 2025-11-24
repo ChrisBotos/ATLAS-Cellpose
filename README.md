@@ -58,6 +58,7 @@ The framework generalizes to any large-scale tissue imaging application requirin
 - [Pipeline Architecture](#pipeline-architecture)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [HPC Cluster Deployment](#hpc-cluster-deployment)
 - [Scientific Applications](#scientific-applications)
 - [Performance](#performance)
 - [Nuclear Feature Clustering](#nuclear-feature-clustering)
@@ -638,6 +639,130 @@ Features include:
 - **Intensity**: Mean, standard deviation, skewness, kurtosis
 - **Spatial**: Nearest neighbor distances, local density
 - **Texture**: GLCM and Haralick features (optional)
+
+## HPC Cluster Deployment
+
+ATLAS-Cellpose is designed for seamless deployment on high-performance computing (HPC) clusters using SLURM workload manager. The `cluster_examples/` directory provides production-ready batch scripts for both GPU and CPU processing.
+
+### Quick Start
+
+```bash
+# Navigate to cluster examples directory.
+cd cluster_examples/
+
+# Copy and customize the GPU job script.
+cp cs_jobgpu_for_cluster.sh my_gpu_job.sh
+nano my_gpu_job.sh  # Update email, partition, and resource parameters.
+
+# Submit job to SLURM.
+sbatch my_gpu_job.sh
+
+# Monitor job status.
+squeue -u $USER
+tail -f atlas_cellpose_gpu_*.out
+```
+
+### Available Scripts
+
+**GPU Processing** (`cs_jobgpu_for_cluster.sh`):
+- Optimized for GPU-accelerated segmentation.
+- Default resources: 1 GPU, 8 CPUs, 15GB RAM, 40-hour time limit.
+- Includes CUDA module loading and environment verification.
+
+**CPU Processing** (`cs_jobcpu_for_cluster.sh`):
+- High-memory CPU-only processing for large images.
+- Default resources: 64 CPUs, 400GB RAM, 220-hour time limit.
+- Suitable for clusters without GPU availability.
+
+### Customization Requirements
+
+**IMPORTANT**: The example scripts must be customized for your specific cluster:
+
+1. **Email notifications**: Update `#SBATCH --mail-user=YOUR_EMAIL@example.com`.
+2. **Partition names**: Adjust `#SBATCH --partition=` to match your cluster's partitions.
+3. **Resource allocation**: Modify memory, CPU, and time limits based on your image size.
+4. **CUDA modules**: Update module load commands to match available CUDA versions.
+5. **Working directory**: Verify the `cd` command points to your ATLAS-Cellpose installation.
+
+### Parameter Sweep Example
+
+Run multiple jobs with different segmentation parameters:
+
+```bash
+# Create parameter sweep for cellprob_threshold optimization.
+for threshold in -9 -12 -14; do
+    sbatch --job-name="atlas_thresh_${threshold}" \
+           --export=ALL,CELLPROB_THRESHOLD=${threshold} \
+           cs_jobgpu_for_cluster.sh
+done
+```
+
+### Batch Processing Multiple Images
+
+Process multiple tissue sections in parallel using SLURM job arrays:
+
+```bash
+# Create job array script.
+cat > batch_array.sh <<'EOF'
+#!/bin/bash
+#SBATCH --job-name=atlas_batch
+#SBATCH --array=1-10
+#SBATCH --partition=highmemgpu
+#SBATCH --gres=gpu:1
+#SBATCH --mem=15G
+
+# Load environment.
+eval "$(conda shell.bash hook)"
+conda activate venv310_cellpose3
+
+# Get image from array.
+IMAGE_LIST=(data/sample1.tif data/sample2.tif ...)
+IMAGE=${IMAGE_LIST[$SLURM_ARRAY_TASK_ID-1]}
+
+# Run pipeline.
+./run_segmentation_instance.sh \
+    job_name "batch_${SLURM_ARRAY_TASK_ID}" \
+    image_path "$IMAGE" \
+    gpu True
+EOF
+
+sbatch batch_array.sh
+```
+
+### Resource Estimation Guidelines
+
+| Image Size | GPU Memory | CPU Memory | CPUs | Time (GPU) | Time (CPU) |
+|------------|------------|------------|------|------------|------------|
+| Small (< 2K × 2K) | 8GB | 32GB | 16 | 1h | 5h |
+| Medium (2K-4K) | 15GB | 128GB | 32 | 10h | 50h |
+| Large (> 4K) | 32GB | 400GB | 64 | 40h | 200h |
+
+**Note**: These are conservative estimates. Actual requirements depend on nucleus density, tiling parameters, and cluster performance.
+
+### Monitoring and Debugging
+
+```bash
+# Check job status.
+squeue -u $USER
+
+# View real-time output.
+tail -f atlas_cellpose_gpu_*.out
+
+# Check for errors.
+tail -f atlas_cellpose_gpu_*.err
+
+# View completed job statistics.
+sacct -j JOBID --format=JobID,JobName,Elapsed,MaxRSS,State
+
+# Cancel job if needed.
+scancel JOBID
+```
+
+### Complete Documentation
+
+For comprehensive cluster deployment instructions, troubleshooting, and advanced examples, see:
+- **Cluster Examples README**: `cluster_examples/README.md`
+- **Example Scripts**: `cluster_examples/cs_jobgpu_for_cluster.sh` and `cluster_examples/cs_jobcpu_for_cluster.sh`
 
 ## Scientific Applications
 
