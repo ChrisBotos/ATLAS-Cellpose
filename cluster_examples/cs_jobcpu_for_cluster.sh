@@ -65,18 +65,13 @@ echo "Python location: $(which python)"
 echo "Python version: $(python --version)"
 echo ""
 
-# Navigate to project directory.
-# Assumes this script is in cluster_examples/ subdirectory.
-cd "$(dirname "$0")/.." || { echo "Error: Could not navigate to project directory"; exit 1; }
-echo "Working directory: $(pwd)"
-echo ""
-
 echo "=========================================="
 echo "Starting ATLAS-Cellpose Pipeline (CPU Mode)"
 echo "=========================================="
 
 # Run the segmentation pipeline in CPU-only mode.
 # Customize parameters as needed for your analysis.
+cd ../
 ./run_segmentation_instance.sh gpu False
 
 exit_code=$?
