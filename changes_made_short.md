@@ -145,11 +145,11 @@ This document provides a numbered list of all major changes made to ATLAS-Cellpo
 
 ## November 20, 2025 - Requirements.txt Update and Installation Tutorial
 
-104. **Updated requirements.txt** - Synchronized all package versions with `cellpose3_(recommended)_environment.yml` for CUDA 11.8 compatibility
+104. **Updated requirements.txt** - Synchronized all package versions with `cellpose3_environment_recommended.yml` for CUDA 11.8 compatibility
 105. **Updated README.md Installation Section** - Added comprehensive 6-step environment setup tutorial with detailed explanations
 106. **Added Cellpose 3.0.10 Justification** - Documented why Cellpose 3.0.10 is recommended over Cellpose 4.x (20-30% better nuclear detection)
 107. **Enhanced Environment Management Section** - Added instructions for activating, deactivating, checking, and removing environments
-108. **Updated cellpose3_(recommended)_environment.yml** - Fixed usage comment to reference correct filename
+108. **Updated cellpose3_environment_recommended.yml** - Fixed usage comment to reference correct filename
 
 ## November 20, 2025 - Professional Rebranding to ATLAS-Cellpose
 

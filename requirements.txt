@@ -2,7 +2,7 @@
 # ATLAS-Cellpose Requirements File
 # ═══════════════════════════════════════════════════════════════════════════════
 # Author: Christos Botos
-# Compatible with: cellpose3_(recommended)_environment.yml
+# Compatible with: cellpose3_environment_recommended.yml
 # Python Version: 3.10
 # CUDA Version: 11.8
 #
@@ -10,7 +10,7 @@
 #   pip install -r requirements.txt
 #
 # Note: For full environment setup with conda, use:
-#   conda env create -f cellpose3_(recommended)_environment.yml
+#   conda env create -f cellpose3_environment_recommended.yml
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ───────── Core Scientific Computing ─────────

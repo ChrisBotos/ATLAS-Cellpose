@@ -77,7 +77,7 @@ The framework generalizes to any large-scale tissue imaging application requirin
 
 ### Environment Setup Tutorial
 
-**Important**: This project is optimized for **Cellpose 3.0.10**, which provides superior nuclear segmentation performance compared to Cellpose 4.x for DAPI-stained tissue sections. The environment file `cellpose3_(recommended)_environment.yml` contains all tested and validated package versions.
+**Important**: This project is optimized for **Cellpose 3.0.10**, which provides superior nuclear segmentation performance compared to Cellpose 4.x for DAPI-stained tissue sections. The environment file `cellpose3_environment_recommended.yml` contains all tested and validated package versions.
 
 #### Step 1: Install Miniconda (if not already installed)
 
@@ -104,7 +104,7 @@ cd /path/to/ATLAS-Cellpose
 
 # Create the environment from the YAML file.
 # This will install Python 3.10, Cellpose 3.0.10, PyTorch with CUDA 11.8, and all dependencies.
-conda env create -f cellpose3_(recommended)_environment.yml
+conda env create -f cellpose3_environment_recommended.yml
 
 # The environment creation will:
 # - Install ~100 packages via conda.
@@ -156,7 +156,7 @@ python code/nuclei_segmentation/run_this.py
 
 ```bash
 # One-command setup (after conda is installed).
-conda env create -f cellpose3_(recommended)_environment.yml && \
+conda env create -f cellpose3_environment_recommended.yml && \
 conda activate venv310_cellpose3 && \
 ./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
 ```
@@ -729,7 +729,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```bash
 # Clean and recreate environment.
 conda env remove -n venv310_cellpose3
-conda env create -f cellpose3_(recommended)_environment.yml
+conda env create -f cellpose3_environment_recommended.yml
 ```
 
 ## Nuclear Feature Clustering
