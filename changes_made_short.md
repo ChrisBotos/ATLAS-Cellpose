@@ -2,6 +2,14 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
+## November 27, 2025 - README Polish for Publication
+
+235. **Simplified Authorship Line** - Removed "developer/supervisor" labels for cleaner academic style
+236. **Toned Down Marketing Language** - Replaced "dramatically" with "substantially", "transforms" with "addresses key limitations", "uniquely suited" with "well-suited"
+237. **Fixed Percentage Claims** - Changed "20-30% better detection" to "substantially better detection" with "in our internal testing" qualifier
+238. **Fixed Script Usage Inconsistency** - Corrected Quick Start example to include required `image_path` argument
+239. **Added Benchmark Disclaimer** - Marked performance table as "example benchmarks from our test system" with approximate values (~)
+
 ## November 27, 2025 - README Cleanup for Shorter Version
 
 223. **Removed Feature Extraction References** - Deleted all references to `code/engineered_feature_extraction/` directory (no longer exists in shorter version)

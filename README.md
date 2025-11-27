@@ -3,7 +3,7 @@
 
 **A computational framework for large-scale nuclear segmentation with adaptive parameter optimization through intelligent tiling**
 
-**Authors**: Christos Botos (developer) and Benedetta Manzato (supervisor)
+**Authors**: Christos Botos (lead developer) and Benedetta Manzato (supervisor)
 **Affiliation**: Human Genetics Department, Leiden University Medical Center
 **Principal Investigator**: Ahmed Mahfouz
 
@@ -19,14 +19,14 @@ ATLAS-Cellpose (**A**daptive **T**iled **L**ocal **A**nalysis **S**egmentation) 
 
 ### Method Innovation
 
-The ATLAS approach transforms tissue image analysis through four key innovations:
+The ATLAS approach addresses key limitations in tissue image analysis through four innovations:
 
-1. **Adaptive Diameter Optimization**: Tiling creates locally homogeneous regions where Cellpose's adaptive diameter detection can optimize independently for each tissue microenvironment, dramatically improving segmentation accuracy in heterogeneous samples
+1. **Adaptive Diameter Optimization**: Tiling creates locally homogeneous regions where Cellpose's adaptive diameter detection can optimize independently for each tissue microenvironment, substantially improving segmentation accuracy in heterogeneous samples
 2. **Intelligent Spatial Partitioning**: Dynamic tiling with configurable overlap enables processing of arbitrarily large images while maintaining biological context
 3. **Systematic Boundary Resolution**: A four-step merging algorithm preserves cross-boundary nuclei while eliminating redundant detections with priority-based selection
 4. **Scalable Architecture**: Memory-efficient processing enables gigapixel image analysis on standard workstations
 
-This combination of adaptive parameter optimization and systematic merging makes ATLAS-Cellpose uniquely suited for whole-slide imaging and large tissue sections where nuclear morphology varies substantially across spatial regions—a common feature of injury, disease, and developmental models.
+This combination of adaptive parameter optimization and systematic merging is well-suited for whole-slide imaging and large tissue sections where nuclear morphology varies substantially across spatial regions—a common feature of injury, disease, and developmental models.
 
 ### Research Applications
 
@@ -40,7 +40,7 @@ The framework generalizes to any large-scale tissue imaging application requirin
 
 ## Key Features
 
-- **Adaptive Parameter Optimization**: Tiling enables local diameter detection, dramatically improving segmentation accuracy in heterogeneous tissue regions
+- **Adaptive Parameter Optimization**: Tiling enables local diameter detection, substantially improving segmentation accuracy in heterogeneous tissue regions
 - **Systematic Boundary Resolution**: Four-step merging algorithm preserves cross-boundary nuclei while eliminating redundant detections
 - **Scalable Architecture**: Memory-efficient processing of gigapixel images on standard workstations
 - **Cellpose3 Integration**: Optimized nuclear segmentation with validated performance on DAPI-stained tissue sections
@@ -128,7 +128,7 @@ conda activate venv310_cellpose3
 # Add your image to the project directory "data" and update the image_path in the command below.
 # The crop_box coordinates are provided as a comma-separated string (x_start, x_end, y_start, y_end).
 # The crop_box is a percentage of the image size (0-1). Use it to run the pipeline on a small sample of your image.
-./run_segmentation_instance.sh crop_box image_path "path/to/your/image.tif" "0.38,0.42,0.32,0.36"
+./run_segmentation_instance.sh image_path "path/to/your/image.tif" crop_box "0.38,0.42,0.32,0.36"
 
 # The script will:
 # - Activate the conda environment automatically.
@@ -155,15 +155,15 @@ python code/nuclei_segmentation/run_this.py
 # One-command setup (after conda is installed).
 conda env create -f cellpose3_environment_recommended.yml && \
 conda activate venv310_cellpose3 && \
-./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
+./run_segmentation_instance.sh image_path "path/to/your/image.tif" crop_box "0.38,0.42,0.32,0.36"
 ```
 
 ### Why Cellpose 3.0.10?
 
 ATLAS-Cellpose is specifically optimized for **Cellpose 3.0.10** based on extensive validation:
 
-1. **Superior Nuclear Segmentation**: Cellpose 3.0.10 achieves 20-30% better detection of DAPI-stained nuclei in tissue sections compared to Cellpose 4.x
-2. **Injury Model Performance**: Significantly improved detection of dim or irregularly shaped nuclei characteristic of ischemia-reperfusion injury
+1. **Superior Nuclear Segmentation**: In our internal testing, Cellpose 3.0.10 achieves substantially better detection of DAPI-stained nuclei in tissue sections compared to Cellpose 4.x
+2. **Injury Model Performance**: Notably improved detection of dim or irregularly shaped nuclei characteristic of ischemia-reperfusion injury
 3. **Validated Parameters**: All detection thresholds and filtering criteria optimized specifically for Cellpose 3.0.10 performance
 4. **Stable API**: Well-tested interface ensures reproducible results across computing environments
 5. **Reproducibility**: Version-locked dependencies guarantee consistent segmentation across different systems
@@ -240,7 +240,7 @@ ATLAS-Cellpose employs adaptive tiled processing to address both computational a
 **Biological Benefits (Primary Innovation):**
 - **Adaptive Diameter Optimization**: Each tile represents a locally homogeneous tissue region, enabling Cellpose's adaptive diameter detection to optimize independently for local nuclear morphology
 - **Heterogeneity Handling**: Different tissue microenvironments (e.g., cortex vs. medulla, healthy vs. injured regions) receive optimized segmentation parameters
-- **Improved Accuracy**: Local parameter adaptation dramatically outperforms global parameter selection in heterogeneous samples
+- **Improved Accuracy**: Local parameter adaptation substantially outperforms global parameter selection in heterogeneous samples
 
 **Technical Implementation:**
 - **Configurable Overlap**: 20% overlap between adjacent tiles ensures boundary nuclei are captured
@@ -559,11 +559,13 @@ ATLAS-Cellpose enables comprehensive quantitative analysis of nuclear dynamics i
 
 ### Performance Benchmarks
 
+*Example benchmarks from our test system (results may vary based on hardware and image characteristics):*
+
 | Dataset Size | Processing Time | Memory Usage |
 |-------------|----------------|--------------|
-| Small (512×512, 50 nuclei) | 0.8s | 2GB |
-| Medium (1024×1024, 200 nuclei) | 3.2s | 4GB |
-| Large (2048×2048, 800 nuclei) | 11.4s | 8GB |
+| Small (512×512, 50 nuclei) | ~0.8s | ~2GB |
+| Medium (1024×1024, 200 nuclei) | ~3.2s | ~4GB |
+| Large (2048×2048, 800 nuclei) | ~11.4s | ~8GB |
 
 ### GPU Acceleration
 
