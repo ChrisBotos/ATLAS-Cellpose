@@ -11,7 +11,7 @@
 
 ### Abstract
 
-ATLAS-Cellpose is a computational framework that combines Cellpose3 deep learning segmentation with adaptive tiled processing to enable accurate analysis of large tissue sections. The method addresses two fundamental challenges in tissue image analysis: (1) memory constraints when processing gigapixel images, and (2) heterogeneous nuclear morphology across tissue regions. By partitioning images into locally homogeneous tiles, ATLAS-Cellpose enables Cellpose's adaptive diameter detection to optimize segmentation parameters for each tissue microenvironment independently. A four-step merging algorithm systematically resolves tile boundaries while preserving cross-boundary nuclei and eliminating redundant detections. The pipeline provides comprehensive morphological feature extraction (up to 40 features) with perfect nucleus tracking throughout the analysis workflow. Optimized for ischemia-reperfusion injury studies in kidney tissue, ATLAS-Cellpose supports both GPU-accelerated and CPU-based processing in high-performance computing environments.
+ATLAS-Cellpose is a computational framework that combines Cellpose3 deep learning segmentation with adaptive tiled processing to enable accurate analysis of large tissue sections. The method addresses two fundamental challenges in tissue image analysis: (1) memory constraints when processing gigapixel images, and (2) heterogeneous nuclear morphology across tissue regions. By partitioning images into locally homogeneous tiles, ATLAS-Cellpose enables Cellpose's adaptive diameter detection to optimize segmentation parameters for each tissue microenvironment independently. A four-step merging algorithm systematically resolves tile boundaries while preserving cross-boundary nuclei and eliminating redundant detections. Optimized for ischemia-reperfusion injury studies in kidney tissue, ATLAS-Cellpose supports both GPU-accelerated and CPU-based processing in high-performance computing environments.
 
 ## Overview
 
@@ -44,11 +44,9 @@ The framework generalizes to any large-scale tissue imaging application requirin
 - **Systematic Boundary Resolution**: Four-step merging algorithm preserves cross-boundary nuclei while eliminating redundant detections
 - **Scalable Architecture**: Memory-efficient processing of gigapixel images on standard workstations
 - **Cellpose3 Integration**: Optimized nuclear segmentation with validated performance on DAPI-stained tissue sections
-- **Comprehensive Feature Extraction**: Up to 40 morphological, spatial, and texture features with perfect nucleus tracking
 - **Quality Control Framework**: Extensive visualization and validation tools for reproducible analysis
 - **Performance Optimization**: GPU acceleration with automatic CPU fallback and intelligent memory management
-- **CLAHE Preprocessing**: Systematic contrast enhancement with 63 validated parameter combinations
-- **HPC Compatibility**: Designed for high-performance computing clusters with limited user permissions
+- **CLAHE Preprocessing**: Systematic contrast enhancement with validated parameter combinations
 
 ## Table of Contents
 
@@ -58,10 +56,8 @@ The framework generalizes to any large-scale tissue imaging application requirin
 - [Pipeline Architecture](#pipeline-architecture)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [HPC Cluster Deployment](#hpc-cluster-deployment)
 - [Scientific Applications](#scientific-applications)
 - [Performance](#performance)
-- [Nuclear Feature Clustering](#nuclear-feature-clustering)
 - [Troubleshooting](#troubleshooting)
 - [Citation](#citation)
 
@@ -174,26 +170,7 @@ ATLAS-Cellpose is specifically optimized for **Cellpose 3.0.10** based on extens
 
 **Note**: While Cellpose 4.x introduces new features, our systematic testing demonstrates that Cellpose 3.0.10 provides superior performance for nuclear segmentation in tissue sections. The pipeline maintains compatibility with Cellpose 4.x, but we strongly recommend Cellpose 3.0.10 for optimal results.
 
-### Running Tests
 
-ATLAS-Cellpose includes a comprehensive test suite to validate functionality:
-
-```bash
-# Activate environment
-conda activate venv310_cellpose3
-
-# Run all tests
-python -m pytest tests/ -v
-```
-
-**Test Coverage:**
-- **Core Pipeline**: Segmentation, adaptive tiling, preprocessing, and feature extraction
-- **Merge Algorithms**: Systematic merging, 4-step CPU algorithm, GPU integration
-- **Performance**: Memory efficiency, large image handling, optimization
-- **Visualization**: Color generation, overlay creation, QC tools
-- **Integration**: End-to-end pipeline validation
-
-The test suite has been cleaned to remove outdated debug tests and ensure all tests reference existing code modules.
 
 ## CLAHE Parameter Testing
 
@@ -226,7 +203,7 @@ clahe_grid_size = 32
 ATLAS-Cellpose implements a modular workflow optimized for large-scale tissue analysis:
 
 ```
-Input Image (DAPI) → Preprocessing → Adaptive Tiling → Cellpose Segmentation → Systematic Merging → Filtering → Quality Control → Feature Extraction
+Input Image (DAPI) → Preprocessing → Adaptive Tiling → Cellpose Segmentation → Systematic Merging → Filtering → Quality Control
 ```
 
 ### Core Components
@@ -236,7 +213,6 @@ Input Image (DAPI) → Preprocessing → Adaptive Tiling → Cellpose Segmentati
 3. **Segmentation**: Cellpose3 with tile-specific adaptive diameter detection maximizes accuracy across heterogeneous tissue
 4. **Systematic Merging**: Four-step priority-based algorithm resolves tile boundaries while preserving cross-boundary nuclei
 5. **Quality Control**: Comprehensive before/after visualizations enable validation of segmentation and merge accuracy
-6. **Feature Extraction**: Morphological, spatial, and texture feature computation with perfect nucleus tracking
 
 ### Pipeline Flowcharts
 
@@ -340,89 +316,6 @@ ATLAS-Cellpose implements optional morphological filtering to remove segmentatio
 **Binary Mask Visualizations**: The pipeline automatically generates binary mask images where pixels inside any mask region are set to white (255) and all other pixels to black (0). These visualizations are optimized for Vision Transformer (ViT) input and provide a clear view of the segmented regions. The binary masks use memory-efficient chunked processing to handle gigantic images and are saved with LZW compression to minimize file sizes.
 
 **Note**: Filtering is disabled by default (`use_filtering = False`). Enable only if you observe significant artifacts in your segmentation results. The default thresholds are intentionally permissive and should be adjusted based on your specific tissue type and imaging conditions.
-
-### Optimized Feature Extraction
-
-ATLAS-Cellpose includes both a comprehensive feature extraction system (43 features) and a streamlined simple extraction system (up to 40 features) with granular control:
-
-#### Feature Categories
-
-1. **Shape Features (11 features)**:
-   - Basic: circularity, eccentricity, solidity, aspect_ratio, compactness, elongation, roundness, form_factor
-   - Advanced: convex_area_ratio, convexity, fractal_dimension
-
-2. **Size Features (10 features)**:
-   - Primary: area, perimeter, equivalent_diameter, major_axis_length, minor_axis_length
-   - Bounding box: width, height, area
-   - Feret diameters: maximum, minimum
-
-3. **Neighborhood Features (8 features)**:
-   - Spatial: nearest_neighbor_distance, neighborhood_density, boundary_proximity
-   - Organization: cluster_elongation, cluster_polarization, spatial_autocorrelation
-   - Indices: tissue_organization_index, local_clustering_coefficient
-
-4. **Texture Features (12 features)**:
-   - Basic statistics: intensity_mean, intensity_std, intensity_median, intensity_skewness, intensity_kurtosis
-   - Entropy: texture_entropy
-   - Gradient: gradient_magnitude_mean, gradient_magnitude_std
-   - GLCM: contrast, dissimilarity, homogeneity, energy
-
-#### Performance Optimizations
-
-- **Granular Selection**: Extract only the features you need for significant performance improvements
-- **Adaptive Batch Processing**: Automatically adjusts batch sizes based on feature complexity
-- **Computational Caching**: LRU caching for expensive operations like convex hull calculations
-- **GPU Acceleration**: CuPy integration for vectorized operations on large datasets
-- **Memory Management**: Intelligent memory allocation and garbage collection
-
-#### Configuration Example
-
-```ini
-# Enable all features (comprehensive analysis)
-extract_all_features = True
-
-# Or select individual features for optimal performance
-extract_all_features = False
-extract_area = True
-extract_circularity = True
-extract_intensity_mean = True
-extract_nearest_neighbor_distance = True
-# ... (43 individual feature flags available)
-```
-
-### Simple Feature Extraction (Streamlined Pipeline)
-
-For faster processing and most research applications, the simple feature extraction system provides:
-
-#### Feature Categories (40 total features)
-
-1. **Size Features (10 features)**: area, perimeter, equivalent_diameter, major_axis_length, minor_axis_length, bounding_box_width, bounding_box_height, bounding_box_area, feret_diameter_max, feret_diameter_min
-
-2. **Shape Features (10 features)**: circularity, eccentricity, solidity, aspect_ratio, compactness, elongation, roundness, form_factor, convex_area_ratio, convexity
-
-3. **Neighborhood Features (8 features)**: neighbor_count, neighbor_density, nearest_neighbor_distance, mean_neighbor_distance, neighbor_area_ratio, local_density_gradient, clustering_coefficient, isolation_score
-
-4. **Texture Features (12 features - Optional)**: intensity_mean, intensity_std, intensity_median, intensity_skewness, intensity_kurtosis, texture_entropy, gradient_magnitude_mean, gradient_magnitude_std, glcm_contrast, glcm_dissimilarity, glcm_homogeneity, glcm_energy
-
-#### Performance Benefits
-
-- **3.5x faster** than comprehensive pipeline
-- **Single-threaded reliability** (no multiprocessing complexity)
-- **Perfect nucleus tracking** through entire pipeline
-- **Optional texture analysis** for chromatin studies
-- **Configurable feature sets** for optimal performance
-
-#### Configuration Example
-
-```ini
-# Simple feature extraction settings
-extract_texture_features = False    # Disable for faster processing (28 features)
-extract_texture_features = True     # Enable for chromatin analysis (40 features)
-```
-
-**Performance Comparison:**
-- **Without texture features**: ~215 nuclei/second (28 features)
-- **With texture features**: ~215 nuclei/second (40 features, minimal overhead)
 
 ## Configuration
 
@@ -618,151 +511,10 @@ ATLAS-Cellpose generates:
   - `binary_mask.tif` - Single visualization when filtering is disabled
   - `binary_mask_unfiltered.tif` - All detected nuclei before filtering
   - `binary_mask_filtered.tif` - Only nuclei passing filter criteria
-- **Feature data**: Morphological and spatial features (CSV format)
 - **Configuration snapshot**: Reproducible parameter settings
 - **Log files**: Detailed processing information
 
-### Feature Extraction
 
-Optional nuclear feature extraction includes:
-
-```bash
-# Extract morphological features
-python code/engineered_feature_extraction/extract_engineered_features.py
-
-# Cluster analysis
-python code/engineered_feature_extraction/cluster_engineered_features.py
-```
-
-Features include:
-- **Morphological**: Area, perimeter, eccentricity, solidity
-- **Intensity**: Mean, standard deviation, skewness, kurtosis
-- **Spatial**: Nearest neighbor distances, local density
-- **Texture**: GLCM and Haralick features (optional)
-
-## HPC Cluster Deployment
-
-ATLAS-Cellpose is designed for seamless deployment on high-performance computing (HPC) clusters using SLURM workload manager. The `cluster_examples/` directory provides production-ready batch scripts for both GPU and CPU processing.
-
-### Quick Start
-
-```bash
-# Navigate to cluster examples directory.
-cd cluster_examples/
-
-# Copy and customize the GPU job script.
-cp cs_jobgpu_for_cluster.sh my_gpu_job.sh
-nano my_gpu_job.sh  # Update email, partition, and resource parameters.
-
-# Submit job to SLURM.
-sbatch my_gpu_job.sh
-
-# Monitor job status.
-squeue -u $USER
-tail -f atlas_cellpose_gpu_*.out
-```
-
-### Available Scripts
-
-**GPU Processing** (`cs_jobgpu_for_cluster.sh`):
-- Optimized for GPU-accelerated segmentation.
-- Default resources: 1 GPU, 8 CPUs, 15GB RAM, 40-hour time limit.
-- Includes CUDA module loading and environment verification.
-
-**CPU Processing** (`cs_jobcpu_for_cluster.sh`):
-- High-memory CPU-only processing for large images.
-- Default resources: 64 CPUs, 400GB RAM, 220-hour time limit.
-- Suitable for clusters without GPU availability.
-
-### Customization Requirements
-
-**IMPORTANT**: The example scripts must be customized for your specific cluster:
-
-1. **Email notifications**: Update `#SBATCH --mail-user=YOUR_EMAIL@example.com`.
-2. **Partition names**: Adjust `#SBATCH --partition=` to match your cluster's partitions.
-3. **Resource allocation**: Modify memory, CPU, and time limits based on your image size.
-4. **CUDA modules**: Update module load commands to match available CUDA versions.
-5. **Working directory**: Verify the `cd` command points to your ATLAS-Cellpose installation.
-
-### Parameter Sweep Example
-
-Run multiple jobs with different segmentation parameters:
-
-```bash
-# Create parameter sweep for cellprob_threshold optimization.
-for threshold in -9 -12 -14; do
-    sbatch --job-name="atlas_thresh_${threshold}" \
-           --export=ALL,CELLPROB_THRESHOLD=${threshold} \
-           cs_jobgpu_for_cluster.sh
-done
-```
-
-### Batch Processing Multiple Images
-
-Process multiple tissue sections in parallel using SLURM job arrays:
-
-```bash
-# Create job array script.
-cat > batch_array.sh <<'EOF'
-#!/bin/bash
-#SBATCH --job-name=atlas_batch
-#SBATCH --array=1-10
-#SBATCH --partition=highmemgpu
-#SBATCH --gres=gpu:1
-#SBATCH --mem=15G
-
-# Load environment.
-eval "$(conda shell.bash hook)"
-conda activate venv310_cellpose3
-
-# Get image from array.
-IMAGE_LIST=(data/sample1.tif data/sample2.tif ...)
-IMAGE=${IMAGE_LIST[$SLURM_ARRAY_TASK_ID-1]}
-
-# Run pipeline.
-./run_segmentation_instance.sh \
-    job_name "batch_${SLURM_ARRAY_TASK_ID}" \
-    image_path "$IMAGE" \
-    gpu True
-EOF
-
-sbatch batch_array.sh
-```
-
-### Resource Estimation Guidelines
-
-| Image Size | GPU Memory | CPU Memory | CPUs | Time (GPU) | Time (CPU) |
-|------------|------------|------------|------|------------|------------|
-| Small (< 2K × 2K) | 8GB | 32GB | 16 | 1h | 5h |
-| Medium (2K-4K) | 15GB | 128GB | 32 | 10h | 50h |
-| Large (> 4K) | 32GB | 400GB | 64 | 40h | 200h |
-
-**Note**: These are conservative estimates. Actual requirements depend on nucleus density, tiling parameters, and cluster performance.
-
-### Monitoring and Debugging
-
-```bash
-# Check job status.
-squeue -u $USER
-
-# View real-time output.
-tail -f atlas_cellpose_gpu_*.out
-
-# Check for errors.
-tail -f atlas_cellpose_gpu_*.err
-
-# View completed job statistics.
-sacct -j JOBID --format=JobID,JobName,Elapsed,MaxRSS,State
-
-# Cancel job if needed.
-scancel JOBID
-```
-
-### Complete Documentation
-
-For comprehensive cluster deployment instructions, troubleshooting, and advanced examples, see:
-- **Cluster Examples README**: `cluster_examples/README.md`
-- **Example Scripts**: `cluster_examples/cs_jobgpu_for_cluster.sh` and `cluster_examples/cs_jobcpu_for_cluster.sh`
 
 ## Scientific Applications
 
@@ -780,7 +532,7 @@ ATLAS-Cellpose enables comprehensive quantitative analysis of nuclear dynamics i
 1. **Image Acquisition**: DAPI-stained tissue sections (whole-slide or large-field imaging)
 2. **Preprocessing**: CLAHE contrast enhancement and region-of-interest selection
 3. **Segmentation**: Automated nuclear detection with adaptive tiled processing and local parameter optimization
-4. **Feature Extraction**: Comprehensive morphological, spatial, and texture measurements with perfect nucleus tracking
+4. **Quality Control**: Visual validation of segmentation accuracy using overlay visualizations
 5. **Statistical Analysis**: Quantitative comparison across experimental conditions, time points, or tissue regions
 
 ## Performance
@@ -815,15 +567,7 @@ ATLAS-Cellpose enables comprehensive quantitative analysis of nuclear dynamics i
 
 ### GPU Acceleration
 
-Install CuPy for GPU acceleration:
-
-```bash
-# For CUDA 12.x
-pip install cupy-cuda12x
-
-# Verify GPU acceleration
-python -c "import cupy; print('GPU acceleration available')"
-```
+GPU acceleration is automatically enabled when CUDA-compatible hardware is detected. The pipeline will seamlessly fall back to CPU processing if GPU is unavailable.
 
 ## Troubleshooting
 
@@ -857,132 +601,7 @@ conda env remove -n venv310_cellpose3
 conda env create -f cellpose3_environment_recommended.yml
 ```
 
-## Nuclear Feature Clustering
 
-After extracting nuclear features, you can perform clustering analysis to identify distinct nuclear populations and phenotypes.
-
-### Quick Start - Simple Clustering
-
-For basic clustering with area and circularity features:
-
-```bash
-# 1. Extract simple features (fast, reliable)
-python code/engineered_feature_extraction/extract_engineered_features.py \
-    --config configs/engineered_feature_extraction_config.ini
-
-# 2. Perform clustering analysis
-python code/engineered_feature_extraction/cluster_engineered_features.py \
-    --config configs/engineered_feature_extraction_config.ini
-```
-
-### Clustering Outputs
-
-The clustering analysis generates comprehensive results:
-
-1. **nuclear_clusters.csv** - Original features + cluster assignments
-2. **cluster_overlay.tif** - Visual overlay showing clusters on tissue image
-3. **pca_clusters.png** - PCA visualization of cluster separation
-4. **feature_importance.png** - Feature contribution to clustering
-5. **cluster_statistics.csv** - Statistical summary per cluster
-6. **kmeans_model.joblib** - Saved model for reproducibility
-
-### Column Name Compatibility
-
-The clustering script automatically handles different column naming conventions:
-- ✅ **'label'** column (from full feature extraction)
-- ✅ **'nucleus_id'** column (from simple feature extraction)
-- 🔄 Automatic renaming for pipeline consistency
-
-### Configuration Parameters
-
-The `engineered_feature_extraction_config.ini` file provides **comprehensive granular control** with 80+ parameters for fine-tuned feature extraction and clustering analysis. The configuration system offers both high-level category controls and individual feature selection for optimal performance.
-
-#### Feature Selection Categories
-
-**Individual Feature Control**: Each feature can be enabled/disabled independently:
-- **Size Features (10 parameters)**: area, perimeter, equivalent_diameter, major/minor_axis_length, bounding_box dimensions, feret_diameters
-- **Shape Features (10 parameters)**: circularity, eccentricity, solidity, aspect_ratio, compactness, elongation, roundness, form_factor, convex_area_ratio, convexity
-- **Neighborhood Features (9 parameters)**: neighbor_count, neighbor_density, distance metrics, clustering_coefficient
-- **Texture Features (12 parameters)**: intensity statistics, entropy, gradients, GLCM properties
-
-#### Quality Control Parameters
-
-**Nuclei Filtering**: Morphological thresholds matching segmentation pipeline:
-- Size thresholds: `min_pixels=20`, `max_pixels=900`
-- Shape quality: `min_circularity=0.56`, `min_solidity=0.765`
-- Morphology limits: `max_eccentricity=0.975`, `max_aspect_ratio=3.20`
-
-#### Performance Optimization
-
-**Processing Control**: Memory and computational efficiency:
-- Worker allocation: `feature_extraction_workers=1` (single-threaded reliability)
-- Batch processing: `extraction_batch_size=1000` for memory efficiency
-- Memory management: `max_memory_gb=8.0`, `enable_memory_mapping=True`
-- Progress tracking: `enable_progress_tracking=True`, `save_diagnostic_files=True`
-- Automatic temp directories: `temp_directory=auto` (creates unique timestamped directories)
-
-#### Automatic Temporary Directory Management
-
-The system automatically creates unique temporary directories for intermediate processing files:
-
-```ini
-# Automatic unique temp directory generation
-temp_directory = auto  # Creates: YYYYMMDD_HHMMSS_temp (e.g., 20250929_143052_temp)
-
-# Or specify custom directory
-temp_directory = ./my_custom_temp
-```
-
-**Benefits of Automatic Temp Directories:**
-- **Unique timestamps**: Prevents conflicts between concurrent runs
-- **Automatic cleanup**: Built-in utilities for safe directory removal
-- **No user intervention**: System handles all directory management
-- **Collision-free**: Each run gets its own isolated temporary space
-
-Key parameters in the comprehensive configuration:
-
-```ini
-[feature_extraction]
-# Simple feature extraction parameters
-neighborhood_radius = 20.0              # Spatial analysis radius (pixels)
-extract_texture_features = False        # Enable/disable texture features (12 features)
-
-# Input/output paths
-extraction_image_path = ../../results/example_cropped/preprocessed/first.tif
-extraction_mask_path = ../../results/example_cropped/masks/segmentation_masks.npy
-extraction_output_dir = ../../results/example_cropped/engineered_features
-
-[clustering]
-# Clustering algorithm parameters
-default_clusters = 8                    # Number of clusters for K-means
-auto_k_method = None                     # Automatic cluster selection method
-clustering_seed = 42                     # Random seed for reproducibility
-
-# Visualization parameters
-generate_cluster_overlay = True          # Create tissue overlay visualization
-generate_pca_plot = True                 # Generate PCA feature space plot
-generate_feature_importance = True       # Analyze feature contributions
-
-# Color configuration - vibrant, non-bluish palette
-color_alpha = 250                        # Cluster color transparency (0-255)
-color_saturation = 1.0                   # Maximum saturation for vibrant colors
-custom_colors = #FF0000, #00FF00, #FF6000, #FF3000, #FF8000, #FFFF00, #FF0080, #80FF00, #FF9000, #FF4000, #00FF80, #FF8040, #40FF80, #FFA000, #FF4080, #40FF40, #FF8080, #80FF80, #FFB000, #FFC000
-clustering_seed = 42
-save_clustering_model = true
-
-# Visualization settings
-overlay_alpha = 0.85
-overlay_tile_size = 1024
-enable_gpu = true
-```
-
-### Scientific Context
-
-Nuclear clustering analysis identifies distinct cellular populations based on morphological signatures:
-- **Healthy nuclei**: Regular shape, moderate size, uniform chromatin distribution
-- **Apoptotic nuclei**: Fragmented morphology, irregular boundaries, condensed chromatin
-- **Necrotic nuclei**: Swollen appearance, loss of membrane integrity, disrupted chromatin
-- **Proliferating nuclei**: Larger size, specific morphological features, altered texture properties
 
 ### Getting Help
 

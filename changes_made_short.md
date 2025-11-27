@@ -2,6 +2,21 @@
 
 This document provides a numbered list of all major changes made to ATLAS-Cellpose (Adaptive Tiled Local Analysis Segmentation).
 
+## November 27, 2025 - README Cleanup for Shorter Version
+
+223. **Removed Feature Extraction References** - Deleted all references to `code/engineered_feature_extraction/` directory (no longer exists in shorter version)
+224. **Removed Cluster Examples References** - Deleted entire HPC Cluster Deployment section as `cluster_examples/` directory was removed
+225. **Removed Test Suite Documentation** - Deleted Running Tests section as tests directory was removed from shorter version
+226. **Removed Nuclear Feature Clustering Section** - Deleted 127-line section on clustering analysis (feature not included in shorter version)
+227. **Simplified Key Features List** - Removed references to comprehensive feature extraction and HPC compatibility
+228. **Cleaned Table of Contents** - Removed links to deleted sections (HPC Cluster Deployment, Nuclear Feature Clustering)
+229. **Updated Abstract** - Removed mention of "comprehensive morphological feature extraction" to reflect shorter version scope
+230. **Simplified Pipeline Architecture** - Removed feature extraction from core components list
+231. **Updated Output Files Section** - Removed feature data CSV references, kept only segmentation masks and visualizations
+232. **Cleaned Typical Workflow** - Removed feature extraction step, replaced with quality control step
+233. **Simplified GPU Acceleration Section** - Removed CuPy installation instructions, noted automatic GPU detection
+234. **Maintained Scientific Quality** - Kept all scientific explanations of segmentation, tiling, and merging algorithms intact
+
 ## November 21, 2025 - Critical Filtering Bug Fix and Overlay Generation
 
 182. **CRITICAL BUG FIX: Fixed nucleus merging in filtering** - Replaced binary relabeling with proper label renumbering in filter_masks.py (line 533-539)

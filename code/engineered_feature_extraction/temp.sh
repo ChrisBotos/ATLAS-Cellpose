@@ -1,2 +1,0 @@
-python extract_engineered_features.py --config ../../configs/engineered_feature_extraction_config.ini
-python cluster_engineered_features.py         --config ../../configs/engineered_feature_extraction_config.ini
