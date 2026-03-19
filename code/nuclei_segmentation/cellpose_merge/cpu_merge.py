@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: cpu_merge.py.
@@ -56,15 +56,11 @@ def _count_nuclei_in_tile(tile_mask: NDArray[np.uint32]) -> int:
     """
     Count the number of unique nuclei in a tile mask.
 
-    Parameters
-    ----------
-    tile_mask : NDArray[np.uint32]
-        Tile mask with nucleus labels (background = 0).
+    Args:
+        tile_mask (NDArray[np.uint32]): Tile mask with nucleus labels (background = 0).
 
-    Returns
-    -------
-    int
-        Number of unique nuclei in the tile.
+    Returns:
+        int: Number of unique nuclei in the tile.
     """
     unique_labels = np.unique(tile_mask)
     # Exclude background (label 0).
@@ -83,24 +79,19 @@ def _find_border_touching_nuclei(
     1. Nuclei that touch the boundary line (with ±1 pixel buffer)
     2. Nuclei that are completely beyond the boundary line in the overlap region
 
-    Parameters
-    ----------
-    tile_mask : NDArray[np.uint32]
-        Tile mask with nucleus labels.
-    overlap_length : int, default 0
-        Overlap distance in pixels. When 0, boundary line is at tile border.
-    direction : str
-        Direction of overlap boundary to check ('right', 'left', 'up', 'down').
-        Always required.
+    Args:
+        tile_mask (NDArray[np.uint32]): Tile mask with nucleus labels.
+        overlap_length (int, default 0): Overlap distance in pixels. When 0, boundary line
+            is at tile border.
+        direction (str): Direction of overlap boundary to check ('right', 'left', 'up',
+            'down'). Always required.
 
-    Returns
-    -------
-    Tuple[set, set]
-        First set: nucleus labels that touch the boundary line (with ±1 buffer).
-        Second set: nucleus labels completely beyond the boundary line in overlap region.
+    Returns:
+        Tuple[set, set]: First set: nucleus labels that touch the boundary line (with
+            ±1 buffer). Second set: nucleus labels completely beyond the boundary line
+            in overlap region.
 
-    Notes
-    -----
+    Notes:
     Boundary line positions:
     - 'right': vertical line at column (width - overlap_length)
     - 'left': vertical line at column overlap_length
@@ -240,29 +231,22 @@ def merge_tiles_cpu_4step(
     _find_border_touching_nuclei function to properly identify nuclei extending into
     overlap regions. Critical for accurate kidney I/R injury spatial analysis.
 
-    Parameters
-    ----------
-    tile1_path : Union[str, Path]
-        Path to the first whole tile mask .npz file.
-    tile2_path : Union[str, Path]
-        Path to the second whole tile mask .npz file.
-    overlap_length : int
-        Overlap distance in pixels between the tiles.
-    tile_relationship : str
-        Spatial relationship between tiles. Must be one of:
-        - "tile1_above_tile2": tile1 is positioned above tile2
-        - "tile1_left_of_tile2": tile1 is positioned to the left of tile2
-        - "tile1_below_tile2": tile1 is positioned below tile2
-        - "tile1_right_of_tile2": tile1 is positioned to the right of tile2
+    Args:
+        tile1_path (Union[str, Path]): Path to the first whole tile mask .npz file.
+        tile2_path (Union[str, Path]): Path to the second whole tile mask .npz file.
+        overlap_length (int): Overlap distance in pixels between the tiles.
+        tile_relationship (str): Spatial relationship between tiles. Must be one of:
+            - "tile1_above_tile2": tile1 is positioned above tile2
+            - "tile1_left_of_tile2": tile1 is positioned to the left of tile2
+            - "tile1_below_tile2": tile1 is positioned below tile2
+            - "tile1_right_of_tile2": tile1 is positioned to the right of tile2
 
-    Returns
-    -------
-    Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]
-        Updated tile1_mask, updated tile2_mask, and mapping of preserved nucleus IDs.
-        The mapping shows which original IDs were preserved or reassigned.
+    Returns:
+        Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]: Updated tile1_mask,
+            updated tile2_mask, and mapping of preserved nucleus IDs. The mapping shows
+            which original IDs were preserved or reassigned.
 
-    Notes
-    -----
+    Notes:
     The 4-step algorithm:
     1. Priority Selection: Tile with most nuclei gets priority
     2. Border Deletion: Remove priority tile nuclei touching tile borders
@@ -330,20 +314,20 @@ def merge_tiles_cpu_4step(
     # Map tile relationships to boundary directions.
     direction_mapping = {
         "tile1_above_tile2": {
-            "tile1_direction": "down",   # tile1 nuclei extending down into overlap
-            "tile2_direction": "up"      # tile2 nuclei extending up into overlap
+            "tile1_direction": "down",   # Tile1 nuclei extending down into overlap.
+            "tile2_direction": "up"      # Tile2 nuclei extending up into overlap.
         },
         "tile1_left_of_tile2": {
-            "tile1_direction": "right",  # tile1 nuclei extending right into overlap
-            "tile2_direction": "left"    # tile2 nuclei extending left into overlap
+            "tile1_direction": "right",  # Tile1 nuclei extending right into overlap.
+            "tile2_direction": "left"    # Tile2 nuclei extending left into overlap.
         },
         "tile1_below_tile2": {
-            "tile1_direction": "up",     # tile1 nuclei extending up into overlap
-            "tile2_direction": "down"    # tile2 nuclei extending down into overlap
+            "tile1_direction": "up",     # Tile1 nuclei extending up into overlap.
+            "tile2_direction": "down"    # Tile2 nuclei extending down into overlap.
         },
         "tile1_right_of_tile2": {
-            "tile1_direction": "left",   # tile1 nuclei extending left into overlap
-            "tile2_direction": "right"   # tile2 nuclei extending right into overlap
+            "tile1_direction": "left",   # Tile1 nuclei extending left into overlap.
+            "tile2_direction": "right"   # Tile2 nuclei extending right into overlap.
         }
     }
 

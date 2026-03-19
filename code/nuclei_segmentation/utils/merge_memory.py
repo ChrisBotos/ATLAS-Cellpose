@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: merge_memory.py.
@@ -72,25 +72,19 @@ def estimate_cluster_requirements(
     memory based on actual tile processing requirements rather than bounding box
     dimensions. This prevents the 200+ GB allocation attempts that caused failures.
     
-    Parameters
-    ----------
-    cluster : List[Tuple[int, int]]
-        List of (row, col) coordinates for tiles in the cluster.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-        
-    Returns
-    -------
-    Tuple[float, Tuple[int, int]]
-        Memory requirement in GB and (height, width) dimensions.
-        
-    Notes
-    -----
-    The memory calculation now uses a hybrid approach:
-    - For dense clusters: Uses bounding box approach (traditional method).
-    - For sparse clusters: Uses tile-based calculation to prevent massive overestimates.
+    Args:
+        cluster (List[Tuple[int, int]]): List of (row, col) coordinates for tiles in the cluster.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+
+    Returns:
+        Tuple[float, Tuple[int, int]]: Memory requirement in GB and (height, width) dimensions.
+
+    Notes:
+        The memory calculation now uses a hybrid approach:
+        - For dense clusters: Uses bounding box approach (traditional method).
+        - For sparse clusters: Uses tile-based calculation to prevent massive overestimates.
     """
     if not cluster:
         return 0.0, (0, 0)
@@ -139,7 +133,7 @@ def estimate_cluster_requirements(
         else:
             # For dense clusters, use traditional bounding box approach.
             workspace_memory = bbox_h * bbox_w * 4 / (1024**3)  # GB
-            total_memory = (actual_tile_memory + workspace_memory) * 1.5  # Reasonable safety factor
+            total_memory = (actual_tile_memory + workspace_memory) * 1.5  # Reasonable safety factor.
             
             logging.debug(f"Dense cluster memory calculation: tiles={actual_tile_memory:.3f}GB, "
                          f"workspace={workspace_memory:.3f}GB, total={total_memory:.3f}GB")
@@ -168,23 +162,17 @@ def check_cluster_feasibility(
     This function performs comprehensive feasibility checking including memory limits,
     array size constraints, coordinate validation, and overflow protection.
     
-    Parameters
-    ----------
-    cluster : List[Tuple[int, int]]
-        List of (row, col) coordinates for tiles in the cluster.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-    height, width : int
-        Full image dimensions in pixels.
-    memory_limit_gb : float, default 16.0
-        Maximum memory limit in gigabytes.
-        
-    Returns
-    -------
-    Tuple[bool, str]
-        (is_feasible, reason_if_not_feasible)
+    Args:
+        cluster (List[Tuple[int, int]]): List of (row, col) coordinates for tiles in the cluster.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+        height (int): Full image height in pixels.
+        width (int): Full image width in pixels.
+        memory_limit_gb (float): Maximum memory limit in gigabytes. Defaults to 16.0.
+
+    Returns:
+        Tuple[bool, str]: (is_feasible, reason_if_not_feasible).
     """
     try:
         cluster_size = len(cluster)
@@ -258,17 +246,13 @@ def estimate_cluster_memory_simple(
     """
     Simple memory estimation for processing a cluster (legacy compatibility).
     
-    Parameters
-    ----------
-    cluster_size : int
-        Number of tiles in the cluster.
-    cluster_h, cluster_w : int
-        Dimensions of the cluster bounding box in pixels.
-        
-    Returns
-    -------
-    float
-        Estimated memory requirement in gigabytes.
+    Args:
+        cluster_size (int): Number of tiles in the cluster.
+        cluster_h (int): Height of the cluster bounding box in pixels.
+        cluster_w (int): Width of the cluster bounding box in pixels.
+
+    Returns:
+        float: Estimated memory requirement in gigabytes.
     """
     try:
         # Memory for the 3D stack: (cluster_size, cluster_h, cluster_w) as uint32 (4 bytes).
@@ -287,4 +271,4 @@ def estimate_cluster_memory_simple(
         
     except Exception as e:
         logging.warning(f"Error in simple memory estimation: {e}")
-        return 1.0  # Conservative fallback
+        return 1.0  # Conservative fallback.

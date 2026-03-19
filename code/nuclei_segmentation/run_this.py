@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: run_this.py.
@@ -9,7 +9,7 @@ Description:
     Entrypoint script for nuclei segmentation pipeline for kidney I/R injury tissue slices.
 
 Dependencies:
-    • Python >= 3.7.
+    • Python >= 3.10.
     • Custom utility modules for project setup, logging, and debugging.
     • pipeline module for the segmentation workflow.
 

@@ -1,9 +1,6 @@
-"""
-Cellpose-Merge – GPU-accelerated mask-merging utility.
+"""Cellpose-Merge – GPU-accelerated mask-merging utility.
 
-Re-exports
-----------
-Main merging functions for tile processing and overlap resolution.
+Re-exports the main merging functions for tile processing and overlap resolution.
 """
 from .cpu_merge import merge_tiles_cpu_4step
 from .gpu_merge import merge_patch_gpu_4step

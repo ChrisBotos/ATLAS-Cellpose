@@ -1,20 +1,21 @@
 """
-Visualization Utilities for Kidney I/R Injury Nuclei Segmentation Analysis.
+Author: Christos Botos.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-This module provides specialized visualization functions for assessing segmentation
-quality and creating figures for kidney tissue analysis. Proper
-visualization is critical for validating segmentation results and communicating
-findings about nuclear morphology changes during ischemia-reperfusion injury.
+Script Name: visualization.py.
+Description:
+    Visualization utilities for assessing nuclei segmentation quality in kidney
+    I/R injury tissue analysis. Creates overlay images, cropped previews, and
+    comparison views for validating segmentation and preprocessing results.
 
-The utilities handle various visualization needs including:
-1. Creating overlay images that show segmentation boundaries on original images
-2. Generating cropped previews for quick quality assessment
-3. Producing full-size visualizations for detailed inspection
-4. Creating comparison views to evaluate preprocessing and refinement steps
+Dependencies:
+    - Python >= 3.10.
+    - numpy, matplotlib, scikit-image, cellpose, tqdm.
 
-These visualizations help researchers identify segmentation issues such as
-under-segmentation (merged nuclei) or over-segmentation (fragmented nuclei),
-which is particularly important in densely packed regions of injured kidney tissue.
+Usage:
+    from utils.visualization import small_segmentation_overlay
+    small_segmentation_overlay(output_dir, crop_size=512, image_path=img, mask_path=mask)
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -27,28 +28,27 @@ from tqdm import tqdm
 
 
 def setup_logger(name: str, debug: bool = False, log_file: Path = None) -> logging.Logger:
-    """
-    Creates and configures a logger for visualization functions.
+    """Create and configure a logger for visualization functions.
 
-    Parameters:
-    name (str): Name of the logger.
-    debug (bool): If True, sets level to DEBUG, otherwise INFO.
-    log_file (Path or None): Optional path to log file.
+    Args:
+        name (str): Name of the logger.
+        debug (bool): If True, sets level to DEBUG, otherwise INFO.
+        log_file (Path or None): Optional path to log file.
 
     Returns:
-    logging.Logger: Configured logger instance.
+        logging.Logger: Configured logger instance.
     """
 
     logger = logging.getLogger(name)
 
-    # Always set level explicitly
+    # Always set level explicitly.
     level = logging.DEBUG if debug else logging.INFO
     logger.setLevel(level)
 
-    # Define common formatter
+    # Define common formatter.
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
-    # Remove any duplicate handlers of the same type
+    # Remove any duplicate handlers of the same type.
     existing_types = set()
     for handler in list(logger.handlers):
         if type(handler) in existing_types:
@@ -56,13 +56,13 @@ def setup_logger(name: str, debug: bool = False, log_file: Path = None) -> loggi
         else:
             existing_types.add(type(handler))
 
-    # Console handler
+    # Console handler.
     console_handler = logging.StreamHandler()
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    # Optional file handler
+    # Optional file handler.
     if log_file:
         try:
             log_file = Path(log_file).expanduser().resolve()
@@ -74,7 +74,7 @@ def setup_logger(name: str, debug: bool = False, log_file: Path = None) -> loggi
         except Exception as e:
             print(f"[LOGGER ERROR] Failed to create log file handler at {log_file}: {e}")
 
-    # Prevent logs from propagating to root
+    # Prevent logs from propagating to root.
     logger.propagate = False
 
     return logger
@@ -84,7 +84,7 @@ def create_output_dirs(output_dir: Path, debug: bool, logger) -> tuple[Path, Pat
     """
     Ensures creation of debug and visualization output directories with fallbacks.
 
-    Parameters:
+    Args:
         output_dir (Path): Base output directory.
         debug (bool): Whether to create debug folder.
         logger (logging.Logger): Logger for reporting.
@@ -142,7 +142,7 @@ def load_image(image_paths: list[Path], debug_dir: Path, logger) -> np.ndarray |
     Attempts to load an image from the provided list of paths.
     Logs diagnostic information and saves histogram/normalization preview if debug is enabled.
 
-    Parameters:
+    Args:
         image_paths (list[Path]): List of possible image file paths.
         debug_dir (Path): Directory to save debug outputs (can be None).
         logger (Logger): Logger instance for diagnostics.
@@ -195,7 +195,7 @@ def load_masks(mask_paths: list[Path], debug_dir: Path, logger) -> np.ndarray | 
     Attempts to load segmentation masks from a list of paths.
     Logs basic stats and optionally saves a mask histogram and visual overlay.
 
-    Parameters:
+    Args:
         mask_paths (list[Path]): List of mask .npy files.
         debug_dir (Path): Debug output directory (or None).
         logger (Logger): Logger for diagnostics.
@@ -244,7 +244,7 @@ def load_masks(mask_paths: list[Path], debug_dir: Path, logger) -> np.ndarray | 
     logger.error("All mask paths failed to load.")
     return None
 
-"""Generate overlays."""
+'''Generate overlays.'''
 
 def _generate_label_colours(max_label: int, seed: int = 42) -> np.ndarray:
     """Return deterministic RGB colours for labels 0..max_label."""
@@ -309,25 +309,23 @@ def generate_tiled_overlay(
     """
     Colour overlay: grayscale image + randomly‑coloured masks.
 
-    Parameters
-    ----------
-    img   : raw slide or tile, 2‑D or RGB.
-    masks : integer label image (0 = background).
-    alpha : 0‑1 weight of the mask layer.
-    seed  : RNG seed so colours are reproducible between runs.
+    Args:
+        img (np.ndarray): Raw slide or tile, 2‑D or RGB.
+        masks (np.ndarray): Integer label image (0 = background).
+        alpha (float): 0‑1 weight of the mask layer.
+        seed (int): RNG seed so colours are reproducible between runs.
 
-    Returns
-    -------
-    overlay : float32 RGB ∈ [0, 1].
+    Returns:
+        np.ndarray: Float32 RGB overlay ∈ [0, 1].
     """
     # 1. Prepare the base image as RGB float32 ∈ [0,1].
-    gray = _assert_grayscale(img, "img")               # (H,W) float32
-    base = np.stack([gray / 255.0] * 3, axis=-1)       # (H,W,3)
+    gray = _assert_grayscale(img, "img")               # (H,W) float32.
+    base = np.stack([gray / 255.0] * 3, axis=-1)       # (H,W,3).
 
     # 2. Map every label → deterministic colour.
-    lut        = _generate_label_colours(int(masks.max()), seed)  # (L+1,3) uint8
-    lut_float  = lut.astype(np.float32) / 255.0                   # ∈ [0,1]
-    mask_rgb   = lut_float[masks]                                 # (H,W,3) float32
+    lut        = _generate_label_colours(int(masks.max()), seed)  # (L+1,3) uint8.
+    lut_float  = lut.astype(np.float32) / 255.0                   # ∈ [0,1].
+    mask_rgb   = lut_float[masks]                                 # (H,W,3) float32.
 
     # 3. Alpha‑blend ONLY where label > 0.
     fg         = masks > 0
@@ -339,12 +337,12 @@ def generate_tiled_overlay(
 
 
 
-"""Miscellaneous utilities."""
+'''Miscellaneous utilities.'''
 def match_shapes(img: np.ndarray, masks: np.ndarray, logger) -> tuple[np.ndarray, np.ndarray]:
     """
     Crops image and masks to a common shape if they mismatch.
 
-    Parameters:
+    Args:
         img (np.ndarray): Input image.
         masks (np.ndarray): Segmentation masks.
         logger (Logger): Logger instance.
@@ -371,7 +369,7 @@ def choose_crop_region(img: np.ndarray, crop_size: int, logger) -> tuple[int, in
     """
     Chooses a crop region based on intensity content.
 
-    Parameters:
+    Args:
         img (np.ndarray): Image to crop.
         crop_size (int): Crop size in pixels.
         logger (Logger): Logger.
@@ -428,7 +426,7 @@ def crop_array(arr: np.ndarray, y0: int, y1: int, x0: int, x1: int, name: str, l
     """
     Safely crops an array and logs the outcome.
 
-    Parameters:
+    Args:
         arr (np.ndarray): Input array.
         y0, y1, x0, x1 (int): Crop coordinates.
         name (str): For logging.
@@ -450,7 +448,7 @@ def create_overlay(img_crop: np.ndarray, masks_crop: np.ndarray, logger) -> np.n
     """
     Creates an RGB overlay image from grayscale input and segmentation masks.
 
-    Parameters:
+    Args:
         img_crop (np.ndarray): Cropped grayscale image.
         masks_crop (np.ndarray): Cropped masks.
         logger (Logger): Logger.
@@ -501,14 +499,14 @@ def save_overlay_summary(img_crop, overlay, clahe_crop, gamma_crop, output_dir, 
     Saves a 2x2 summary figure showing preprocessing steps and overlay,
     plus separate image panels and an optional high-contrast overlay.
 
-    Parameters:
-    img_crop (np.ndarray): Cropped grayscale input image.
-    overlay (np.ndarray): RGB overlay image (float32 [0,1] or uint8).
-    clahe_crop (np.ndarray or None): CLAHE-enhanced crop if available.
-    gamma_crop (np.ndarray or None): Gamma-corrected crop if available.
-    output_dir (Path): Path object where images will be saved.
-    logger (Logger): Logger for reporting.
-    debug (bool): If True, saves a high-contrast overlay and extra plots.
+    Args:
+        img_crop (np.ndarray): Cropped grayscale input image.
+        overlay (np.ndarray): RGB overlay image (float32 [0,1] or uint8).
+        clahe_crop (np.ndarray or None): CLAHE-enhanced crop if available.
+        gamma_crop (np.ndarray or None): Gamma-corrected crop if available.
+        output_dir (Path): Path object where images will be saved.
+        logger (Logger): Logger for reporting.
+        debug (bool): If True, saves a high-contrast overlay and extra plots.
     """
 
     try:
@@ -558,7 +556,7 @@ def save_overlay_summary(img_crop, overlay, clahe_crop, gamma_crop, output_dir, 
         logger.error(traceback.format_exc())
 
 
-    """Save panels individually"""
+    '''Save panels individually.'''
     try:
         skio.imsave(output_dir / "panel1_preprocessed.tif", img_crop)
 
@@ -590,7 +588,7 @@ def save_overlay_summary(img_crop, overlay, clahe_crop, gamma_crop, output_dir, 
         logger.warning(f"Failed to save image panels: {e}")
 
 
-    """Side-by-side 1×2 layout"""
+    '''Side-by-side 1×2 layout.'''
     try:
         fig2, axes = plt.subplots(1, 2, figsize=(12, 6))
         axes[0].imshow(img_crop, cmap="gray")
@@ -622,23 +620,16 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
     image and final segmentation mask, extracts a central crop, and generates overlays including
     CLAHE and gamma-corrected versions if available.
 
-    Parameters
-    ----------
-    output_dir : str or Path
-        Directory where visualization outputs will be saved.
-    crop_size : int, default 1024
-        Size of the crop in pixels for overlay generation.
-    debug : bool, default False
-        If True, enables more verbose logging and saves extra debug images.
-    image_path : str or Path, optional
-        Path to the main preprocessed image file. If None, defaults to output_dir/preprocessed/first.tif.
-    mask_path : str or Path, optional
-        Path to the segmentation masks file. If None, defaults to output_dir/masks/segmentation_masks.npy.
-    preprocessed_dir : str or Path, optional
-        Directory containing preprocessed images (for CLAHE, gamma). If None, defaults to output_dir/preprocessed.
+    Args:
+        output_dir (str or Path): Directory where visualization outputs will be saved.
+        crop_size (int): Size of the crop in pixels for overlay generation. Defaults to 1024.
+        debug (bool): If True, enables more verbose logging and saves extra debug images. Defaults to False.
+        image_path (str or Path or None): Path to the main preprocessed image file. If None, defaults to output_dir/preprocessed/first.tif.
+        mask_path (str or Path or None): Path to the segmentation masks file. If None, defaults to output_dir/masks/segmentation_masks.npy.
+        preprocessed_dir (str or Path or None): Directory containing preprocessed images (for CLAHE, gamma). If None, defaults to output_dir/preprocessed.
     """
 
-    '''Setup logging and output directories'''
+    '''Setup logging and output directories.'''
     logger = setup_logger("small_segmentation_overlay", debug=debug)
     output_dir = Path(output_dir).expanduser().resolve()
     logger.info(f"Running overlay visualization on: {output_dir}")
@@ -649,7 +640,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
         logger.error(f"Cannot create output folders: {e}")
         return
 
-    '''Determine input paths based on provided parameters or defaults'''
+    '''Determine input paths based on provided parameters or defaults.'''
     # Main preprocessed image path.
     if image_path is None:
         img_path = output_dir / "preprocessed" / "first.tif"
@@ -675,7 +666,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
     logger.info(f"Using masks: {mask_path}")
     logger.info(f"Using preprocessed directory: {preprocessed_base}")
 
-    '''Load main image with validation'''
+    '''Load main image with validation.'''
     if not img_path.exists():
         logger.error(f"Preprocessed image not found: {img_path}")
         return
@@ -685,7 +676,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
         return
 
 
-    """LOAD MASK"""
+    '''LOAD MASK.'''
     if not mask_path.exists():
         logger.error(f"Segmentation mask not found: {mask_path}")
         return
@@ -695,11 +686,11 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
         return
 
 
-    """SHAPE SYNC"""
+    '''SHAPE SYNC.'''
     img, masks = match_shapes(img, masks, logger)
 
 
-    """CROP CENTER REGION"""
+    '''CROP CENTER REGION.'''
     y0, y1, x0, x1 = choose_crop_region(img, crop_size, logger)
     img_crop = crop_array(img, y0, y1, x0, x1, name="image", logger=logger)
     masks_crop = crop_array(masks, y0, y1, x0, x1, name="mask", logger=logger)
@@ -716,7 +707,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
         return
 
 
-    """GENERATE OVERLAY"""
+    '''GENERATE OVERLAY.'''
     overlay = create_overlay(img_crop, masks_crop, logger)
     try:
         overlay_path = cropped_preview_dir / "central_crop_overlay.tif"
@@ -726,7 +717,7 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
         logger.warning(f"Could not save overlay: {e}")
 
 
-    """OPTIONAL ENHANCEMENT CROPS"""
+    '''OPTIONAL ENHANCEMENT CROPS.'''
     clahe_img = None
     gamma_img = None
 
@@ -749,5 +740,5 @@ def small_segmentation_overlay(output_dir, crop_size=1024, debug=False, image_pa
         logger.info("No Gamma image found.")
 
 
-    """SUMMARY PANEL"""
+    '''SUMMARY PANEL.'''
     save_overlay_summary(img_crop, overlay, clahe_img, gamma_img, cropped_preview_dir, logger, debug=debug)

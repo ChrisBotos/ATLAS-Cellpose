@@ -1,0 +1,70 @@
+{
+  "env": {
+    "CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite",
+      "Skill",
+      "SlashCommand",
+      "BashOutput",
+      "KillBash",
+      "Bash(rm -rf:*)",
+      "Bash(rm -r:*)",
+      "Bash(rm *:*)",
+      "Bash(rm /*:*)",
+      "Bash(rm /:*)",
+      "Bash(pip install -e*:*)",
+      "Bash(pip install*:*)"
+    ],
+    "ask": [],
+    "deny": [
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fdx:*)",
+      "Bash(git revert --no-edit:*)",
+      "Bash(mkfs*:*)",
+      "Bash(fdisk*:*)",
+      "Bash(parted*:*)",
+      "Bash(dd if=*:*)",
+      "Bash(dd of=*:*)",
+      "Bash(chown -R /:*)",
+      "Bash(chmod -R 000 /:*)",
+      "Bash(chmod -R 777 /:*)",
+      "Bash(shutdown*:*)",
+      "Bash(reboot*:*)",
+      "Bash(poweroff*:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmd=\"$CLAUDE_TOOL_INPUT_command\"; if echo \"$cmd\" | grep -qE '(python |pytest |pip |conda |cellpose)' && ! echo \"$cmd\" | grep -qE '(activate|conda run)'; then echo '\\n[HOOK WARNING] Command uses Python but does not activate a conda environment.\\nPrepend: conda activate venv310_cellpose3\\n' >&2; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=\"$CLAUDE_TOOL_INPUT_file_path\"; if echo \"$file\" | grep -qE '/code/.*\\.py$'; then echo \"[HOOK] Source file modified in ATLAS-Cellpose — run pytest before committing\" >&2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

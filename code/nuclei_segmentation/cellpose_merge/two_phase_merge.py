@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: two_phase_merge.py.
@@ -66,19 +66,14 @@ def _tile_coord_to_pixel_coord(coord: TileCoord, tile_h: int, tile_w: int, overl
     while the merge process works with tile indices (row, col). This function
     converts between the two coordinate systems.
 
-    Parameters
-    ----------
-    coord : TileCoord
-        Tile index coordinates (row, col).
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
+    Args:
+        coord (TileCoord): Tile index coordinates (row, col).
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
 
-    Returns
-    -------
-    TileCoord
-        Pixel coordinates (y_start, x_start) used in file naming.
+    Returns:
+        TileCoord: Pixel coordinates (y_start, x_start) used in file naming.
     """
     row, col = coord
     stride_h = tile_h - overlap
@@ -94,19 +89,14 @@ def _pixel_coord_to_tile_coord(pixel_coord: TileCoord, tile_h: int, tile_w: int,
     """
     Convert pixel coordinates to tile index coordinates.
 
-    Parameters
-    ----------
-    pixel_coord : TileCoord
-        Pixel coordinates (y_start, x_start) from file naming.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
+    Args:
+        pixel_coord (TileCoord): Pixel coordinates (y_start, x_start) from file naming.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
 
-    Returns
-    -------
-    TileCoord
-        Tile index coordinates (row, col).
+    Returns:
+        TileCoord: Tile index coordinates (row, col).
     """
     y_start, x_start = pixel_coord
     stride_h = tile_h - overlap
@@ -155,25 +145,18 @@ def reassign_nucleus_ids(
     reassigning IDs in both tiles to new sequential integers starting from the given number.
     This prevents ID conflicts that can occur when tiles are processed independently.
 
-    Parameters
-    ----------
-    tile1_mask : NDArray[np.uint32]
-        First tile mask to reassign IDs (modified in-place).
-    tile2_mask : NDArray[np.uint32]
-        Second tile mask to reassign IDs (modified in-place).
-    starting_id : int
-        Starting integer ID for reassignment.
+    Args:
+        tile1_mask (NDArray[np.uint32]): First tile mask to reassign IDs (modified in-place).
+        tile2_mask (NDArray[np.uint32]): Second tile mask to reassign IDs (modified in-place).
+        starting_id (int): Starting integer ID for reassignment.
 
-    Returns
-    -------
-    int
-        Next available integer ID for subsequent tile pairs.
+    Returns:
+        int: Next available integer ID for subsequent tile pairs.
 
-    Notes
-    -----
-    This function modifies both tile masks in-place to apply the new ID assignments.
-    The reassignment maintains the spatial structure of nuclei while ensuring unique IDs.
-    Background pixels (ID=0) are preserved unchanged.
+    Notes:
+        This function modifies both tile masks in-place to apply the new ID assignments.
+        The reassignment maintains the spatial structure of nuclei while ensuring unique IDs.
+        Background pixels (ID=0) are preserved unchanged.
     """
     current_id = starting_id
 
@@ -211,33 +194,24 @@ def copy_tile_masks_to_merged_directory(
     CRITICAL FIX: Uses directory-level copying instead of individual file copying
     to prevent data corruption that was causing 97% nuclei loss.
 
-    Parameters
-    ----------
-    source_dir : Path
-        Source directory containing original tile masks (tile_masks_npz/).
-    target_dir : Path
-        Target directory for copied tile masks (merged_tile_masks_npz/).
-    coords : List[TileCoord]
-        List of (row, col) tile index coordinates for all tiles to copy.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
+    Args:
+        source_dir (Path): Source directory containing original tile masks (tile_masks_npz/).
+        target_dir (Path): Target directory for copied tile masks (merged_tile_masks_npz/).
+        coords (List[TileCoord]): List of (row, col) tile index coordinates for all tiles to copy.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
 
-    Raises
-    ------
-    FileNotFoundError
-        If source tile mask file is not found.
-    RuntimeError
-        If nuclei loss is detected during copying verification.
+    Raises:
+        FileNotFoundError: If source tile mask file is not found.
+        RuntimeError: If nuclei loss is detected during copying verification.
 
-    Notes
-    -----
-    This function preserves the original segmentation data while creating
-    a working copy for the merging process. The directory-level copying approach
-    ensures complete data integrity and prevents the file corruption that was
-    causing massive nuclei loss during individual file copying operations.
-    This is critical for accurate bioinformatics analysis of kidney tissue.
+    Notes:
+        This function preserves the original segmentation data while creating
+        a working copy for the merging process. The directory-level copying approach
+        ensures complete data integrity and prevents the file corruption that was
+        causing massive nuclei loss during individual file copying operations.
+        This is critical for accurate bioinformatics analysis of kidney tissue.
     """
     # CRITICAL FIX: Use directory-level copying to prevent data corruption.
     # The previous individual file copying was causing 97% nuclei loss.
@@ -311,24 +285,18 @@ def discover_tile_coordinates_from_files(
     and converts their pixel-based filenames back to tile index coordinates.
     This is useful for integration with existing segmentation outputs.
 
-    Parameters
-    ----------
-    tile_masks_dir : Path
-        Directory containing tile mask files with pixel coordinate naming.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
+    Args:
+        tile_masks_dir (Path): Directory containing tile mask files with pixel coordinate naming.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
 
-    Returns
-    -------
-    List[TileCoord]
-        List of (row, col) tile index coordinates discovered from files.
+    Returns:
+        List[TileCoord]: List of (row, col) tile index coordinates discovered from files.
 
-    Notes
-    -----
-    This function assumes files are named with the pattern "{y_start}_{x_start}.npz"
-    where y_start and x_start are pixel coordinates from the segmentation process.
+    Notes:
+        This function assumes files are named with the pattern "{y_start}_{x_start}.npz"
+        where y_start and x_start are pixel coordinates from the segmentation process.
     """
     if not tile_masks_dir.exists():
         logging.warning(f"Tile masks directory does not exist: {tile_masks_dir}")
@@ -385,22 +353,17 @@ def create_overlap_dictionaries(
     horizontal overlaps enables systematic two-phase processing that prevents
     merge conflicts and ensures consistent nucleus boundary handling.
     
-    Parameters
-    ----------
-    coords : List[Tuple[int, int]]
-        List of (row, col) coordinates for all tiles in the image.
-    tile_h, tile_w : int
-        Dimensions of each tile in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-        
-    Returns
-    -------
-    Tuple[Dict, Dict]
-        Two dictionaries mapping tile pairs to overlap regions:
-        - vertical_overlapping_regions: horizontally adjacent tiles (same row)
-        - horizontal_overlapping_regions: vertically adjacent tiles (same column)
-        Each value is (slice1_y, slice1_x, slice2_y, slice2_x) for the overlap region.
+    Args:
+        coords (List[Tuple[int, int]]): List of (row, col) coordinates for all tiles in the image.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+
+    Returns:
+        Tuple[Dict, Dict]: Two dictionaries mapping tile pairs to overlap regions:
+            - vertical_overlapping_regions: horizontally adjacent tiles (same row).
+            - horizontal_overlapping_regions: vertically adjacent tiles (same column).
+            Each value is (slice1_y, slice1_x, slice2_y, slice2_x) for the overlap region.
     """
     logging.debug(f"Creating overlap dictionaries for {len(coords)} tiles with {overlap}px overlap")
     logging.debug(f"Tile coordinates: {sorted(coords)}")
@@ -498,23 +461,21 @@ def _merge_two_tiles(
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
     4. Cleanup: Delete non-priority nuclei completely in overlap region
 
-    Parameters
-    ----------
-    coord1, coord2 : TileCoord
-        Coordinates of the two tiles to merge.
-    overlap_slices : Tuple[slice, slice, slice, slice]
-        Slices defining the overlap region: (tile1_y, tile1_x, tile2_y, tile2_x).
-    storage_dir : Path
-        Directory containing the tile mask files.
-    overlap_length : int
-        Length of overlap region in pixels.
-    use_gpu : bool, default True
-        Whether to use GPU acceleration (currently forced to CPU).
+    Args:
+        coord1 (TileCoord): Coordinates of the first tile to merge.
+        coord2 (TileCoord): Coordinates of the second tile to merge.
+        overlap_slices (Tuple[slice, slice, slice, slice]): Slices defining the overlap
+            region: (tile1_y, tile1_x, tile2_y, tile2_x).
+        storage_dir (Path): Directory containing the tile mask files.
+        overlap_length (int): Length of overlap region in pixels.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        use_gpu (bool): Whether to use GPU acceleration (currently forced to CPU).
+            Defaults to True.
 
-    Returns
-    -------
-    Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]
-        Updated tile1_mask, updated tile2_mask, and mapping of preserved nucleus IDs.
+    Returns:
+        Tuple[NDArray[np.uint32], NDArray[np.uint32], Dict[int, int]]: Updated tile1_mask,
+            updated tile2_mask, and mapping of preserved nucleus IDs.
     """
     try:
         from .cpu_merge import merge_tiles_cpu_4step
@@ -625,29 +586,23 @@ def merge_tiles_two_phase(
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
     4. Cleanup: Delete non-priority nuclei completely in overlap region
 
-    Parameters
-    ----------
-    coords : List[Tuple[int, int]]
-        List of (row, col) coordinates for all tiles.
-    height, width : int
-        Full image dimensions in pixels.
-    tile_h, tile_w : int
-        Individual tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-    use_gpu : bool, default True
-        Whether to use GPU acceleration (currently forced to CPU).
-    merge_batch_size : int, default 4
-        Number of tile pairs to process in parallel (currently unused).
-    debug_mode : bool, default False
-        Whether to enable debug logging.
-    output_dir : Optional[Path], default None
-        Output directory for results. If None, uses current directory.
+    Args:
+        coords (List[Tuple[int, int]]): List of (row, col) coordinates for all tiles.
+        height (int): Full image height in pixels.
+        width (int): Full image width in pixels.
+        tile_h (int): Individual tile height in pixels.
+        tile_w (int): Individual tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+        use_gpu (bool): Whether to use GPU acceleration (currently forced to CPU).
+            Defaults to True.
+        merge_batch_size (int): Number of tile pairs to process in parallel (currently
+            unused). Defaults to 4.
+        debug_mode (bool): Whether to enable debug logging. Defaults to False.
+        output_dir (Optional[Path]): Output directory for results. If None, uses current
+            directory. Defaults to None.
 
-    Returns
-    -------
-    NDArray[np.uint32]
-        Final merged mask with unique nucleus IDs and proper cleanup.
+    Returns:
+        NDArray[np.uint32]: Final merged mask with unique nucleus IDs and proper cleanup.
     """
     logging.info(f"Starting enhanced two-phase merge for {len(coords)} tiles")
 

@@ -1,17 +1,22 @@
 """
-IMAGE PREPROCESSING MODULE
+Author: Christos Botos.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Preprocessing utilities for nuclear segmentation of tissue samples.
+Script Name: preprocessing.py.
+Description:
+    Image preprocessing utilities for nuclear segmentation of tissue samples.
+    Provides 16-bit to 8-bit conversion, adaptive gamma correction, CLAHE
+    contrast enhancement, shape correction, ROI cropping, and robust image
+    saving to structured folders with logging support.
 
-This module provides:
-- 16-bit to 8-bit conversion using percentile-based dynamic range.
-- Adaptive gamma correction for dim nuclear regions.
-- CLAHE contrast enhancement with customizable grid size.
-- Shape correction to match image and mask sizes by cropping.
-- Optional ROI cropping using relative or absolute bounding boxes.
-- Robust image saving to structured folders with logging support.
+Dependencies:
+    - Python >= 3.10.
+    - numpy, opencv-python, scikit-image, tifffile.
 
-This preprocessing pipeline supports spatial omics data analysis across multiple experimental timepoints.
+Usage:
+    from utils.preprocessing import preprocess_image
+    image = preprocess_image(image_path, settings, logger)
 """
 
 import numpy as np

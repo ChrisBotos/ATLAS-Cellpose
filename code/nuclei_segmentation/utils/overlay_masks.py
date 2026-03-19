@@ -1,9 +1,9 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Script Name: overlay_masks.py
+Script Name: overlay_masks.py.
 Description:
     Memory-efficient overlay of integer-label masks (.npy) on very large microscopy TIFFs.
     This script addresses critical GPU out-of-memory (OOM) issues through advanced memory
@@ -100,7 +100,7 @@ def debug_print(message: str) -> None:
     if _DEBUG_MODE:
         console.print(f"[dim]{message}[/dim]")
 
-"""CONFIGURATION MANAGEMENT"""
+'''CONFIGURATION MANAGEMENT'''
 
 @dataclass
 class OverlayConfig:
@@ -159,7 +159,7 @@ class OverlayConfig:
             debug_print("Limited cleanup frequency to 20 for better memory management")
 
 
-"""MEMORY MONITORING UTILITIES"""
+'''MEMORY MONITORING UTILITIES'''
 
 
 def get_system_memory_info() -> Dict[str, float]:
@@ -312,7 +312,7 @@ def monitor_memory_usage(config: OverlayConfig, tile_count: int) -> bool:
     return True
 
 
-"""COLOR GENERATION UTILITIES"""
+'''COLOR GENERATION UTILITIES'''
 
 def generate_label_colors(max_label: int, seed: int = 42) -> np.ndarray:
     """
@@ -396,7 +396,7 @@ def get_mask_max_label_efficiently(mask_path: Union[str, Path]) -> int:
         return max_label
 
 
-"""TILE PROCESSING FUNCTIONS"""
+'''TILE PROCESSING FUNCTIONS'''
 
 def blend_tile_with_mask(
     tile_img: np.ndarray,
@@ -528,7 +528,7 @@ def create_spatial_batches(tiles: List[Tuple], batch_size: int) -> List[List[Tup
     return batches
 
 
-"""WORKER PROCESS FUNCTIONS"""
+'''WORKER PROCESS FUNCTIONS'''
 
 def process_tile_worker_optimized(args: Tuple) -> Tuple[int, int, int, int, np.ndarray]:
     """
@@ -671,7 +671,7 @@ def process_batch_worker_optimized(batch_args: Tuple) -> List[Tuple[int, int, in
         return []
 
 
-"""MAIN OVERLAY PROCESSING FUNCTION"""
+'''MAIN OVERLAY PROCESSING FUNCTION'''
 
 def overlay(
     image_path: Union[str, Path],
@@ -1048,7 +1048,7 @@ def overlay(
         raise RuntimeError(f"Overlay creation failed: {e}")
 
 
-"""COMMAND LINE INTERFACE"""
+'''COMMAND LINE INTERFACE'''
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """

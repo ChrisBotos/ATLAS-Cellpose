@@ -1,38 +1,74 @@
-# IDE files.
-.idea
+# ATLAS-Cellpose .gitignore.
 
-# Virtual environments.
-venv311
+# IDE.
+.idea/
+.vscode/
+*.swp
+*.swo
 
-# Python cache files.
+# Python bytecode (never track).
 __pycache__/
-*/__pycache__/
 *.py[cod]
 *$py.class
+.Python
 
-# Results directory - keep structure but ignore contents.
-results/*
-!results/.gitkeep
-
-test_results/*
-!test_results/.gitkeep
-
-logs/*
-!logs/.gitkeep
-
-# Data directory - keep structure but ignore contents.
-data/*
-!data/.gitkeep
-
-# Jupyter Notebook files.
-.ipynb_checkpoints
-
-# Distribution / packaging.
-dist/
+# Build artifacts.
 build/
+dist/
 *.egg-info/
+.installed.cfg
+*.egg
 
-# Specific test created directories.
+# Virtual environments.
+venv*/
+.venv/
+ENV/
+env/
+
+# Testing.
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Type checking.
+.mypy_cache/
+
+# Jupyter.
+.ipynb_checkpoints/
+
+# OS junk.
+.DS_Store
+Thumbs.db
+
+# Results and data (keep directory structure, ignore contents).
+results/**/*
+!results/**/
+!results/**/.gitkeep
+
+data/**/*
+!data/**/
+!data/**/.gitkeep
+
+# Test results (keep directory structure, ignore contents).
+test_results/**/*
+!test_results/**/
+!test_results/**/.gitkeep
+
+# Logs (keep directory structure, ignore contents).
+logs/**/*
+!logs/**/
+!logs/**/.gitkeep
+
+# Specific test-created directories.
 tests/nuclei_segmentation_tests/tile_merge_viz*/
-tests/results*
-!tests/results/.gitkeep
+tests/results/**/*
+!tests/results/**/
+!tests/results/**/.gitkeep
+
+# Preprint archive.
+ATLAS-Cellpose_v1.4_preprint.zip
+
+# Claude Code rules (symlinks, not git-portable).
+.claude/rules/

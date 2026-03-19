@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Module Name: binary_mask_visualization.py.
@@ -46,35 +46,25 @@ console = Console()
 
 
 def get_memory_usage() -> float:
-    """
-    Get current memory usage in GB.
-    
-    Returns
-    -------
-    float
-        Current memory usage in gigabytes.
+    """Get current memory usage in GB.
+
+    Returns:
+        float: Current memory usage in gigabytes.
     """
     process = psutil.Process()
     return process.memory_info().rss / (1024**3)
 
 
 def check_memory_safety(required_gb: float, limit_gb: float, logger: logging.Logger) -> bool:
-    """
-    Check if operation is safe given memory constraints.
-    
-    Parameters
-    ----------
-    required_gb : float
-        Required memory in gigabytes.
-    limit_gb : float
-        Memory limit in gigabytes.
-    logger : logging.Logger
-        Logger for reporting.
-    
-    Returns
-    -------
-    bool
-        True if operation is safe, False otherwise.
+    """Check if operation is safe given memory constraints.
+
+    Args:
+        required_gb (float): Required memory in gigabytes.
+        limit_gb (float): Memory limit in gigabytes.
+        logger (logging.Logger): Logger for reporting.
+
+    Returns:
+        bool: True if operation is safe, False otherwise.
     """
     current_gb = get_memory_usage()
     total_required = current_gb + required_gb
@@ -90,20 +80,14 @@ def check_memory_safety(required_gb: float, limit_gb: float, logger: logging.Log
 
 
 def estimate_memory_requirements(shape: Tuple[int, ...], dtype: np.dtype) -> float:
-    """
-    Estimate memory requirements for array operations in GB.
-    
-    Parameters
-    ----------
-    shape : tuple of int
-        Shape of the array.
-    dtype : np.dtype
-        Data type of the array.
-    
-    Returns
-    -------
-    float
-        Estimated memory requirements in gigabytes.
+    """Estimate memory requirements for array operations in GB.
+
+    Args:
+        shape (tuple of int): Shape of the array.
+        dtype (np.dtype): Data type of the array.
+
+    Returns:
+        float: Estimated memory requirements in gigabytes.
     """
     # Ensure dtype is a proper dtype object.
     if not isinstance(dtype, np.dtype):
@@ -124,27 +108,19 @@ def _process_masks_to_binary(
     memory_limit_gb: float = 8.0,
     logger: Optional[logging.Logger] = None
 ) -> np.ndarray:
-    """
-    Convert segmentation masks to binary mask using chunked processing.
-    
+    """Convert segmentation masks to binary mask using chunked processing.
+
     This function handles gigantic mask files by processing them in chunks to
     avoid memory overflow issues common with millions of masks.
-    
-    Parameters
-    ----------
-    masks : np.ndarray
-        Segmentation masks (2D label map or 3D mask stack).
-    chunk_size : int, default=2048
-        Size of chunks for processing (pixels).
-    memory_limit_gb : float, default=8.0
-        Maximum memory usage allowed.
-    logger : logging.Logger, optional
-        Logger instance for debugging.
-    
-    Returns
-    -------
-    np.ndarray
-        2D boolean mask where True indicates presence of any mask.
+
+    Args:
+        masks (np.ndarray): Segmentation masks (2D label map or 3D mask stack).
+        chunk_size (int, optional): Size of chunks for processing (pixels). Defaults to 2048.
+        memory_limit_gb (float, optional): Maximum memory usage allowed. Defaults to 8.0.
+        logger (logging.Logger, optional): Logger instance for debugging.
+
+    Returns:
+        np.ndarray: 2D boolean mask where True indicates presence of any mask.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -196,19 +172,13 @@ def _save_binary_image(
     compression: str = 'lzw',
     logger: Optional[logging.Logger] = None
 ) -> None:
-    """
-    Save the 2D boolean mask as an optimized binary TIFF image.
-    
-    Parameters
-    ----------
-    binary_mask : np.ndarray
-        2D boolean array to save.
-    output_path : Path
-        Path where the binary mask image will be saved.
-    compression : str, default='lzw'
-        TIFF compression method ('none', 'lzw', 'jpeg', 'zstd').
-    logger : logging.Logger, optional
-        Logger instance for debugging.
+    """Save the 2D boolean mask as an optimized binary TIFF image.
+
+    Args:
+        binary_mask (np.ndarray): 2D boolean array to save.
+        output_path (Path): Path where the binary mask image will be saved.
+        compression (str, optional): TIFF compression method ('none', 'lzw', 'jpeg', 'zstd'). Defaults to 'lzw'.
+        logger (logging.Logger, optional): Logger instance for debugging.
     """
     if logger is None:
         logger = logging.getLogger(__name__)
@@ -240,18 +210,13 @@ def _save_binary_image(
 
 
 def _get_tifffile_compression_kwargs(compression: str) -> dict:
-    """
-    Get compression kwargs for tifffile.
-    
-    Parameters
-    ----------
-    compression : str
-        Compression method name.
-    
-    Returns
-    -------
-    dict
-        Compression kwargs for tifffile.
+    """Get compression kwargs for tifffile.
+
+    Args:
+        compression (str): Compression method name.
+
+    Returns:
+        dict: Compression kwargs for tifffile.
     """
     compression_map = {
         'none': {'compression': None},
@@ -263,18 +228,13 @@ def _get_tifffile_compression_kwargs(compression: str) -> dict:
 
 
 def _get_pil_compression_kwargs(compression: str) -> dict:
-    """
-    Get compression kwargs for PIL.
+    """Get compression kwargs for PIL.
 
-    Parameters
-    ----------
-    compression : str
-        Compression method name.
+    Args:
+        compression (str): Compression method name.
 
-    Returns
-    -------
-    dict
-        Compression kwargs for PIL.
+    Returns:
+        dict: Compression kwargs for PIL.
     """
     if compression.lower() == 'lzw':
         return {'compression': 'tiff_lzw'}
@@ -293,8 +253,7 @@ def generate_binary_mask_visualization(
     memory_limit_gb: float = 8.0,
     compression: str = 'lzw'
 ) -> None:
-    """
-    Generate white segmentation masks on black background visualization.
+    """Generate white segmentation masks on black background visualization.
 
     This function creates a binary mask image where pixels inside any mask region
     are set to white (255) and all other pixels to black (0). This visualization
@@ -302,32 +261,21 @@ def generate_binary_mask_visualization(
 
     The output is saved to the visualizations/ subdirectory within the results directory.
 
-    Parameters
-    ----------
-    masks : np.ndarray
-        Segmentation masks (2D label map with integer labels or 3D mask stack).
-    output_dir : Path
-        Base output directory for the pipeline run (e.g., results/<run_name>/).
-    logger : logging.Logger
-        Logger for progress tracking and error reporting.
-    suffix : str, default=""
-        Suffix to append to the output filename (e.g., "_filtered" or "_unfiltered").
-    chunk_size : int, default=2048
-        Size of chunks for processing large images (pixels).
-    memory_limit_gb : float, default=8.0
-        Maximum memory usage allowed in gigabytes.
-    compression : str, default='lzw'
-        TIFF compression method ('none', 'lzw', 'jpeg', 'zstd').
+    Args:
+        masks (np.ndarray): Segmentation masks (2D label map with integer labels or 3D mask stack).
+        output_dir (Path): Base output directory for the pipeline run (e.g., results/<run_name>/).
+        logger (logging.Logger): Logger for progress tracking and error reporting.
+        suffix (str, optional): Suffix to append to the output filename (e.g., "_filtered" or "_unfiltered"). Defaults to "".
+        chunk_size (int, optional): Size of chunks for processing large images (pixels). Defaults to 2048.
+        memory_limit_gb (float, optional): Maximum memory usage allowed in gigabytes. Defaults to 8.0.
+        compression (str, optional): TIFF compression method ('none', 'lzw', 'jpeg', 'zstd'). Defaults to 'lzw'.
 
-    Returns
-    -------
-    None
-        Saves the binary mask visualization to disk.
+    Returns:
+        None: Saves the binary mask visualization to disk.
 
-    Notes
-    -----
-    The function uses memory-efficient chunked processing for gigantic images
-    and automatically handles both 2D label maps and 3D mask stacks.
+    Notes:
+        The function uses memory-efficient chunked processing for gigantic images
+        and automatically handles both 2D label maps and 3D mask stacks.
     """
     try:
         console.print(f"\n[cyan]Generating binary mask visualization{suffix}...[/cyan]")

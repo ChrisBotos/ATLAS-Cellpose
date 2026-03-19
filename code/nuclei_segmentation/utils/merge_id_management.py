@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: merge_id_management.py.
@@ -72,26 +72,18 @@ def get_next_safe_gid_range(
     the likelihood of ID conflicts when counter resets are necessary. It's
     designed to handle very large images with millions of nuclei.
     
-    Parameters
-    ----------
-    current_gid : int
-        Current global ID counter value.
-    patch_max : int
-        Maximum ID value in the current patch.
-    max_safe_gid : int
-        Maximum safe ID value before overflow risk.
-    reset_count : int
-        Number of times the counter has been reset.
-    segment_size : int
-        Size of each ID segment to prevent conflicts.
-        
-    Returns
-    -------
-    Tuple[int, int, bool]
-        (new_gid_counter, gid_offset, was_reset)
-        - new_gid_counter: Updated global ID counter
-        - gid_offset: Offset to apply to patch IDs
-        - was_reset: Whether a reset occurred
+    Args:
+        current_gid (int): Current global ID counter value.
+        patch_max (int): Maximum ID value in the current patch.
+        max_safe_gid (int): Maximum safe ID value before overflow risk.
+        reset_count (int): Number of times the counter has been reset.
+        segment_size (int): Size of each ID segment to prevent conflicts.
+
+    Returns:
+        Tuple[int, int, bool]: (new_gid_counter, gid_offset, was_reset)
+            - new_gid_counter: Updated global ID counter.
+            - gid_offset: Offset to apply to patch IDs.
+            - was_reset: Whether a reset occurred.
         
     Notes
     -----
@@ -144,19 +136,15 @@ def select_optimal_dtype(
     on the estimated maximum number of nuclei in the image, preventing overflow
     issues while minimizing memory usage.
     
-    Parameters
-    ----------
-    estimated_max_nuclei : int
-        Estimated maximum number of nuclei in the image.
-    image_size_pixels : int, default 0
-        Total image size in pixels (used for additional validation).
-    safety_factor : float, default 2.0
-        Safety multiplier for the estimate to account for uncertainty.
-        
-    Returns
-    -------
-    np.dtype
-        Optimal numpy data type for mask storage.
+    Args:
+        estimated_max_nuclei (int): Estimated maximum number of nuclei in the image.
+        image_size_pixels (int): Total image size in pixels (used for additional validation).
+            Defaults to 0.
+        safety_factor (float): Safety multiplier for the estimate to account for uncertainty.
+            Defaults to 2.0.
+
+    Returns:
+        np.dtype: Optimal numpy data type for mask storage.
         
     Notes
     -----
@@ -170,8 +158,8 @@ def select_optimal_dtype(
         safe_max_nuclei = int(estimated_max_nuclei * safety_factor)
         
         # Data type limits.
-        uint16_limit = 2**16 - 1  # 65,535
-        uint32_limit = 2**32 - 1  # 4,294,967,295
+        uint16_limit = 2**16 - 1  # Equals 65,535.
+        uint32_limit = 2**32 - 1  # Equals 4,294,967,295.
         
         if safe_max_nuclei <= uint16_limit:
             selected_dtype = np.uint16
@@ -217,19 +205,16 @@ def estimate_max_nuclei_from_image(
     This function provides a rough estimate of the maximum number of nuclei
     expected in an image, useful for data type selection and memory planning.
     
-    Parameters
-    ----------
-    height, width : int
-        Image dimensions in pixels.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    avg_nuclei_per_tile : float, default 50.0
-        Average number of nuclei expected per tile.
-        
-    Returns
-    -------
-    int
-        Estimated maximum number of nuclei in the image.
+    Args:
+        height (int): Image height in pixels.
+        width (int): Image width in pixels.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        avg_nuclei_per_tile (float): Average number of nuclei expected per tile.
+            Defaults to 50.0.
+
+    Returns:
+        int: Estimated maximum number of nuclei in the image.
         
     Notes
     -----
@@ -260,25 +245,21 @@ def estimate_max_nuclei_from_image(
         logging.error(f"Error estimating max nuclei count: {e}")
         logging.debug(f"Nuclei estimation error traceback:\n{traceback.format_exc()}")
         # Return conservative estimate.
-        return 1000000  # 1 million nuclei as fallback
+        return 1000000  # 1 million nuclei as fallback.
 
 
 def get_safe_id_limits(dtype: np.dtype) -> Tuple[int, int, int]:
     """
     Get safe ID limits for the specified data type.
     
-    Parameters
-    ----------
-    dtype : np.dtype
-        Data type for mask storage.
-        
-    Returns
-    -------
-    Tuple[int, int, int]
-        (max_safe_id, segment_size, max_segments)
-        - max_safe_id: Conservative maximum ID before overflow risk
-        - segment_size: Recommended segment size for ID allocation
-        - max_segments: Maximum number of segments possible
+    Args:
+        dtype (np.dtype): Data type for mask storage.
+
+    Returns:
+        Tuple[int, int, int]: (max_safe_id, segment_size, max_segments)
+            - max_safe_id: Conservative maximum ID before overflow risk.
+            - segment_size: Recommended segment size for ID allocation.
+            - max_segments: Maximum number of segments possible.
     """
     try:
         if dtype == np.uint16:
@@ -295,7 +276,7 @@ def get_safe_id_limits(dtype: np.dtype) -> Tuple[int, int, int]:
             segment_size = 1000000000000  # 1T per segment.
         else:
             # Fallback for unknown types.
-            max_safe_id = 2000000000  # 2B
+            max_safe_id = 2000000000  # Equals 2B.
             segment_size = 100000000
         
         max_segments = max_safe_id // segment_size

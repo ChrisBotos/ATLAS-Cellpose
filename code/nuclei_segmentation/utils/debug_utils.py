@@ -1,4 +1,21 @@
-"""DEBUG UTILITIES — Snapshot management for pipeline introspection."""
+"""
+Author: Christos Botos.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
+Script Name: debug_utils.py.
+Description:
+    Debug snapshot management for pipeline introspection. Saves intermediate
+    results as compressed .npz files for later inspection.
+
+Dependencies:
+    - Python >= 3.10.
+    - numpy.
+
+Usage:
+    from utils.debug_utils import setup_debug
+    snap = setup_debug(settings)
+"""
 
 from pathlib import Path
 import numpy as np

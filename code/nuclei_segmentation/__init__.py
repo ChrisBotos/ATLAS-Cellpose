@@ -1,29 +1,18 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-Package Name: nuclei_segmentation
+Package Name: nuclei_segmentation.
 Description:
-    Nuclei Segmentation Package for Kidney I/R Injury Analysis.
-
-This package contains tools for segmenting and analyzing nuclei in tissue sections
-from experimental studies. It provides a complete workflow from image
-preprocessing to feature extraction for downstream analysis of nuclear morphology changes
-during tissue injury and repair processes.
-
-Key Components:
-    • run_this.py: Main entry point for the segmentation pipeline.
-    • pipeline.py: Core segmentation workflow implementation.
-    • extract_engineered_features.py: Feature extraction from segmented nuclei.
+    Nuclei segmentation package for kidney I/R injury analysis. Provides a
+    complete workflow from image preprocessing through Cellpose3 segmentation,
+    4-step tile merging, morphological filtering, and quality control visualization.
 
 Dependencies:
-    • Python >= 3.7.
-    • numpy, pandas, PIL, scipy, scikit-image.
-    • cellpose for deep learning-based segmentation.
-    • torch for GPU acceleration (optional).
+    - Python >= 3.10.
+    - numpy, scipy, scikit-image, cellpose, torch.
 
-Notes:
-    • This package is designed for analyzing nuclear morphology changes during kidney I/R injury.
-    • It supports both single-image processing and batch processing workflows.
+Usage:
+    python code/nuclei_segmentation/run_this.py
 """

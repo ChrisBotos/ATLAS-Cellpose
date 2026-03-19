@@ -1,3 +1,23 @@
+"""
+Author: Christos Botos.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
+Script Name: project_setup.py.
+Description:
+    Project directory structure creation and INI configuration loading for the
+    nuclei segmentation pipeline. Parses nuclei_segmentation_config.ini and
+    returns typed settings, Cellpose parameters, and project directory paths.
+
+Dependencies:
+    - Python >= 3.10.
+    - torch (for GPU detection).
+
+Usage:
+    from utils.project_setup import load_config
+    settings, cellpose_params, project_dirs = load_config()
+"""
+
 import os
 import shutil
 import configparser

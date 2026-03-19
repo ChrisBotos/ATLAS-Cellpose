@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: merge_file_utils.py.
@@ -69,18 +69,14 @@ def parse_tile_filename(name: str) -> Optional[Tuple[int, int]]:
     This function extracts row and column indices from tile filenames that follow
     standard naming conventions used in spatial segmentation workflows.
     
-    Parameters
-    ----------
-    name : str
-        Filename to parse (e.g., "10_15.tif", "100 200.npz").
-        
-    Returns
-    -------
-    Optional[Tuple[int, int]]
-        Tuple of (row, col) coordinates if parsing succeeds, None otherwise.
-        
-    Examples
-    --------
+    Args:
+        name (str): Filename to parse (e.g., "10_15.tif", "100 200.npz").
+
+    Returns:
+        Optional[Tuple[int, int]]: Tuple of (row, col) coordinates if parsing succeeds,
+            None otherwise.
+
+    Examples:
     >>> parse_tile_filename("10_15.tif")
     (10, 15)
     >>> parse_tile_filename("100 200.npz")
@@ -109,15 +105,11 @@ def dir_contains_tiles(path: Path) -> bool:
     This function performs a quick scan to determine if a directory contains
     files matching expected tile naming patterns, useful for path validation.
     
-    Parameters
-    ----------
-    path : Path
-        Directory path to check.
-        
-    Returns
-    -------
-    bool
-        True if directory contains at least one tile-like file, False otherwise.
+    Args:
+        path (Path): Directory path to check.
+
+    Returns:
+        bool: True if directory contains at least one tile-like file, False otherwise.
     """
     try:
         if not path.exists() or not path.is_dir():
@@ -144,23 +136,17 @@ def resolve_tiles_path(path: Path) -> Path:
     common naming inconsistencies (e.g., "tile_masks" vs "tile_masks_npz").
     It provides robust path resolution for kidney tissue analysis workflows.
     
-    Parameters
-    ----------
-    path : Path
-        Initial path to tile directory (may not exist or be empty).
-        
-    Returns
-    -------
-    Path
-        Resolved path to directory containing tile masks.
-        
-    Raises
-    ------
-    FileNotFoundError
-        If no valid tile directory can be found after trying all candidates.
-        
-    Examples
-    --------
+    Args:
+        path (Path): Initial path to tile directory (may not exist or be empty).
+
+    Returns:
+        Path: Resolved path to directory containing tile masks.
+
+    Raises:
+        FileNotFoundError: If no valid tile directory can be found after trying all
+            candidates.
+
+    Examples:
     >>> resolve_tiles_path(Path("tile_masks_npz"))
     Path("tile_masks")  # If tile_masks exists and contains tiles
     """
@@ -215,24 +201,18 @@ def discover_tiles(path: Path) -> Tuple[Dict[Tuple[int, int], Path], List[Tuple[
     from tile coordinates to file paths. It supports both TIFF and NPZ formats
     commonly used in spatial multiomics analysis.
     
-    Parameters
-    ----------
-    path : Path
-        Directory containing tile mask files.
-        
-    Returns
-    -------
-    Tuple[Dict[Tuple[int, int], Path], List[Tuple[int, int]]]
-        - Dictionary mapping (row, col) coordinates to file paths.
-        - List of all discovered tile coordinates.
-        
-    Raises
-    ------
-    FileNotFoundError
-        If directory exists but contains no valid tile files.
-        
-    Examples
-    --------
+    Args:
+        path (Path): Directory containing tile mask files.
+
+    Returns:
+        Tuple[Dict[Tuple[int, int], Path], List[Tuple[int, int]]]:
+            - Dictionary mapping (row, col) coordinates to file paths.
+            - List of all discovered tile coordinates.
+
+    Raises:
+        FileNotFoundError: If directory exists but contains no valid tile files.
+
+    Examples:
     >>> file_map, coords = discover_tiles(Path("tile_masks"))
     >>> print(f"Found {len(coords)} tiles")
     >>> print(f"First tile: {coords[0]} -> {file_map[coords[0]]}")

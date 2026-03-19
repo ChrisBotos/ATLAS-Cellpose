@@ -2,7 +2,7 @@
 TILING AND MERGING UTILITIES FOR CELL SEGMENTATION.
 
 Author: Christos Botos.
-Affiliation: Institute of Molecular Biology and Biotechnology.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: tiling.py.
@@ -26,7 +26,7 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-"""Feather mask utilities."""
+'''Feather mask utilities.'''
 
 def feather_mask(h: int, w: int, overlap: int) -> np.ndarray:
     """Generate a 2-D cosine-ramp mask that tapers from 0 at the tile edge
@@ -52,8 +52,6 @@ def feather_mask(h: int, w: int, overlap: int) -> np.ndarray:
         ramp_w[-edge_w:] = np.linspace(1.0, 0.0, edge_w, endpoint=False)
 
     return np.outer(ramp_h, ramp_w)
-
-"""Image tiler (generator, no zero‑padding)."""
 
 '''Image tiler.'''
 
@@ -113,7 +111,7 @@ def split_image_into_tiles(
             yield tile, (slice(y0, y1), slice(x0, x1))
 
 
-"""Feather-blend a stack of continuous tiles into one full-resolution array."""
+'''Feather-blend a stack of continuous tiles into one full-resolution array.'''
 
 def _memmap_array(shape, dtype, logger):
     """

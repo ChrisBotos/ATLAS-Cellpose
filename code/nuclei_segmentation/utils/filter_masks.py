@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: filter_masks.py.
@@ -470,30 +470,22 @@ def filter_masks_programmatic(
     logger=None,
     intensity_image: np.ndarray = None
 ) -> np.ndarray:
-    """
-    Apply morphological filtering to segmentation masks programmatically.
+    """Apply morphological filtering to segmentation masks programmatically.
 
-    This function provides a programmatic interface to the filtering functionality
-    for integration into the segmentation pipeline. It filters nuclei based on
-    morphological parameters and returns a cleaned mask.
+    Provides a programmatic interface to the filtering functionality for integration
+    into the segmentation pipeline. Filters nuclei based on morphological parameters
+    and returns a cleaned mask.
 
-    Parameters
-    ----------
-    masks : np.ndarray
-        Input segmentation masks as a label image.
-    settings : dict
-        Configuration dictionary containing filtering parameters.
-    output_dir : Path
-        Directory to save filtering results and diagnostics.
-    logger : logging.Logger, optional
-        Logger for progress reporting.
-    intensity_image : np.ndarray, optional
-        Optional intensity image for intensity-based filtering.
+    Args:
+        masks (np.ndarray): Input segmentation masks as a label image.
+        settings (dict): Configuration dictionary containing filtering parameters.
+        output_dir (Path): Directory to save filtering results and diagnostics.
+        logger (logging.Logger, optional): Logger for progress reporting.
+        intensity_image (np.ndarray, optional): Optional intensity image for
+            intensity-based filtering.
 
-    Returns
-    -------
-    np.ndarray
-        Filtered segmentation masks with artifacts removed.
+    Returns:
+        np.ndarray: Filtered segmentation masks with artifacts removed.
     """
     if logger:
         logger.info("Starting morphological filtering of segmentation masks...")

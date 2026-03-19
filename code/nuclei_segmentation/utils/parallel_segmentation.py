@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: parallel_segmentation.py.
@@ -10,7 +10,7 @@ Description:
     Supports both Cellpose3 and Cellpose4 based on configuration parameters.
 
 Dependencies:
-    • Python >= 3.7.
+    • Python >= 3.10.
     • numpy, torch, cellpose.
     • concurrent.futures for parallel processing.
     • tqdm for progress tracking.

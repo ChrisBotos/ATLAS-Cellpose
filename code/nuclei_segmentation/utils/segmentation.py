@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: segmentation.py.
@@ -239,42 +239,37 @@ def run_cellpose_on_tiles(
     of processing large histological images while maintaining segmentation quality
     across tile boundaries.
 
-    Parameters
-    ----------
-    model : cellpose.models.CellposeModel or cellpose.models.Cellpose
-        Pre-loaded Cellpose model instance configured for nuclear segmentation.
-        Should be initialized with appropriate model type (typically 'nuclei').
-        Supports both CellposeModel (Cellpose4) and Cellpose (Cellpose3) classes.
-    image : np.ndarray
-        Two-dimensional greyscale DAPI-stained image array of shape (H, W).
-        Represents nuclear staining in kidney tissue sections.
-    cellpose_params : dict
-        Cellpose segmentation parameters including diameter, flow_threshold,
-        cellprob_threshold, channels, resample, and batch_size settings.
-        These parameters are forwarded directly to model.eval().
-    settings : dict
-        Configuration dictionary with required keys:
-        - output_dir: Directory for saving segmentation results
-        - tile_side_length: Size of square tiles for processing large images
-        - tile_overlap: Overlap between adjacent tiles (pixels or fraction)
-        Optional keys for advanced control:
-        - use_tiling: Force enable/disable tiling (default: auto-detect)
-    logger : logging.Logger
-        Logger instance for progress tracking and debugging information.
-        Used extensively for monitoring segmentation progress.
+    Args:
+        model (cellpose.models.CellposeModel or cellpose.models.Cellpose):
+            Pre-loaded Cellpose model instance configured for nuclear segmentation.
+            Should be initialized with appropriate model type (typically 'nuclei').
+            Supports both CellposeModel (Cellpose4) and Cellpose (Cellpose3) classes.
+        image (np.ndarray): Two-dimensional greyscale DAPI-stained image array of
+            shape (H, W). Represents nuclear staining in kidney tissue sections.
+        cellpose_params (dict): Cellpose segmentation parameters including diameter,
+            flow_threshold, cellprob_threshold, channels, resample, and batch_size
+            settings. These parameters are forwarded directly to model.eval().
+        settings (dict): Configuration dictionary with required keys:
+            - output_dir: Directory for saving segmentation results.
+            - tile_side_length: Size of square tiles for processing large images.
+            - tile_overlap: Overlap between adjacent tiles (pixels or fraction).
+            Optional keys for advanced control:
+            - use_tiling: Force enable/disable tiling (default: auto-detect).
+        logger (logging.Logger): Logger instance for progress tracking and debugging
+            information. Used extensively for monitoring segmentation progress.
 
-    Returns
-    -------
-    masks_mm : np.memmap
-        Memory-mapped array containing the final segmentation mask of shape (H, W).
-        Each unique positive integer represents a distinct nucleus instance.
-        Saved to disk as 'segmentation_masks.npy' for downstream analysis.
-    flows : list[None, None, None]
-        Placeholder list - flows are discarded to conserve memory during processing.
-        Required for compatibility with downstream pipeline components.
-    total_cells : int
-        Total number of unique nuclei detected across all tiles.
-        Used for quality control and statistical analysis of segmentation results.
+    Returns:
+        tuple: A tuple of (masks_mm, flows, total_cells) where:
+            - masks_mm (np.memmap): Memory-mapped array containing the final
+              segmentation mask of shape (H, W). Each unique positive integer
+              represents a distinct nucleus instance. Saved to disk as
+              'segmentation_masks.npy' for downstream analysis.
+            - flows (list[None, None, None]): Placeholder list - flows are discarded
+              to conserve memory during processing. Required for compatibility with
+              downstream pipeline components.
+            - total_cells (int): Total number of unique nuclei detected across all
+              tiles. Used for quality control and statistical analysis of
+              segmentation results.
     """
 
     '''Setup output directories and initialize memory-mapped storage'''

@@ -1,5 +1,8 @@
 """
 Author: Christos Botos.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
+
 Script Name: gpu_merge.py.
 Description:
     GPU implementation of the overlap‑patch merge.  The API mirrors ``merge_tiles_cpu_4step``
@@ -68,17 +71,14 @@ def merge_patch_gpu_4step(
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap.
     4. Cleanup: Remove remaining non-priority nuclei in overlap region.
 
-    Parameters
-    ----------
-    patch : np.ndarray
-        Integer mask stack with T ≤ 4 (overlapping tiles). Zero denotes background.
+    Args:
+        patch (np.ndarray): Integer mask stack with T ≤ 4 (overlapping tiles). Zero
+            denotes background.
 
-    Returns
-    -------
-    merged : np.ndarray
-        Merged 2D mask with globally unique IDs (uint32).
-    mapping : Dict[int, int]
-        Mapping from original local IDs to global IDs.
+    Returns:
+        Tuple[np.ndarray, Dict[int, int]]: A tuple containing:
+            merged (np.ndarray): Merged 2D mask with globally unique IDs (uint32).
+            mapping (Dict[int, int]): Mapping from original local IDs to global IDs.
     """
     import logging
 

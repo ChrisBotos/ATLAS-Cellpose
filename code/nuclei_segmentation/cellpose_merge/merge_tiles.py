@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: merge_tiles.py.
@@ -62,37 +62,23 @@ def merge_masks_streaming(
     overlaps first, then horizontal overlaps, ensuring systematic merge rule
     application and better handling of cross-boundary nuclei.
 
-    Parameters
-    ----------
-    height, width : int
-        Dimensions of the full image in pixels.
-    tile_h, tile_w : int
-        Dimensions of each tile in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-    tiles_path : str | Path
-        Path to directory containing tile mask files.
-    threshold : float, default 0.3
-        Overlap threshold for merging nuclei across tile boundaries.
-    use_gpu : bool, default True
-        Whether to use GPU acceleration for merging operations.
-    qc : bool, default False
-        Whether to generate quality control overlays.
-    qc_dir : str | Path | None, default None
-        Directory to save QC overlays (required if qc=True).
-    qc_merge_use_full_image : bool, default False
-        Whether to use full image for QC overlays or center crop.
-    merge_batch_size : int, default 4
-        Number of tile pairs to process in parallel during each phase.
-    output_dir : str | Path | None, default None
-        Directory to save merged masks (defaults to tiles_path parent).
-    debug_mode : bool, default False
-        Whether to enable verbose debug logging.
+    Args:
+        height (int): Dimensions of the full image in pixels (height).
+        width (int): Dimensions of the full image in pixels (width).
+        tile_h (int): Dimensions of each tile in pixels (height).
+        tile_w (int): Dimensions of each tile in pixels (width).
+        overlap (int): Overlap between adjacent tiles in pixels.
+        tiles_path (str | Path): Path to directory containing tile mask files.
+        use_gpu (bool): Whether to use GPU acceleration for merging operations.
+        qc (bool): Whether to generate quality control overlays.
+        qc_dir (str | Path | None): Directory to save QC overlays (required if qc=True).
+        qc_merge_use_full_image (bool): Whether to use full image for QC overlays or center crop.
+        merge_batch_size (int): Number of tile pairs to process in parallel during each phase.
+        output_dir (str | Path | None): Directory to save merged masks (defaults to tiles_path parent).
+        debug_mode (bool): Whether to enable verbose debug logging.
 
-    Returns
-    -------
-    NDArray[np.uint32]
-        Merged mask with unique nucleus labels.
+    Returns:
+        NDArray[np.uint32]: Merged mask with unique nucleus labels.
     """
     from .two_phase_merge import merge_tiles_two_phase
 
@@ -332,8 +318,8 @@ def merge_masks_streaming(
                     qc_dir=qc_path,
                     use_full_image=qc_merge_use_full_image,
                     coords=coords,
-                    original_tiles_path=path,  # Path to original tile masks
-                    merged_tiles_dir=output_dir / "masks" / "merged_tile_masks_npz",  # Path to merged tile masks
+                    original_tiles_path=path,  # Path to original tile masks.
+                    merged_tiles_dir=output_dir / "masks" / "merged_tile_masks_npz",  # Path to merged tile masks.
                 )
 
                 logging.info("QC overlays generated successfully")

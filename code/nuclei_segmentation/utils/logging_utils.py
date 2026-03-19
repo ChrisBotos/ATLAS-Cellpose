@@ -1,15 +1,21 @@
 """
-Logging and Debug Utilities for Kidney I/R Injury Analysis.
+Author: Christos Botos.
+Affiliation: Human Genetics Department, Leiden University Medical Center.
+Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
-This module provides specialized logging and debugging functions for the
-nuclei segmentation pipeline. It includes:
+Script Name: logging_utils.py.
+Description:
+    Logging and debug utilities for the nuclei segmentation pipeline.
+    Provides dual-output logging (file and console) with Rich formatting,
+    debug snapshot utilities, and error reporting functions.
 
-1. Setup for comprehensive logging with file and console output
-2. Debug snapshot utilities for saving intermediate processing results
-3. Error handling and reporting functions
+Dependencies:
+    - Python >= 3.10.
+    - numpy, imageio, rich.
 
-These utilities are essential for tracking the progress of long-running
-segmentation jobs and diagnosing issues in the complex processing pipeline.
+Usage:
+    from utils.logging_utils import setup_logging
+    logger = setup_logging(output_dir, debug_mode=False)
 """
 
 # Standard library imports.

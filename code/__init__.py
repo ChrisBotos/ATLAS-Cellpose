@@ -1,3 +1,1 @@
-"""
-Code package for I/R Injury Spatial Multiomics Analysis.
-"""
+"""Code package for ATLAS-Cellpose nuclei segmentation."""

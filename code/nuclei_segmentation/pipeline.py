@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: pipeline.py.
@@ -66,6 +66,13 @@ console = Console()
 
 
 def log_config(logger, settings, CELLPOSE_PARAMS):
+    """Log current pipeline and Cellpose configuration in debug mode.
+
+    Args:
+        logger (logging.Logger): Logger instance for output.
+        settings (dict): Pipeline configuration settings.
+        CELLPOSE_PARAMS (dict): Cellpose model parameters.
+    """
     if settings.get("debug_mode", False):
         logger.debug("=== settings ===")
         for k, v in settings.items():
@@ -76,25 +83,19 @@ def log_config(logger, settings, CELLPOSE_PARAMS):
 
 
 def setup_model(CELLPOSE_PARAMS, logger, debug_mode=False):
-    """
-    Initialize Cellpose model for nuclear segmentation with configurable version support.
+    """Initialize Cellpose model for nuclear segmentation with configurable version support.
 
     Supports both Cellpose3 and Cellpose4 based on configuration parameter.
 
-    Parameters
-    ----------
-    CELLPOSE_PARAMS : dict
-        Configuration parameters for Cellpose model initialization.
-        Must include 'use_cellpose4' boolean parameter.
-    logger : logging.Logger
-        Logger instance for status reporting.
-    debug_mode : bool
-        If True, shows detailed parameter information.
+    Args:
+        CELLPOSE_PARAMS (dict): Configuration parameters for Cellpose model initialization.
+            Must include 'use_cellpose4' boolean parameter.
+        logger (logging.Logger): Logger instance for status reporting.
+        debug_mode (bool): If True, shows detailed parameter information.
 
-    Returns
-    -------
-    cellpose.models.CellposeModel or cellpose.models.Cellpose
-        Initialized Cellpose model ready for segmentation.
+    Returns:
+        cellpose.models.CellposeModel or cellpose.models.Cellpose: Initialized Cellpose model
+            ready for segmentation.
     """
     model_type = CELLPOSE_PARAMS["model_type"]
     use_gpu = CELLPOSE_PARAMS.get("gpu", False)
@@ -155,13 +156,21 @@ def setup_model(CELLPOSE_PARAMS, logger, debug_mode=False):
 
 
 def save_outputs(masks, flows, output_dir, logger):
+    """Save segmentation masks and flow fields to disk.
+
+    Args:
+        masks (np.ndarray): Labeled segmentation mask array.
+        flows (list): Cellpose flow field outputs [flow0, flow1, cellprob].
+        output_dir (str or Path): Directory for saving outputs.
+        logger (logging.Logger): Logger instance for status reporting.
+    """
     output_dir = Path(output_dir)
     masks_dir  = output_dir / "masks"
     flows_dir  = output_dir / "flows"
     masks_dir.mkdir(parents=True, exist_ok=True)
     flows_dir.mkdir(parents=True, exist_ok=True)
 
-    """Masks"""
+    '''Masks'''
     dest_npy = masks_dir / "segmentation_masks.npy"
     if isinstance(masks, np.memmap):
         if Path(masks.filename).resolve() != dest_npy.resolve():
@@ -176,7 +185,7 @@ def save_outputs(masks, flows, output_dir, logger):
     except Exception as e:
         logger.warning(f"Could not write large TIFF: {e}")
 
-    """Flows (optional)"""
+    '''Flows (optional)'''
     if flows and all(f is not None for f in flows):
         np.savez(flows_dir / "flows.npz",
                  flow0=flows[0], flow1=flows[1], cellprob=flows[2])
@@ -186,6 +195,18 @@ def save_outputs(masks, flows, output_dir, logger):
 
 
 def apply_postprocessing(image, masks, settings, output_dir, logger):
+    """Apply optional edge refinement and watershed postprocessing to segmentation masks.
+
+    Args:
+        image (np.ndarray): Preprocessed input image.
+        masks (np.ndarray): Labeled segmentation mask array.
+        settings (dict): Pipeline configuration settings.
+        output_dir (str or Path): Directory for saving refined outputs.
+        logger (logging.Logger): Logger instance for status reporting.
+
+    Returns:
+        np.ndarray: Postprocessed segmentation masks.
+    """
     if settings.get("use_edge_detection", False):
         logger.info("Running edge refinement...")
         masks = refine_segmentation_with_edges(image, masks, settings, logger)
@@ -210,30 +231,24 @@ def apply_postprocessing(image, masks, settings, output_dir, logger):
 
 
 def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=None, previous_results_dir=None, overlay_suffix=""):
-    """
-    Generate visualization overlays for cell segmentation results.
+    """Generate visualization overlays for cell segmentation results.
 
-    This function creates both small cropped previews and full-image overlays to help
-    users assess segmentation quality across different I/R injury time points.
-    It supports flexible input paths to work correctly when using previous results from
-    different directories.
+    Creates both small cropped previews and full-image overlays to help assess
+    segmentation quality across different I/R injury time points. Supports flexible
+    input paths to work correctly when using previous results from different directories.
 
-    Parameters
-    ----------
-    output_dir : str or Path
-        Directory where visualization outputs will be saved.
-    settings : dict
-        Configuration settings including overlay parameters.
-    logger : logging.Logger
-        Logger for progress tracking and error reporting.
-    image_path : str or Path, optional
-        Path to the preprocessed image file. If None, defaults to output_dir/preprocessed/first.tif.
-    mask_path : str or Path, optional
-        Path to the segmentation masks file. If None, defaults to output_dir/masks/segmentation_masks.npy.
-    previous_results_dir : str or Path, optional
-        Path to previous results directory for accessing preprocessed images when using previous results.
-    overlay_suffix : str, optional
-        Suffix to append to overlay filenames (e.g., "_unfiltered" or "_filtered").
+    Args:
+        output_dir (str or Path): Directory where visualization outputs will be saved.
+        settings (dict): Configuration settings including overlay parameters.
+        logger (logging.Logger): Logger for progress tracking and error reporting.
+        image_path (str or Path, optional): Path to the preprocessed image file.
+            If None, defaults to output_dir/preprocessed/first.tif.
+        mask_path (str or Path, optional): Path to the segmentation masks file.
+            If None, defaults to output_dir/masks/segmentation_masks.npy.
+        previous_results_dir (str or Path, optional): Path to previous results directory
+            for accessing preprocessed images when using previous results.
+        overlay_suffix (str, optional): Suffix to append to overlay filenames
+            (e.g., "_unfiltered" or "_filtered").
     """
     try:
         # Determine paths for overlay generation based on provided parameters or defaults.

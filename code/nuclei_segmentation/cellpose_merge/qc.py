@@ -1,6 +1,6 @@
 """
 Author: Christos Botos.
-Affiliation: Leiden University Medical Center
+Affiliation: Human Genetics Department, Leiden University Medical Center.
 Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 | github.com/ChrisBotos.
 
 Script Name: qc.py.
@@ -90,14 +90,14 @@ from numpy.typing import NDArray
 from PIL import Image
 from tqdm import tqdm
 
-"""TYPE DEFINITIONS"""
+'''TYPE DEFINITIONS'''
 
 # Type aliases for better code readability and scientific context.
 RGBArray = NDArray[np.uint8]  # RGB image arrays for tissue visualization.
 MaskArray = NDArray[np.uint32]  # Nucleus segmentation masks with unique labels.
 ColorArray = NDArray[np.uint16]  # Color arrays for overlay composition.
 
-"""CONFIGURATION PARAMETERS"""
+'''CONFIGURATION PARAMETERS'''
 
 # Default crop size for QC visualizations to ensure manageable file sizes.
 DEFAULT_CROP_SIZE: Final = 1300
@@ -114,7 +114,7 @@ TILE_FILENAME_PATTERNS: Final = [
     re.compile(r"row(?P<row>\d+)[_ ]col(?P<col>\d+)")
 ]
 
-"""MAIN QC GENERATION FUNCTION"""
+'''MAIN QC GENERATION FUNCTION'''
 
 def write_overlays(
     loader: Callable[[slice, slice], NDArray[np.uint32]],
@@ -145,38 +145,27 @@ def write_overlays(
     3. Creating an "after merging" overlay showing the final segmentation result
     4. Generating quantitative statistics about the segmentation quality
 
-    Parameters
-    ----------
-    loader : callable
-        Function that loads individual tile masks given slice coordinates.
-        Should return a 2D numpy array with nucleus labels for the requested region.
-    merged : np.ndarray
-        Final merged segmentation mask of shape (height, width) with unique
-        nucleus labels. Background pixels should be zero.
-    height, width : int
-        Full tissue image dimensions in pixels for proper spatial coordinate mapping.
-    tile_h, tile_w : int
-        Individual tile dimensions used during Cellpose segmentation process.
-    overlap : int
-        Spatial overlap between adjacent tiles in pixels.
-    qc_dir : str or Path
-        Output directory where QC visualization files will be saved.
-    image_loader : callable, optional
-        Function that loads the original tissue image given slice coordinates.
-        If provided, the actual tissue image will be used as background.
-    use_full_image : bool, default True
-        If True, generate QC overlays for the entire image. If False, use a central
-        crop of DEFAULT_CROP_SIZE for manageable file sizes.
+    Args:
+        loader (callable): Function that loads individual tile masks given slice coordinates.
+            Should return a 2D numpy array with nucleus labels for the requested region.
+        merged (np.ndarray): Final merged segmentation mask of shape (height, width) with unique
+            nucleus labels. Background pixels should be zero.
+        height (int): Full tissue image height in pixels for proper spatial coordinate mapping.
+        width (int): Full tissue image width in pixels for proper spatial coordinate mapping.
+        tile_h (int): Individual tile height used during Cellpose segmentation process.
+        tile_w (int): Individual tile width used during Cellpose segmentation process.
+        overlap (int): Spatial overlap between adjacent tiles in pixels.
+        qc_dir (str or Path): Output directory where QC visualization files will be saved.
+        image_loader (callable, optional): Function that loads the original tissue image given
+            slice coordinates. If provided, the actual tissue image will be used as background.
+        use_full_image (bool): If True, generate QC overlays for the entire image. If False,
+            use a central crop of DEFAULT_CROP_SIZE for manageable file sizes.
 
-    Returns
-    -------
-    None
-        Function saves QC files directly to the specified directory.
+    Returns:
+        None: Function saves QC files directly to the specified directory.
 
-    Raises
-    ------
-    Exception
-        Logs warnings for any errors during QC generation but does not halt execution.
+    Raises:
+        Exception: Logs warnings for any errors during QC generation but does not halt execution.
     """
 
     try:
@@ -321,7 +310,7 @@ def write_overlays(
         logging.warning(f"QC overlay generation encountered an error: {qc_error}")
         logging.debug(f"QC error traceback:\n{traceback.format_exc()}")
 
-"""CROP REGION CALCULATION"""
+'''CROP REGION CALCULATION'''
 
 def _calculate_crop_region(height: int, width: int, crop_size: int) -> Dict:
     """
@@ -331,17 +320,13 @@ def _calculate_crop_region(height: int, width: int, crop_size: int) -> Dict:
     provides representative visualization while maintaining manageable file sizes.
     For smaller images, the entire image is used.
 
-    Parameters
-    ----------
-    height, width : int
-        Full tissue image dimensions in pixels.
-    crop_size : int
-        Target crop size for visualization (typically 1300 pixels).
+    Args:
+        height (int): Full tissue image height in pixels.
+        width (int): Full tissue image width in pixels.
+        crop_size (int): Target crop size for visualization (typically 1300 pixels).
 
-    Returns
-    -------
-    Dict
-        Dictionary containing crop coordinates and description for logging.
+    Returns:
+        Dict: Dictionary containing crop coordinates and description for logging.
     """
 
     if height <= crop_size and width <= crop_size:
@@ -371,7 +356,7 @@ def _calculate_crop_region(height: int, width: int, crop_size: int) -> Dict:
         }
 
 
-"""TISSUE BACKGROUND LOADING"""
+'''TISSUE BACKGROUND LOADING'''
 
 def _load_final_tif_image(results_dir: Path) -> RGBArray:
     """
@@ -381,15 +366,11 @@ def _load_final_tif_image(results_dir: Path) -> RGBArray:
     the preprocessing step and stored in the preprocessed subdirectory.
     This is the preferred method for loading the tissue background.
 
-    Parameters
-    ----------
-    results_dir : Path
-        Path to the results directory containing preprocessed subdirectory.
+    Args:
+        results_dir (Path): Path to the results directory containing preprocessed subdirectory.
 
-    Returns
-    -------
-    RGBArray or None
-        RGB tissue image from final.tif, or None if not found.
+    Returns:
+        RGBArray or None: RGB tissue image from final.tif, or None if not found.
     """
 
     try:
@@ -426,18 +407,14 @@ def _load_full_tissue_image(
     background for overlay visualizations. It handles format conversion
     and ensures the image is in proper RGB format.
 
-    Parameters
-    ----------
-    image_loader : callable or None
-        Function that loads the tissue image given slice coordinates.
-        Should return RGB image data as uint8 array.
-    height, width : int
-        Full tissue image dimensions in pixels.
+    Args:
+        image_loader (callable or None): Function that loads the tissue image given slice
+            coordinates. Should return RGB image data as uint8 array.
+        height (int): Full tissue image height in pixels.
+        width (int): Full tissue image width in pixels.
 
-    Returns
-    -------
-    RGBArray or None
-        Full RGB tissue image, or None if loading fails.
+    Returns:
+        RGBArray or None: Full RGB tissue image, or None if loading fails.
     """
 
     if image_loader is None:
@@ -487,20 +464,15 @@ def _load_tissue_background(
     for overlay visualizations. If no image loader is provided, it creates a
     neutral gray background for the visualization.
 
-    Parameters
-    ----------
-    image_loader : callable or None
-        Function that loads the original tissue image given slice coordinates.
-        Should return RGB image data as uint8 array.
-    crop_info : Dict
-        Dictionary containing crop region coordinates and dimensions.
-    height, width : int
-        Full tissue image dimensions in pixels.
+    Args:
+        image_loader (callable or None): Function that loads the original tissue image given
+            slice coordinates. Should return RGB image data as uint8 array.
+        crop_info (Dict): Dictionary containing crop region coordinates and dimensions.
+        height (int): Full tissue image height in pixels.
+        width (int): Full tissue image width in pixels.
 
-    Returns
-    -------
-    RGBArray
-        RGB tissue image background for the crop region.
+    Returns:
+        RGBArray: RGB tissue image background for the crop region.
     """
 
     crop_height = crop_info['height']
@@ -546,7 +518,7 @@ def _load_tissue_background(
     return background
 
 
-"""BEFORE MERGING VISUALIZATION"""
+'''BEFORE MERGING VISUALIZATION'''
 
 def _create_before_merging_overlay(
     loader: Callable[[slice, slice], NDArray[np.uint32]],
@@ -564,23 +536,16 @@ def _create_before_merging_overlay(
     bioinformaticians identify tile boundaries and potential merging conflicts
     in kidney tissue segmentation.
 
-    Parameters
-    ----------
-    loader : callable
-        Function that loads individual tile masks for given slice coordinates.
-    crop_info : Dict
-        Dictionary containing crop region coordinates and dimensions.
-    tile_h, tile_w : int
-        Individual tile dimensions used during segmentation.
-    overlap : int
-        Spatial overlap between adjacent tiles in pixels.
-    tissue_background : RGBArray
-        RGB tissue image to use as background for the overlay.
+    Args:
+        loader (callable): Function that loads individual tile masks for given slice coordinates.
+        crop_info (Dict): Dictionary containing crop region coordinates and dimensions.
+        tile_h (int): Individual tile height used during segmentation.
+        tile_w (int): Individual tile width used during segmentation.
+        overlap (int): Spatial overlap between adjacent tiles in pixels.
+        tissue_background (RGBArray): RGB tissue image to use as background for the overlay.
 
-    Returns
-    -------
-    RGBArray
-        RGB image array showing individual tile contributions with unique colors.
+    Returns:
+        RGBArray: RGB image array showing individual tile contributions with unique colors.
     """
 
     logging.debug("Creating before merging overlay with individual tile colors on tissue background.")
@@ -707,17 +672,13 @@ def _create_tile_boundary_mask(mask_region: NDArray[np.uint32], tile_row: int, t
     bioinformaticians identify which tile each nucleus belongs to, especially
     in overlapping regions where multiple tiles contribute.
 
-    Parameters
-    ----------
-    mask_region : NDArray[np.uint32]
-        The nucleus mask for this tile region.
-    tile_row, tile_col : int
-        Tile position indices for identification.
+    Args:
+        mask_region (NDArray[np.uint32]): The nucleus mask for this tile region.
+        tile_row (int): Tile row position index for identification.
+        tile_col (int): Tile column position index for identification.
 
-    Returns
-    -------
-    NDArray[np.bool_]
-        Boolean mask indicating tile boundary pixels.
+    Returns:
+        NDArray[np.bool_]: Boolean mask indicating tile boundary pixels.
     """
 
     if mask_region.size == 0:
@@ -752,15 +713,12 @@ def _generate_tile_color(tile_row: int, tile_col: int) -> ColorArray:
     The color generation uses improved contrast and saturation for better
     visibility on tissue backgrounds.
 
-    Parameters
-    ----------
-    tile_row, tile_col : int
-        Tile position indices in the grid.
+    Args:
+        tile_row (int): Tile row position index in the grid.
+        tile_col (int): Tile column position index in the grid.
 
-    Returns
-    -------
-    ColorArray
-        RGB color array for the tile as uint16 values.
+    Returns:
+        ColorArray: RGB color array for the tile as uint16 values.
     """
 
     # Create a unique identifier for this tile position.
@@ -802,7 +760,7 @@ def _generate_tile_color(tile_row: int, tile_col: int) -> ColorArray:
     return np.array([r, g, b], dtype=np.uint16)
 
 
-"""AFTER MERGING VISUALIZATION"""
+'''AFTER MERGING VISUALIZATION'''
 
 def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, tissue_background: RGBArray) -> RGBArray:
     """
@@ -812,19 +770,13 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, t
     to each segmented nucleus. This helps bioinformaticians assess the quality of
     the final merged segmentation and identify potential artifacts or issues.
 
-    Parameters
-    ----------
-    merged : NDArray[np.uint32]
-        Final merged segmentation mask with unique nucleus labels.
-    crop_info : Dict
-        Dictionary containing crop region coordinates and dimensions.
-    tissue_background : RGBArray
-        RGB tissue image to use as background for the overlay.
+    Args:
+        merged (NDArray[np.uint32]): Final merged segmentation mask with unique nucleus labels.
+        crop_info (Dict): Dictionary containing crop region coordinates and dimensions.
+        tissue_background (RGBArray): RGB tissue image to use as background for the overlay.
 
-    Returns
-    -------
-    RGBArray
-        RGB image array showing final segmentation with random colors per nucleus.
+    Returns:
+        RGBArray: RGB image array showing final segmentation with random colors per nucleus.
     """
 
     logging.debug("Creating after merging overlay with random nucleus colors.")
@@ -873,7 +825,7 @@ def _create_after_merging_overlay(merged: NDArray[np.uint32], crop_info: Dict, t
     return overlay.clip(0, 255).astype(np.uint8)
 
 
-"""MEMORY-EFFICIENT TILE OVERLAY FUNCTIONS"""
+'''MEMORY-EFFICIENT TILE OVERLAY FUNCTIONS'''
 
 def _generate_nucleus_colors(num_nuclei: int, seed: int = 42) -> NDArray[np.uint16]:
     """
@@ -883,17 +835,12 @@ def _generate_nucleus_colors(num_nuclei: int, seed: int = 42) -> NDArray[np.uint
     in the final merged segmentation. Each nucleus gets its own unique color
     regardless of which tile it originated from.
 
-    Parameters
-    ----------
-    num_nuclei : int
-        Number of unique colors to generate.
-    seed : int, default 42
-        Random seed for reproducible color generation.
+    Args:
+        num_nuclei (int): Number of unique colors to generate.
+        seed (int): Random seed for reproducible color generation.
 
-    Returns
-    -------
-    NDArray[np.uint16]
-        Array of RGB colors with shape (num_nuclei, 3).
+    Returns:
+        NDArray[np.uint16]: Array of RGB colors with shape (num_nuclei, 3).
     """
 
     np.random.seed(seed)
@@ -934,38 +881,24 @@ def create_tile_overlay_from_directory(
 
     Both overlays are alpha-blended on top of the original tissue image background.
 
-    Parameters
-    ----------
-    tiles_dir : Path
-        Directory containing tile mask files (.npz format).
-    full_image : RGBArray
-        Full tissue image to use as background for overlay.
-    tile_h, tile_w : int, default 512
-        Individual tile dimensions in pixels.
-    overlap : int, default 64
-        Overlap between adjacent tiles in pixels.
-    batch_size : int, default 100
-        Number of tiles to process simultaneously (memory management).
-    alpha : float, default 0.6
-        Transparency level for mask overlay [0-1].
-    crop_size : int, optional
-        If provided, extract central crop of this size for visualization.
-    output_path : Path, optional
-        If provided, save the overlay to this path.
-    overlay_type : str, default "before"
-        Type of overlay: "before" (tile colors) or "after" (nucleus colors).
+    Args:
+        tiles_dir (Path): Directory containing tile mask files (.npz format).
+        full_image (RGBArray): Full tissue image to use as background for overlay.
+        tile_h (int): Individual tile height in pixels.
+        tile_w (int): Individual tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+        batch_size (int): Number of tiles to process simultaneously (memory management).
+        alpha (float): Transparency level for mask overlay [0-1].
+        crop_size (int, optional): If provided, extract central crop of this size for visualization.
+        output_path (Path, optional): If provided, save the overlay to this path.
+        overlay_type (str): Type of overlay: "before" (tile colors) or "after" (nucleus colors).
 
-    Returns
-    -------
-    RGBArray
-        RGB overlay image with masks colored according to overlay_type.
+    Returns:
+        RGBArray: RGB overlay image with masks colored according to overlay_type.
 
-    Raises
-    ------
-    FileNotFoundError
-        If tiles directory doesn't exist or contains no valid tiles.
-    MemoryError
-        If system runs out of memory during processing.
+    Raises:
+        FileNotFoundError: If tiles directory doesn't exist or contains no valid tiles.
+        MemoryError: If system runs out of memory during processing.
     """
 
     logging.info(f"Creating {overlay_type} merging overlay from {tiles_dir}")
@@ -1167,15 +1100,11 @@ def _parse_tile_coordinates(filename: str) -> Tuple[int, int]:
     Supports both pixel coordinates (e.g., "410_820.npz") and tile indices
     (e.g., "row1_col2.npz"). For kidney tissue analysis workflows.
 
-    Parameters
-    ----------
-    filename : str
-        Tile filename to parse.
+    Args:
+        filename (str): Tile filename to parse.
 
-    Returns
-    -------
-    Tuple[int, int] or None
-        Parsed (row, col) coordinates or None if parsing fails.
+    Returns:
+        Tuple[int, int] or None: Parsed (row, col) coordinates or None if parsing fails.
     """
 
     # Remove file extension.
@@ -1204,15 +1133,11 @@ def _generate_tile_color_deterministic(coords: Tuple[int, int]) -> ColorArray:
     This function creates unique, reproducible colors for tiles to help
     identify tile boundaries in before-merging visualizations.
 
-    Parameters
-    ----------
-    coords : Tuple[int, int]
-        Tile coordinates (row, col) or (y_pixel, x_pixel).
+    Args:
+        coords (Tuple[int, int]): Tile coordinates (row, col) or (y_pixel, x_pixel).
 
-    Returns
-    -------
-    ColorArray
-        RGB color array as uint16 values.
+    Returns:
+        ColorArray: RGB color array as uint16 values.
     """
 
     r, c = coords
@@ -1354,29 +1279,19 @@ def _apply_tile_to_overlay(
     overlay canvas, including proper clipping for edge tiles and crop regions.
     Colors are alpha-blended with the tissue background for scientific visualization.
 
-    Parameters
-    ----------
-    overlay : ColorArray
-        Target overlay canvas to modify (contains tissue background).
-    tile_mask : MaskArray
-        Source tile mask with nucleus labels.
-    coords : Tuple[int, int]
-        Tile coordinates (could be pixel coords or tile indices).
-    tile_color : ColorArray
-        RGB color to apply for this tile.
-    alpha : float
-        Transparency level for alpha blending with tissue background.
-    crop_info : Dict
-        Information about crop region coordinates.
-    stride_h, stride_w : int
-        Tile stride dimensions.
-    color_mode : str, default "tile"
-        Color application mode ("tile" for uniform tile color).
+    Args:
+        overlay (ColorArray): Target overlay canvas to modify (contains tissue background).
+        tile_mask (MaskArray): Source tile mask with nucleus labels.
+        coords (Tuple[int, int]): Tile coordinates (could be pixel coords or tile indices).
+        tile_color (ColorArray): RGB color to apply for this tile.
+        alpha (float): Transparency level for alpha blending with tissue background.
+        crop_info (Dict): Information about crop region coordinates.
+        stride_h (int): Tile stride height dimension.
+        stride_w (int): Tile stride width dimension.
+        color_mode (str): Color application mode ("tile" for uniform tile color).
 
-    Returns
-    -------
-    bool
-        True if tile was successfully applied, False otherwise.
+    Returns:
+        bool: True if tile was successfully applied, False otherwise.
     """
 
     try:
@@ -1437,7 +1352,7 @@ def _apply_tile_to_overlay(
         return False
 
 
-"""HIGH-LEVEL INTERFACE FUNCTIONS"""
+'''HIGH-LEVEL INTERFACE FUNCTIONS'''
 
 def create_before_after_overlays(
     results_dir: Path,
@@ -1457,35 +1372,23 @@ def create_before_after_overlays(
     for tissue analysis. It automatically finds tile mask
     directories and creates both before/after overlays with memory-efficient processing.
 
-    Parameters
-    ----------
-    results_dir : Path
-        Results directory containing masks subdirectory with tile_masks_npz and
-        merged_tile_masks_npz directories.
-    full_image : RGBArray
-        Full tissue image to use as background.
-    tile_h, tile_w : int, default 512
-        Tile dimensions in pixels.
-    overlap : int, default 64
-        Overlap between tiles in pixels.
-    batch_size : int, default 100
-        Batch size for memory-efficient processing.
-    alpha : float, default 0.6
-        Overlay transparency level.
-    crop_size : int, default 1300
-        Size of central crop for visualization (None for full image).
-    output_dir : Path, optional
-        Directory to save overlay images.
+    Args:
+        results_dir (Path): Results directory containing masks subdirectory with tile_masks_npz
+            and merged_tile_masks_npz directories.
+        full_image (RGBArray): Full tissue image to use as background.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between tiles in pixels.
+        batch_size (int): Batch size for memory-efficient processing.
+        alpha (float): Overlay transparency level.
+        crop_size (int): Size of central crop for visualization (None for full image).
+        output_dir (Path, optional): Directory to save overlay images.
 
-    Returns
-    -------
-    Tuple[RGBArray, RGBArray]
-        Before and after merging overlay images.
+    Returns:
+        Tuple[RGBArray, RGBArray]: Before and after merging overlay images.
 
-    Raises
-    ------
-    FileNotFoundError
-        If required directories or files are not found.
+    Raises:
+        FileNotFoundError: If required directories or files are not found.
     """
 
     logging.info(f"Creating before/after overlays from results directory: {results_dir}")
@@ -1549,7 +1452,7 @@ def create_before_after_overlays(
 
 
 
-"""LEGACY COMPATIBILITY FUNCTIONS"""
+'''LEGACY COMPATIBILITY FUNCTIONS'''
 
 def _create_before_merging_overlay_from_files(
     original_tiles_path: Path,
@@ -1567,25 +1470,18 @@ def _create_before_merging_overlay_from_files(
     new memory-efficient tile overlay system. It creates a cropped tissue
     background and uses the enhanced overlay functions.
 
-    Parameters
-    ----------
-    original_tiles_path : Path
-        Path to directory containing original tile mask files.
-    coords : List[Tuple[int, int]]
-        List of (row, col) tile coordinates (unused in new implementation).
-    crop_info : Dict
-        Dictionary containing crop region information.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-    tissue_background : RGBArray
-        Background tissue image for overlay.
+    Args:
+        original_tiles_path (Path): Path to directory containing original tile mask files.
+        coords (List[Tuple[int, int]]): List of (row, col) tile coordinates (unused in new
+            implementation).
+        crop_info (Dict): Dictionary containing crop region information.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+        tissue_background (RGBArray): Background tissue image for overlay.
 
-    Returns
-    -------
-    RGBArray
-        RGB overlay image showing original tile masks with unique colors.
+    Returns:
+        RGBArray: RGB overlay image showing original tile masks with unique colors.
     """
 
     logging.info("Creating before merging overlay using enhanced memory-efficient method")
@@ -1644,25 +1540,18 @@ def _create_after_merging_overlay_from_files(
     new memory-efficient tile overlay system. It creates a cropped tissue
     background and uses the enhanced overlay functions.
 
-    Parameters
-    ----------
-    merged_tiles_dir : Path
-        Path to directory containing merged tile mask files.
-    coords : List[Tuple[int, int]]
-        List of (row, col) tile coordinates (unused in new implementation).
-    crop_info : Dict
-        Dictionary containing crop region information.
-    tile_h, tile_w : int
-        Tile dimensions in pixels.
-    overlap : int
-        Overlap between adjacent tiles in pixels.
-    tissue_background : RGBArray
-        Background tissue image for overlay.
+    Args:
+        merged_tiles_dir (Path): Path to directory containing merged tile mask files.
+        coords (List[Tuple[int, int]]): List of (row, col) tile coordinates (unused in new
+            implementation).
+        crop_info (Dict): Dictionary containing crop region information.
+        tile_h (int): Tile height in pixels.
+        tile_w (int): Tile width in pixels.
+        overlap (int): Overlap between adjacent tiles in pixels.
+        tissue_background (RGBArray): Background tissue image for overlay.
 
-    Returns
-    -------
-    RGBArray
-        RGB overlay image showing merged tile masks with unique colors.
+    Returns:
+        RGBArray: RGB overlay image showing merged tile masks with unique colors.
     """
 
     logging.info("Creating after merging overlay using enhanced memory-efficient method")
@@ -1708,7 +1597,7 @@ def _create_after_merging_overlay_from_files(
 
 
 
-"""STATISTICS GENERATION"""
+'''STATISTICS GENERATION'''
 
 def _generate_merge_statistics(
     merged: NDArray[np.uint32],
@@ -1726,23 +1615,17 @@ def _generate_merge_statistics(
     results, including nucleus counts, density measurements, and technical details
     about the tiling configuration used during processing.
 
-    Parameters
-    ----------
-    merged : NDArray[np.uint32]
-        Final merged segmentation mask with unique nucleus labels.
-    height, width : int
-        Full tissue image dimensions in pixels.
-    tile_h, tile_w : int
-        Individual tile dimensions used during segmentation.
-    overlap : int
-        Spatial overlap between adjacent tiles in pixels.
-    qc_dir : Path
-        Output directory for the statistics file.
+    Args:
+        merged (NDArray[np.uint32]): Final merged segmentation mask with unique nucleus labels.
+        height (int): Full tissue image height in pixels.
+        width (int): Full tissue image width in pixels.
+        tile_h (int): Individual tile height used during segmentation.
+        tile_w (int): Individual tile width used during segmentation.
+        overlap (int): Spatial overlap between adjacent tiles in pixels.
+        qc_dir (Path): Output directory for the statistics file.
 
-    Returns
-    -------
-    None
-        Function saves statistics directly to a text file.
+    Returns:
+        None: Function saves statistics directly to a text file.
     """
 
     try:
@@ -1812,7 +1695,7 @@ def _generate_merge_statistics(
         logging.debug(f"Statistics error traceback:\n{traceback.format_exc()}")
 
 
-"""LEGACY COMPATIBILITY FUNCTIONS"""
+'''LEGACY COMPATIBILITY FUNCTIONS'''
 
 # The following functions maintain compatibility with existing CLI usage
 # while providing the enhanced functionality described above.
@@ -1885,16 +1768,14 @@ def main() -> None:
     return 0
 
 
-"""UTILITY FUNCTIONS"""
+'''UTILITY FUNCTIONS'''
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     """
     Build the command-line argument parser for QC generation.
 
-    Returns
-    -------
-    argparse.ArgumentParser
-        Configured argument parser for CLI usage.
+    Returns:
+        argparse.ArgumentParser: Configured argument parser for CLI usage.
     """
 
     parser = argparse.ArgumentParser(
@@ -1936,20 +1817,14 @@ def _load_rgb_image(path: Path) -> RGBArray:
     """
     Load an RGB tissue image for QC visualization background.
 
-    Parameters
-    ----------
-    path : Path
-        Path to the RGB image file.
+    Args:
+        path (Path): Path to the RGB image file.
 
-    Returns
-    -------
-    RGBArray
-        RGB image array as uint8.
+    Returns:
+        RGBArray: RGB image array as uint8.
 
-    Raises
-    ------
-    ValueError
-        If the image is not in RGB format.
+    Raises:
+        ValueError: If the image is not in RGB format.
     """
 
     try:
@@ -1971,20 +1846,14 @@ def _load_mask_file(path: Path) -> MaskArray:
     """
     Load a segmentation mask from TIFF, PNG, or NPZ format.
 
-    Parameters
-    ----------
-    path : Path
-        Path to the mask file.
+    Args:
+        path (Path): Path to the mask file.
 
-    Returns
-    -------
-    MaskArray
-        Segmentation mask as uint32 array.
+    Returns:
+        MaskArray: Segmentation mask as uint32 array.
 
-    Raises
-    ------
-    ValueError
-        If the file format is not supported.
+    Raises:
+        ValueError: If the file format is not supported.
     """
 
     try:
@@ -2011,7 +1880,7 @@ def _load_mask_file(path: Path) -> MaskArray:
         raise
 
 
-"""ENTRY POINT"""
+'''ENTRY POINT'''
 
 if __name__ == "__main__":
     exit_code = main()
