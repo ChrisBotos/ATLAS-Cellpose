@@ -1,7 +1,7 @@
 # ATLAS-Cellpose
 ## Adaptive Tiled Local Analysis Segmentation
 
-**A computational framework for large-scale nuclear segmentation with adaptive parameter optimization through intelligent tiling**
+ATLAS-Cellpose is a tiled nuclear segmentation pipeline for large DAPI-stained tissue images. It wraps Cellpose 3.0.10 with adaptive tiling, a 4-step tile merge algorithm, CLAHE preprocessing, and morphological filtering. It was built for ischemia-reperfusion injury studies in kidney tissue.
 
 **Authors**: Christos Botos (lead developer) and Benedetta Manzato (supervisor)
 **Affiliation**: Human Genetics Department, Leiden University Medical Center
@@ -9,44 +9,37 @@
 
 ---
 
-### Abstract
-
-ATLAS-Cellpose is a computational framework that combines Cellpose3 deep learning segmentation with adaptive tiled processing to enable accurate analysis of large tissue sections. The method addresses two fundamental challenges in tissue image analysis: (1) memory constraints when processing gigapixel images, and (2) heterogeneous nuclear morphology across tissue regions. By partitioning images into locally homogeneous tiles, ATLAS-Cellpose enables Cellpose's adaptive diameter detection to optimize segmentation parameters for each tissue microenvironment independently. A four-step merging algorithm systematically resolves tile boundaries while preserving cross-boundary nuclei and eliminating redundant detections. Optimized for ischemia-reperfusion injury studies in kidney tissue, ATLAS-Cellpose supports both GPU-accelerated and CPU-based processing in high-performance computing environments.
-
 ## Overview
 
-ATLAS-Cellpose (**A**daptive **T**iled **L**ocal **A**nalysis **S**egmentation) integrates Cellpose3 deep learning segmentation with adaptive tiled processing to overcome fundamental limitations in large-scale tissue image analysis. The framework addresses both computational constraints and biological heterogeneity through intelligent spatial partitioning and local parameter optimization.
+ATLAS-Cellpose (**A**daptive **T**iled **L**ocal **A**nalysis **S**egmentation) partitions large images into overlapping tiles, runs Cellpose on each tile independently, and merges the results with a 4-step priority-based algorithm. Tiling lets Cellpose's adaptive diameter detection optimize per-tile, which helps when nuclear morphology varies across the tissue.
 
-### Method Innovation
+### What It Does
 
-The ATLAS approach addresses key limitations in tissue image analysis through four innovations:
-
-1. **Adaptive Diameter Optimization**: Tiling creates locally homogeneous regions where Cellpose's adaptive diameter detection can optimize independently for each tissue microenvironment, substantially improving segmentation accuracy in heterogeneous samples
-2. **Intelligent Spatial Partitioning**: Dynamic tiling with configurable overlap enables processing of arbitrarily large images while maintaining biological context
-3. **Systematic Boundary Resolution**: A four-step merging algorithm preserves cross-boundary nuclei while eliminating redundant detections with priority-based selection
-4. **Scalable Architecture**: Memory-efficient processing enables gigapixel image analysis on standard workstations
-
-This combination of adaptive parameter optimization and systematic merging is well-suited for whole-slide imaging and large tissue sections where nuclear morphology varies substantially across spatial regions—a common feature of injury, disease, and developmental models.
+1. **Adaptive Diameter Optimization**: Tiling creates locally homogeneous regions where Cellpose's diameter detection can optimize independently for each region.
+2. **Intelligent Spatial Partitioning**: Dynamic tiling with configurable overlap enables processing of large images while maintaining biological context.
+3. **Systematic Boundary Resolution**: A 4-step merging algorithm resolves tile boundaries using priority-based selection.
+4. **Scalable Architecture**: Memory-efficient tiled processing enables large image analysis on standard workstations.
 
 ### Research Applications
 
 ATLAS-Cellpose was developed for ischemia-reperfusion injury studies in kidney tissue, enabling quantitative analysis of:
-- **Temporal dynamics**: Nuclear morphology changes across recovery time points
-- **Spatial organization**: Cellular response patterns within tissue architecture
-- **Cell death pathways**: Apoptosis, pyroptosis, necroptosis, and ferroptosis markers
-- **Regenerative processes**: Wnt signaling, cell migration, and angiogenesis
+- **Temporal dynamics**: Nuclear morphology changes across recovery time points.
+- **Spatial organization**: Cellular response patterns within tissue architecture.
+- **Cell death pathways**: Apoptosis, pyroptosis, necroptosis, and ferroptosis markers.
+- **Regenerative processes**: Wnt signaling, cell migration, and angiogenesis.
 
-The framework generalizes to any large-scale tissue imaging application requiring accurate nuclear segmentation across heterogeneous tissue regions.
+The framework can be applied to other large-scale tissue imaging tasks requiring nuclear segmentation.
 
 ## Key Features
 
-- **Adaptive Parameter Optimization**: Tiling enables local diameter detection, substantially improving segmentation accuracy in heterogeneous tissue regions
-- **Systematic Boundary Resolution**: Four-step merging algorithm preserves cross-boundary nuclei while eliminating redundant detections
-- **Scalable Architecture**: Memory-efficient processing of gigapixel images on standard workstations
-- **Cellpose3 Integration**: Optimized nuclear segmentation with validated performance on DAPI-stained tissue sections
-- **Quality Control Framework**: Extensive visualization and validation tools for reproducible analysis
-- **Performance Optimization**: GPU acceleration with automatic CPU fallback and intelligent memory management
-- **CLAHE Preprocessing**: Systematic contrast enhancement with validated parameter combinations
+- **Adaptive Parameter Optimization**: Per-tile diameter detection for heterogeneous tissue regions.
+- **4-Step Tile Merging**: Priority-based boundary resolution that aims to preserve cross-boundary nuclei while eliminating duplicates.
+- **Scalable Architecture**: Memory-efficient tiled processing of large images.
+- **Cellpose 3.0.10 Integration**: Optimized for DAPI-stained tissue sections.
+- **Quality Control**: Visualization overlays for segmentation and merge validation.
+- **GPU-Accelerated Segmentation**: GPU support for Cellpose inference with automatic CPU fallback. The merge step is CPU-only.
+- **CLAHE Preprocessing**: Configurable contrast enhancement.
+- **Morphological Filtering**: Optional artifact removal based on size, shape, and solidity thresholds.
 
 ## Table of Contents
 
@@ -68,28 +61,28 @@ The framework generalizes to any large-scale tissue imaging application requirin
 - **Operating System**: Linux, macOS, or Windows with WSL2
 - **Python**: 3.10 (installed automatically with environment)
 - **CUDA**: 11.8 (optional, for GPU acceleration)
-- **Memory**: ≥ 8 GB RAM (≥ 16 GB for large images)
-- **Storage**: ≥ 5 GB free space for conda environment
+- **Memory**: >= 8 GB RAM (>= 16 GB for large images)
+- **Storage**: >= 5 GB free space for conda environment
 - **Conda**: Miniconda or Anaconda
 
-### Environment Setup Tutorial
+### Environment Setup
 
-**Important**: This project is optimized for **Cellpose 3.0.10**, which provides superior nuclear segmentation performance compared to Cellpose 4.x for DAPI-stained tissue sections. The environment file `cellpose3_environment_recommended.yml` contains all tested and validated package versions.
+**Important**: This project is optimized for **Cellpose 3.0.10**. The environment file `cellpose3_environment_recommended.yml` contains all tested package versions.
 
 #### Step 1: Install Miniconda (if not already installed)
 
 ```bash
-# Download Miniconda installer
+# Download Miniconda installer.
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 
-# Install Miniconda to your home directory
+# Install Miniconda to your home directory.
 bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
 
-# Initialize conda for your shell
+# Initialize conda for your shell.
 source ~/miniconda3/etc/profile.d/conda.sh
 conda init bash
 
-# Reload your shell configuration
+# Reload your shell configuration.
 source ~/.bashrc
 ```
 
@@ -100,23 +93,26 @@ source ~/.bashrc
 cd /path/to/ATLAS-Cellpose
 
 # Create the environment from the YAML file.
-# This will install Python 3.10, Cellpose 3.0.10, PyTorch with CUDA 11.8, and all dependencies.
 conda env create -f cellpose3_environment_recommended.yml
-
-# The environment creation will:
-# - Install ~100 packages via conda.
-# - Install Cellpose 3.0.10 and additional packages via pip.
-# - Take approximately 5-10 minutes depending on your internet connection.
-# - Require ~5 GB of disk space.
 ```
 
-#### Step 3: Activate the Environment
+**Note**: The yml file's pip section installs torch, cellpose, and opencv. If the pip step fails (e.g. due to CUDA version mismatch), install those packages manually after creating the environment:
 
 ```bash
-# Activate the newly created environment.
+conda activate venv310_cellpose3
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install cellpose==3.0.10
+pip install opencv-python-headless
+```
+
+#### Step 3: Install the Package
+
+```bash
+# Activate the environment.
 conda activate venv310_cellpose3
 
-# You should see (venv310_cellpose3) in your terminal prompt.
+# Install ATLAS-Cellpose in editable mode.
+pip install -e . --no-deps
 ```
 
 #### Step 4: Test the Pipeline
@@ -124,198 +120,152 @@ conda activate venv310_cellpose3
 **Recommended Method** - Use the shell script wrapper:
 
 ```bash
-# Run with custom parameters (recommended).
-# Add your image to the project directory "data" and update the image_path in the command below.
-# The crop_box coordinates are provided as a comma-separated string (x_start, x_end, y_start, y_end).
-# The crop_box is a percentage of the image size (0-1). Use it to run the pipeline on a small sample of your image.
-./run_segmentation_instance.sh image_path "path/to/your/image.tif" crop_box "0.38,0.42,0.32,0.36"
-
-# The script will:
-# - Activate the conda environment automatically.
-# - Create temporary configuration files.
-# - Run the pipeline with your specified parameters.
-# - Save logs to logs/run_segmentation_instance/.
-# - Clean up temporary files on completion.
+# Run with custom parameters.
+# Add your image to the data/ directory and update image_path below.
+# crop_box coordinates are fractions of image size (x_start,x_end,y_start,y_end).
+./tasks_and_tools/run_segmentation_instance.sh image_path "data/your_image.tif" crop_box "0.38,0.42,0.32,0.36"
 ```
 
-**Alternative Method** - Direct execution (not recommended):
+**Alternative Method** - Direct execution:
 
 ```bash
-# You can also run the pipeline directly from the code directory.
-# However, this requires manual configuration file editing and environment activation.
-python code/nuclei_segmentation/run_this.py
+conda activate venv310_cellpose3
+python src/atlas_cellpose/run_this.py
 
-# Note: Configuration files are located in configs/ directory.
-# Results will be saved in the results/ directory.
+# Note: Requires manual editing of configs/nuclei_segmentation_config.ini.
 ```
 
 ### Quick Start (For Experienced Users)
 
 ```bash
-# One-command setup (after conda is installed).
 conda env create -f cellpose3_environment_recommended.yml && \
 conda activate venv310_cellpose3 && \
-./run_segmentation_instance.sh image_path "path/to/your/image.tif" crop_box "0.38,0.42,0.32,0.36"
+pip install -e . --no-deps && \
+./tasks_and_tools/run_segmentation_instance.sh image_path "data/your_image.tif" crop_box "0.38,0.42,0.32,0.36"
 ```
 
 ### Why Cellpose 3.0.10?
 
-ATLAS-Cellpose is specifically optimized for **Cellpose 3.0.10** based on extensive validation:
-
-1. **Superior Nuclear Segmentation**: In our internal testing, Cellpose 3.0.10 achieves substantially better detection of DAPI-stained nuclei in tissue sections compared to Cellpose 4.x
-2. **Injury Model Performance**: Notably improved detection of dim or irregularly shaped nuclei characteristic of ischemia-reperfusion injury
-3. **Validated Parameters**: All detection thresholds and filtering criteria optimized specifically for Cellpose 3.0.10 performance
-4. **Stable API**: Well-tested interface ensures reproducible results across computing environments
-5. **Reproducibility**: Version-locked dependencies guarantee consistent segmentation across different systems
-
-**Note**: While Cellpose 4.x introduces new features, our systematic testing demonstrates that Cellpose 3.0.10 provides superior performance for nuclear segmentation in tissue sections. The pipeline maintains compatibility with Cellpose 4.x, but we strongly recommend Cellpose 3.0.10 for optimal results.
-
-
+In our testing on DAPI-stained kidney tissue sections, Cellpose 3.0.10 produced better nuclear segmentation results than Cellpose 4.x, particularly for dim or irregularly shaped nuclei in injured tissue. All detection thresholds and filtering criteria were optimized for this version. The pipeline has experimental Cellpose 4 support (`use_cellpose4 = True`) but this is less tested.
 
 ## CLAHE Parameter Testing
 
-ATLAS-Cellpose implements CLAHE (Contrast Limited Adaptive Histogram Equalization) preprocessing to enhance nuclear contrast in DAPI-stained tissue sections.
+ATLAS-Cellpose implements CLAHE (Contrast Limited Adaptive Histogram Equalization) preprocessing to enhance nuclear contrast.
 
 ### Parameter Selection Guidelines
 
 **Nuclear Imaging Presets:**
-- **Conservative Enhancement**: clip_limit=2.0, grid=8×8 (minimal artifact risk, preserves subtle features)
-- **Balanced Enhancement**: clip_limit=3.0, grid=16×16 (default, optimal for most applications)
-- **Aggressive Enhancement**: clip_limit=5.0, grid=4×4 (maximum contrast, useful for dim nuclei)
-
-**Grid Size Effects:**
-- **Small grids (4×4, 8×8)**: Local enhancement preserves fine structural details
-- **Large grids (24×24, 32×32)**: Global enhancement provides uniform contrast across tissue regions
+- **Conservative Enhancement**: clip_limit=2.0, grid=8x8 (minimal artifact risk)
+- **Balanced Enhancement**: clip_limit=3.0, grid=16x16
+- **Aggressive Enhancement**: clip_limit=5.0, grid=32x32 (maximum contrast, useful for dim nuclei)
 
 ### Configuration
 
-CLAHE parameters can be configured in `configs/nuclei_segmentation_config.ini`:
+CLAHE parameters are configured in `configs/nuclei_segmentation_config.ini`:
 
 ```ini
-[preprocessing]
+[general]
 enhance_contrast = True
-clahe_clip_limit = 5.0
-clahe_grid_size = 32
+
+[clahe]
+cliplimit = 5.0
+tile_grid_size = 32,32
 ```
 
 ## Pipeline Architecture
 
-ATLAS-Cellpose implements a modular workflow optimized for large-scale tissue analysis:
+ATLAS-Cellpose implements a modular workflow:
 
 ```
-Input Image (DAPI) → Preprocessing → Adaptive Tiling → Cellpose Segmentation → Systematic Merging → Filtering → Quality Control
+Input Image (DAPI) -> Preprocessing -> Adaptive Tiling -> Cellpose Segmentation -> 4-Step Merging -> Filtering -> Quality Control
 ```
 
 ### Core Components
 
-1. **Preprocessing**: CLAHE contrast enhancement, gamma correction, and ROI cropping optimize image quality
-2. **Adaptive Tiling**: Intelligent spatial partitioning creates locally homogeneous regions for parameter optimization
-3. **Segmentation**: Cellpose3 with tile-specific adaptive diameter detection maximizes accuracy across heterogeneous tissue
-4. **Systematic Merging**: Four-step priority-based algorithm resolves tile boundaries while preserving cross-boundary nuclei
-5. **Quality Control**: Comprehensive before/after visualizations enable validation of segmentation and merge accuracy
+1. **Preprocessing**: CLAHE contrast enhancement, gamma correction, and ROI cropping.
+2. **Adaptive Tiling**: Spatial partitioning into overlapping tiles (default 400x400 pixels, 20% overlap).
+3. **Segmentation**: Cellpose 3.0.10 with per-tile adaptive diameter detection.
+4. **Systematic Merging**: 4-step priority-based algorithm resolves tile boundaries (CPU-only).
+5. **Filtering**: Optional morphological filtering to remove artifacts.
+6. **Quality Control**: Before/after visualizations for validation.
 
 ### Pipeline Flowcharts
 
-The complete pipeline workflow is documented with detailed flowcharts in `code/nuclei_segmentation/pipeline.py`. The flowcharts illustrate:
-
-- **Main Pipeline Flow**: Complete workflow from image loading to final outputs.
-- **Preprocessing Steps**: CLAHE enhancement, cropping, and image preparation.
-- **Tiling Strategy**: Adaptive tile generation with overlap management.
-- **Segmentation Process**: Cellpose3 execution with parameter optimization.
-- **4-Step Merging Algorithm**: Systematic overlap resolution (detailed below).
-- **Filtering Pipeline**: Morphological quality control and artifact removal.
-- **Visualization Generation**: QC overlay creation and validation.
-
-**To view the flowcharts**: Open `code/nuclei_segmentation/pipeline.py` and review the comprehensive ASCII diagrams and documentation throughout the file.
+The complete pipeline workflow is documented with detailed flowcharts in `src/atlas_cellpose/pipeline.py`.
 
 ### Adaptive Tiled Processing
 
-ATLAS-Cellpose employs adaptive tiled processing to address both computational and biological challenges:
-
 **Computational Benefits:**
-- **Memory Efficiency**: Processes arbitrarily large images by partitioning into manageable tiles (default 512×512 pixels)
-- **Scalable Architecture**: Batch processing prevents memory overflow on standard workstations
-- **Parallel Processing**: Independent tile processing enables efficient parallelization
+- **Memory Efficiency**: Processes large images by partitioning into tiles (default 400x400 pixels).
+- **Scalable Architecture**: Batch processing prevents memory overflow.
+- **Parallel Processing**: Independent tile processing enables parallelization.
 
-**Biological Benefits (Primary Innovation):**
-- **Adaptive Diameter Optimization**: Each tile represents a locally homogeneous tissue region, enabling Cellpose's adaptive diameter detection to optimize independently for local nuclear morphology
-- **Heterogeneity Handling**: Different tissue microenvironments (e.g., cortex vs. medulla, healthy vs. injured regions) receive optimized segmentation parameters
-- **Improved Accuracy**: Local parameter adaptation substantially outperforms global parameter selection in heterogeneous samples
+**Biological Benefits:**
+- **Adaptive Diameter Optimization**: Each tile is a locally homogeneous region, enabling per-tile diameter detection.
+- **Heterogeneity Handling**: Different tissue microenvironments receive optimized segmentation parameters.
 
 **Technical Implementation:**
-- **Configurable Overlap**: 20% overlap between adjacent tiles ensures boundary nuclei are captured
-- **Systematic Merging**: Four-step algorithm resolves overlaps while preserving cross-boundary nuclei
+- **Configurable Overlap**: 20% overlap between adjacent tiles ensures boundary nuclei are captured.
+- **Systematic Merging**: 4-step algorithm resolves overlaps.
 
 ### 4-Step Merging Algorithm
 
-The systematic merging algorithm resolves overlapping nuclei at tile boundaries through priority-based selection, ensuring complete preservation of cross-boundary nuclei while eliminating redundant detections:
+The merging algorithm resolves overlapping nuclei at tile boundaries through priority-based selection:
 
 **Step 1: Priority Selection**
-- Tiles with higher nucleus counts receive priority for overlap resolution
-- Equal counts default to first-tile priority
-- Rationale: Higher-density tiles typically represent better-segmented regions
+- Tiles with higher nucleus counts receive priority for overlap resolution.
+- Equal counts default to first-tile priority.
 
 **Step 2: Border Deletion**
-- Remove all priority-tile nuclei contacting the priority tile border
-- Preserve all non-priority nuclei contacting the priority tile border
-- Ensures cross-boundary nuclei are captured from the tile with optimal viewing angle
+- Remove priority-tile nuclei contacting the priority tile border.
+- Preserve non-priority nuclei contacting the priority tile border.
 
 **Step 3: Cross-boundary Preservation**
-- Retain non-priority nuclei extending into the overlap region
-- These nuclei represent cells spanning tile boundaries with complete morphology
+- Retain non-priority nuclei extending into the overlap region.
 
 **Step 4: Cleanup**
-- Remove remaining non-priority nuclei within the overlap region
-- Final mask contains only nuclei preserved through Steps 2-3
+- Remove remaining non-priority nuclei within the overlap region.
 
-**Scientific Validation:**
-- **Zero nucleus loss**: Cross-boundary nuclei systematically preserved through priority-based selection
-- **Duplicate elimination**: Redundant detections in overlap regions completely removed
-- **Morphological accuracy**: Preserved nuclei maintain complete boundaries and accurate measurements
-- **Extensive testing**: Validated on kidney ischemia-reperfusion injury tissue sections with complex morphology
-
-**Implementation:**
-- Two-phase processing: Vertical overlaps resolved first, followed by horizontal overlaps
-- GPU-accelerated with automatic CPU fallback for compatibility
-- Comprehensive quality control visualizations enable validation of merge accuracy
-- Complete documentation in `code/nuclei_segmentation/cellpose_merge/` modules
+**Implementation Notes:**
+- Two-phase processing: vertical overlaps resolved first, then horizontal overlaps.
+- The merge step is CPU-only. GPU acceleration applies to Cellpose segmentation, not merging.
+- The algorithm intentionally deletes some nuclei (border-touching priority nuclei in Step 2) to resolve duplicates. It aims to preserve cross-boundary nuclei but does not guarantee zero loss.
+- QC visualizations in `src/atlas_cellpose/cellpose_merge/` modules help validate merge quality.
 
 ### Cellpose Integration
 
-ATLAS-Cellpose integrates Cellpose3 for deep learning-based nuclear segmentation with parameters optimized for DAPI-stained tissue sections:
-
-- **Model**: `nuclei` (pre-trained on diverse nuclear morphologies)
-- **Diameter Detection**: Adaptive auto-detection optimized independently for each tile, enabling accurate segmentation across heterogeneous tissue regions
-- **Detection Thresholds**: Validated parameters for injured and healthy kidney tissue (configurable for other applications)
-- **GPU Acceleration**: Automatic GPU utilization with seamless CPU fallback
+- **Model**: `nuclei` (pre-trained on diverse nuclear morphologies).
+- **Diameter Detection**: Adaptive auto-detection optimized independently for each tile.
+- **Detection Thresholds**: Validated parameters for injured and healthy kidney tissue.
+- **GPU Acceleration**: Automatic GPU utilization for Cellpose inference with CPU fallback.
 
 ### Morphological Filtering
 
-ATLAS-Cellpose implements optional morphological filtering to remove segmentation artifacts while preserving biological nuclei:
+Optional morphological filtering removes segmentation artifacts while preserving biological nuclei:
 
-- **Size Filtering**: Removes debris (too small) and merged nuclei (too large)
-- **Shape Filtering**: Eliminates non-nuclear objects based on circularity, solidity, and eccentricity
-- **Aspect Ratio**: Removes elongated artifacts inconsistent with nuclear morphology
-- **Hole Detection**: Filters objects with excessive internal holes characteristic of segmentation errors
-- **Border Exclusion**: Optional removal of nuclei contacting image borders
+- **Size Filtering**: Removes debris (too small) and merged nuclei (too large).
+- **Shape Filtering**: Eliminates non-nuclear objects based on circularity, solidity, and eccentricity.
+- **Aspect Ratio**: Removes elongated artifacts.
+- **Hole Detection**: Filters objects with excessive internal holes.
+- **Border Exclusion**: Optional removal of nuclei contacting image borders.
 
-**Default Thresholds (permissive to avoid over-filtering):**
-- Size: 20-5000 pixels (captures wide range of nuclear sizes)
-- Circularity: 0.30-1.00 (allows irregular shapes)
-- Solidity: 0.60-1.00 (allows moderate concavity)
-- Eccentricity: 0.00-0.99 (allows elongated nuclei)
-- Aspect Ratio: 0.30-5.00 (allows highly elongated shapes)
-- Hole Fraction: 0.00-0.10 (allows nuclei with internal holes)
+**Default Thresholds** (from `configs/nuclei_segmentation_config.ini`):
+- Size: 20-3000 pixels
+- Circularity: 0.40-1.00
+- Solidity: 0.60-1.00
+- Eccentricity: 0.00-0.99
+- Aspect Ratio: 0.50-4.00
+- Hole Fraction: 0.00-0.05
 
-**Dual Overlay Generation**: When filtering is enabled, the pipeline generates two sets of visualizations for comparison:
-- `full_image_overlay_unfiltered.tif` - All detected nuclei before filtering
-- `full_image_overlay_filtered.tif` - Only nuclei passing filter criteria
-- `binary_mask_unfiltered.tif` - Binary mask of all detected nuclei (white on black)
-- `binary_mask_filtered.tif` - Binary mask of filtered nuclei (white on black)
+**Dual Overlay Generation**: When filtering is enabled, the pipeline generates two sets of visualizations:
+- `full_image_overlay_unfiltered.tif` - All detected nuclei before filtering.
+- `full_image_overlay_filtered.tif` - Only nuclei passing filter criteria.
+- `binary_mask_unfiltered.tif` - Binary mask of all detected nuclei (white on black).
+- `binary_mask_filtered.tif` - Binary mask of filtered nuclei (white on black).
 
-**Binary Mask Visualizations**: The pipeline automatically generates binary mask images where pixels inside any mask region are set to white (255) and all other pixels to black (0). These visualizations are optimized for Vision Transformer (ViT) input and provide a clear view of the segmented regions. The binary masks use memory-efficient chunked processing to handle gigantic images and are saved with LZW compression to minimize file sizes.
+**Binary Mask Visualizations**: The pipeline generates binary mask images where pixels inside any mask region are set to white (255) and all other pixels to black (0). These are useful as input for Vision Transformers. The binary masks use memory-efficient chunked processing and LZW compression.
 
-**Note**: Filtering is disabled by default (`use_filtering = False`). Enable only if you observe significant artifacts in your segmentation results. The default thresholds are intentionally permissive and should be adjusted based on your specific tissue type and imaging conditions.
+**Note**: Filtering is enabled by default (`use_filtering = True`). The default thresholds are intentionally permissive and should be adjusted based on your specific tissue type and imaging conditions.
 
 ## Configuration
 
@@ -328,36 +278,36 @@ ATLAS-Cellpose is configured through `configs/nuclei_segmentation_config.ini`:
 image_path = kidney_section.tif     # Input DAPI image
 output_dir = results_timestamp      # Output directory
 enhance_contrast = True             # Apply CLAHE preprocessing
-crop_image = False                  # Enable ROI cropping
+crop_image = True                   # Enable ROI cropping
 
 [cellpose]
 model_type = nuclei                 # Use nuclear model
-gpu = False                         # Enable GPU acceleration
+gpu = True                          # Enable GPU acceleration
 use_cellpose4 = False               # Use Cellpose3 (recommended)
-diameter = None                     # Auto-detection
-flow_threshold = 0.9                # Boundary detection sensitivity
-cellprob_threshold = -12            # Cell detection sensitivity
+diameter = 0                        # Auto-detection
+flow_threshold = 0.8                # Boundary detection sensitivity
+cellprob_threshold = -14            # Cell detection sensitivity
 
 [tiling]
 use_tiling = True                   # Enable for large images
-tile_side_length = 512              # Tile size (pixels)
+tile_side_length = 400              # Tile size (pixels)
 tile_overlap = 0.2                  # 20% overlap between tiles
 qc_overlays = True                  # Generate QC images
 
 [filtering]
-use_filtering = False               # Enable morphological filtering (disabled by default)
+use_filtering = True                # Enable morphological filtering
 min_pixels = 20                     # Minimum nucleus size (pixels)
-max_pixels = 5000                   # Maximum nucleus size (pixels)
-min_circularity = 0.30              # Minimum circularity (0=line, 1=circle)
+max_pixels = 3000                   # Maximum nucleus size (pixels)
+min_circularity = 0.40              # Minimum circularity (0=line, 1=circle)
 max_circularity = 1.00              # Maximum circularity
 min_solidity = 0.60                 # Minimum solidity (convex hull ratio)
 max_solidity = 1.00                 # Maximum solidity
 min_eccentricity = 0.00             # Minimum eccentricity (0=circle, 1=line)
 max_eccentricity = 0.99             # Maximum eccentricity
-min_aspect_ratio = 0.30             # Minimum aspect ratio (major/minor axis)
-max_aspect_ratio = 5.00             # Maximum aspect ratio
+min_aspect_ratio = 0.50             # Minimum aspect ratio (major/minor axis)
+max_aspect_ratio = 4.00             # Maximum aspect ratio
 min_hole_fraction = 0.00            # Minimum hole fraction
-max_hole_fraction = 0.10            # Maximum hole fraction (allows internal holes)
+max_hole_fraction = 0.05            # Maximum hole fraction
 exclude_border = False              # Exclude border-touching nuclei
 ```
 
@@ -368,7 +318,7 @@ exclude_border = False              # Exclude border-touching nuclei
 - `flow_threshold = 0.9` (standard boundaries)
 
 **For injured/inflamed tissue:**
-- `cellprob_threshold = -12` (high sensitivity for dim nuclei)
+- `cellprob_threshold = -14` (high sensitivity for dim nuclei)
 - `flow_threshold = 0.8` (more sensitive boundaries)
 
 ## Usage
@@ -378,8 +328,8 @@ exclude_border = False              # Exclude border-touching nuclei
 **Recommended Method** - Use the shell script wrapper:
 
 ```bash
-# Run with custom crop box (recommended) - format: x_start,x_end,y_start,y_end.
-./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
+# Run with custom crop box - format: x_start,x_end,y_start,y_end.
+./tasks_and_tools/run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
 
 # The script automatically:
 # - Activates the conda environment (venv310_cellpose3).
@@ -389,12 +339,11 @@ exclude_border = False              # Exclude border-touching nuclei
 # - Cleans up temporary files on completion.
 ```
 
-**Alternative Method** - Direct execution (not recommended):
+**Alternative Method** - Direct execution:
 
 ```bash
-# You can also run the pipeline directly, but this requires manual setup.
 conda activate venv310_cellpose3
-python code/nuclei_segmentation/run_this.py
+python src/atlas_cellpose/run_this.py
 
 # Note:
 # - Configuration files are in configs/ directory.
@@ -404,7 +353,7 @@ python code/nuclei_segmentation/run_this.py
 
 ### Parameter Sweep with run_segmentation_instance.sh
 
-The `run_segmentation_instance.sh` script is the **recommended way** to run the pipeline. It allows running with custom parameters without modifying the main configuration file. This is ideal for parameter sweeps, parallel processing, and batch experiments.
+The `run_segmentation_instance.sh` script is the **recommended way** to run the pipeline. It allows running with custom parameters without modifying the main configuration file.
 
 **Key Features:**
 - Creates temporary configuration files for each run.
@@ -416,27 +365,27 @@ The `run_segmentation_instance.sh` script is the **recommended way** to run the 
 **Example Usage:**
 
 ```bash
-# Run with custom job name and GPU settings
-./run_segmentation_instance.sh job_name test_gpu_run gpu True
+# Run with custom job name and GPU settings.
+./tasks_and_tools/run_segmentation_instance.sh job_name test_gpu_run gpu True
 
-# Run with custom Cellpose parameters
-./run_segmentation_instance.sh job_name high_sensitivity \
+# Run with custom Cellpose parameters.
+./tasks_and_tools/run_segmentation_instance.sh job_name high_sensitivity \
     cellprob_threshold -14 \
     flow_threshold 0.8 \
     diameter 25
 
-# Run with custom image and output settings
-./run_segmentation_instance.sh job_name kidney_sample_1 \
+# Run with custom image and output settings.
+./tasks_and_tools/run_segmentation_instance.sh job_name kidney_sample_1 \
     image_path data/kidney_sample_1.tif \
     output_dir results_sample_1 \
     crop_image True \
     crop_box 0.3,0.7,0.3,0.7
 
-# Run multiple instances in parallel with different parameters
-./run_segmentation_instance.sh job_name run_threshold_9 cellprob_threshold -9 &
-./run_segmentation_instance.sh job_name run_threshold_12 cellprob_threshold -12 &
-./run_segmentation_instance.sh job_name run_threshold_14 cellprob_threshold -14 &
-wait  # Wait for all background jobs to complete
+# Run multiple instances in parallel with different parameters.
+./tasks_and_tools/run_segmentation_instance.sh job_name run_threshold_9 cellprob_threshold -9 &
+./tasks_and_tools/run_segmentation_instance.sh job_name run_threshold_12 cellprob_threshold -12 &
+./tasks_and_tools/run_segmentation_instance.sh job_name run_threshold_14 cellprob_threshold -14 &
+wait  # Wait for all background jobs to complete.
 ```
 
 **Parameter Format:**
@@ -444,12 +393,11 @@ wait  # Wait for all background jobs to complete
 - Boolean values: `True` or `False`.
 - Numeric values: integers or floats as appropriate.
 - String values: paths, names, etc.
-- Tuple values: comma-separated (e.g., `0.38,0.42,0.32,0.36` for crop_box in format x_start,x_end,y_start,y_end).
+- Tuple values: comma-separated (e.g., `0.38,0.42,0.32,0.36` for crop_box).
 
 **Log Files:**
 - Logs are saved to `logs/run_segmentation_instance/`.
 - Log file naming: `{job_name}_run_segmentation_instance.log`.
-- Each run creates a separate log file for easy tracking.
 
 **Common Parameter Overrides:**
 
@@ -465,18 +413,17 @@ wait  # Wait for all background jobs to complete
 | `crop_image` | Enable cropping | `True`, `False` |
 | `crop_box` | Crop coordinates (x0,x1,y0,y1) | `0.38,0.42,0.32,0.36` |
 | `use_tiling` | Enable tiling | `True`, `False` |
-| `tile_side_length` | Tile size in pixels | `512`, `1024`, `2048` |
+| `tile_side_length` | Tile size in pixels | `400`, `512`, `1024` |
 
 ### Batch Processing
 
 ```python
-import glob
 from pathlib import Path
-from code.nuclei_segmentation.utils.project_setup import load_config
-from code.nuclei_segmentation.pipeline import run_segmentation_pipeline
-from code.nuclei_segmentation.utils.logging_utils import setup_logging
+from atlas_cellpose.utils.project_setup import load_config
+from atlas_cellpose.pipeline import run_segmentation_pipeline
+from atlas_cellpose.utils.logging_utils import setup_logging
 
-# Process all TIFF files in directory
+# Process all TIFF files in directory.
 image_dir = Path("kidney_images/")
 for image_path in image_dir.glob("*.tif"):
     settings, cellpose_params, project_dirs = load_config()
@@ -491,10 +438,10 @@ for image_path in image_dir.glob("*.tif"):
 **Batch Processing with Shell Script:**
 
 ```bash
-# Process multiple images with different parameters
+# Process multiple images with different parameters.
 for image in data/*.tif; do
     basename=$(basename "$image" .tif)
-    ./run_segmentation_instance.sh \
+    ./tasks_and_tools/run_segmentation_instance.sh \
         job_name "batch_${basename}" \
         image_path "$image" \
         output_dir "results_${basename}"
@@ -505,35 +452,32 @@ done
 
 ATLAS-Cellpose generates:
 
-- **Segmentation masks**: `segmentation_masks.npy` (labeled nuclei)
-- **Quality control images**: Before/after merge visualizations
-- **Binary mask visualizations**: White segmentation masks on black background (optimized for ViT input)
-  - `binary_mask.tif` - Single visualization when filtering is disabled
-  - `binary_mask_unfiltered.tif` - All detected nuclei before filtering
-  - `binary_mask_filtered.tif` - Only nuclei passing filter criteria
-- **Configuration snapshot**: Reproducible parameter settings
-- **Log files**: Detailed processing information
-
-
+- **Segmentation masks**: `segmentation_masks.npy` (labeled nuclei).
+- **Quality control images**: Before/after merge visualizations.
+- **Binary mask visualizations**: White segmentation masks on black background.
+  - `binary_mask.tif` - Single visualization when filtering is disabled.
+  - `binary_mask_unfiltered.tif` / `binary_mask_filtered.tif` - When filtering is enabled.
+- **Configuration snapshot**: Reproducible parameter settings.
+- **Log files**: Detailed processing information.
 
 ## Scientific Applications
 
 ### Ischemia-Reperfusion Injury Analysis
 
-ATLAS-Cellpose enables comprehensive quantitative analysis of nuclear dynamics in kidney ischemia-reperfusion injury:
+ATLAS-Cellpose enables quantitative analysis of nuclear dynamics in kidney ischemia-reperfusion injury:
 
-- **Temporal Analysis**: Quantify nuclear morphology changes across recovery time points to track injury progression and resolution
-- **Spatial Mapping**: Characterize cellular response patterns within tissue architecture to identify regional vulnerability
-- **Cell Death Pathways**: Distinguish apoptosis, pyroptosis, necroptosis, and ferroptosis based on morphological signatures
-- **Regeneration Studies**: Track Wnt signaling, cell migration, and angiogenesis through nuclear organization patterns
+- **Temporal Analysis**: Quantify nuclear morphology changes across recovery time points.
+- **Spatial Mapping**: Characterize cellular response patterns within tissue architecture.
+- **Cell Death Pathways**: Distinguish apoptosis, pyroptosis, necroptosis, and ferroptosis based on morphological signatures.
+- **Regeneration Studies**: Track Wnt signaling, cell migration, and angiogenesis through nuclear organization patterns.
 
 ### Typical Workflow
 
-1. **Image Acquisition**: DAPI-stained tissue sections (whole-slide or large-field imaging)
-2. **Preprocessing**: CLAHE contrast enhancement and region-of-interest selection
-3. **Segmentation**: Automated nuclear detection with adaptive tiled processing and local parameter optimization
-4. **Quality Control**: Visual validation of segmentation accuracy using overlay visualizations
-5. **Statistical Analysis**: Quantitative comparison across experimental conditions, time points, or tissue regions
+1. **Image Acquisition**: DAPI-stained tissue sections (whole-slide or large-field imaging).
+2. **Preprocessing**: CLAHE contrast enhancement and region-of-interest selection.
+3. **Segmentation**: Automated nuclear detection with adaptive tiled processing.
+4. **Quality Control**: Visual validation using overlay visualizations.
+5. **Statistical Analysis**: Quantitative comparison across experimental conditions.
 
 ## Performance
 
@@ -541,35 +485,24 @@ ATLAS-Cellpose enables comprehensive quantitative analysis of nuclear dynamics i
 
 **Recommended:**
 - **RAM**: 16GB+ for large tissue sections
-- **GPU**: NVIDIA GPU with CUDA support (optional)
-- **CPU**: 8+ cores for parallel processing
+- **GPU**: NVIDIA GPU with CUDA 11.8 support (optional, speeds up Cellpose inference)
+- **CPU**: 8+ cores for parallel tile processing
 - **Storage**: SSD for faster I/O operations
 
 **Minimum:**
 - **RAM**: 8GB
 - **CPU**: 4+ cores
-- **Python**: 3.10+
+- **Python**: 3.10
 
-### Performance Features
+### Performance Notes
 
-- **GPU Acceleration**: Automatic GPU acceleration when available (3-5x speedup)
-- **Memory Management**: Intelligent batching prevents memory overflow
-- **Parallel Processing**: Multi-core CPU utilization for feature extraction
-- **Caching**: Optimized algorithms with intelligent caching for repeated operations
-
-### Performance Benchmarks
-
-*Example benchmarks from our test system (results may vary based on hardware and image characteristics):*
-
-| Dataset Size | Processing Time | Memory Usage |
-|-------------|----------------|--------------|
-| Small (512×512, 50 nuclei) | ~0.8s | ~2GB |
-| Medium (1024×1024, 200 nuclei) | ~3.2s | ~4GB |
-| Large (2048×2048, 800 nuclei) | ~11.4s | ~8GB |
+- **GPU Acceleration**: Applies to Cellpose segmentation inference. The merge step runs on CPU only.
+- **Memory Management**: Tiled processing with configurable tile size prevents memory overflow.
+- **Parallel Processing**: Multi-core CPU utilization for tile segmentation and feature extraction.
 
 ### GPU Acceleration
 
-GPU acceleration is automatically enabled when CUDA-compatible hardware is detected. The pipeline will seamlessly fall back to CPU processing if GPU is unavailable.
+GPU acceleration is automatically enabled when CUDA-compatible hardware is detected. The pipeline falls back to CPU processing if GPU is unavailable. To force CPU mode, set `gpu = False` in the config or pass it via the shell script.
 
 ## Troubleshooting
 
@@ -577,40 +510,40 @@ GPU acceleration is automatically enabled when CUDA-compatible hardware is detec
 
 **Environment activation fails:**
 ```bash
-# Ensure conda is properly initialized
+# Ensure conda is properly initialized.
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate venv310_cellpose3
 ```
 
 **CUDA compatibility problems:**
 ```bash
-# Check CUDA version
+# Check CUDA version.
 nvidia-smi
 
-# Update PyTorch if needed
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Reinstall PyTorch for your CUDA version.
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 ```
 
 **Memory issues during processing:**
-- Reduce `tile_side_length` in configuration
-- Set `gpu = False` to use CPU-only processing
-- Increase system swap space
+- Reduce `tile_side_length` in configuration.
+- Set `gpu = False` to use CPU-only processing.
+- Increase system swap space.
 
 **Package import failures:**
 ```bash
 # Clean and recreate environment.
 conda env remove -n venv310_cellpose3
 conda env create -f cellpose3_environment_recommended.yml
+conda activate venv310_cellpose3
+pip install -e . --no-deps
 ```
-
-
 
 ### Getting Help
 
 For technical issues:
 1. Check the log files in the `logs/` directory.
 2. Review configuration parameters in `configs/nuclei_segmentation_config.ini`.
-3. Examine the pipeline flowcharts in `code/nuclei_segmentation/pipeline.py`.
+3. Examine the pipeline flowcharts in `src/atlas_cellpose/pipeline.py`.
 4. Review the 4-step merging algorithm documentation above.
 
 ---

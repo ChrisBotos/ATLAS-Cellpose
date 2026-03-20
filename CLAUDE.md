@@ -14,7 +14,7 @@ Core capabilities:
 - **4-step merging algorithm** for systematic tile boundary resolution.
 - **CLAHE preprocessing** with configurable contrast enhancement.
 - **Morphological filtering** for segmentation quality control.
-- **GPU-accelerated** with automatic CPU fallback.
+- **GPU-accelerated segmentation** with automatic CPU fallback (merge step is CPU-only).
 
 **Primary application:** Ischemia-reperfusion injury studies in kidney tissue (DAPI-stained sections).
 
@@ -34,7 +34,7 @@ ATLAS-Cellpose/
 │       ├── cellpose_merge/            # Tile merging module
 │       │   ├── __init__.py            # Re-exports
 │       │   ├── cpu_merge.py           # CPU-based merging
-│       │   ├── gpu_merge.py           # GPU-accelerated merging
+│       │   ├── gpu_merge.py           # GPU merging (planned, not yet implemented)
 │       │   ├── merge_tiles.py         # Main merge orchestration
 │       │   ├── two_phase_merge.py     # 4-step merging algorithm
 │       │   ├── qc.py                  # Merge quality control
@@ -105,6 +105,14 @@ Claude must always assume:
 
 - **You are running inside WSL** (Linux environment) or Windows.
 - The conda environment is `venv310_cellpose3` (Python 3.10, Cellpose 3.0.10, CUDA 11.8).
+- Create it from `cellpose3_environment_recommended.yml` and install the package in editable mode:
+
+```bash
+conda env create -f cellpose3_environment_recommended.yml
+conda activate venv310_cellpose3
+pip install -e . --no-deps
+```
+
 - The conda environment must be activated before running Python commands:
 
 ```bash

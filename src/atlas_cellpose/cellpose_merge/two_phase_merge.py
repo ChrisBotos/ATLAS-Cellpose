@@ -133,51 +133,6 @@ def _save_tile_to_storage(coord: TileCoord, tile_mask: NDArray[np.uint32], stora
     np.savez_compressed(tile_path, mask=tile_mask)
 
 
-def reassign_nucleus_ids(
-    tile1_mask: NDArray[np.uint32],
-    tile2_mask: NDArray[np.uint32],
-    starting_id: int
-) -> int:
-    """
-    Reassign nucleus IDs in both tiles to prevent conflicts between independently processed tiles.
-
-    This function ensures that all nucleus IDs across the entire dataset are unique by
-    reassigning IDs in both tiles to new sequential integers starting from the given number.
-    This prevents ID conflicts that can occur when tiles are processed independently.
-
-    Args:
-        tile1_mask (NDArray[np.uint32]): First tile mask to reassign IDs (modified in-place).
-        tile2_mask (NDArray[np.uint32]): Second tile mask to reassign IDs (modified in-place).
-        starting_id (int): Starting integer ID for reassignment.
-
-    Returns:
-        int: Next available integer ID for subsequent tile pairs.
-
-    Notes:
-        This function modifies both tile masks in-place to apply the new ID assignments.
-        The reassignment maintains the spatial structure of nuclei while ensuring unique IDs.
-        Background pixels (ID=0) are preserved unchanged.
-    """
-    current_id = starting_id
-
-    # Process tile1.
-    unique_ids_tile1 = np.unique(tile1_mask[tile1_mask > 0])  # Exclude background.
-    for old_id in unique_ids_tile1:
-        tile1_mask[tile1_mask == old_id] = current_id
-        current_id += 1
-
-    # Process tile2.
-    unique_ids_tile2 = np.unique(tile2_mask[tile2_mask > 0])  # Exclude background.
-    for old_id in unique_ids_tile2:
-        tile2_mask[tile2_mask == old_id] = current_id
-        current_id += 1
-
-    logging.debug(f"Reassigned {len(unique_ids_tile1)} nuclei in tile1 and {len(unique_ids_tile2)} nuclei in tile2")
-    logging.debug(f"ID range: {starting_id} to {current_id - 1}")
-
-    return current_id
-
-
 def copy_tile_masks_to_merged_directory(
     source_dir: Path,
     target_dir: Path,
@@ -458,8 +413,6 @@ def _merge_two_tiles(
     2. Border Deletion: Remove priority tile nuclei touching tile borders
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
     4. Cleanup: Remove remaining non-priority nuclei in overlap region
-    3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
-    4. Cleanup: Delete non-priority nuclei completely in overlap region
 
     Args:
         coord1 (TileCoord): Coordinates of the first tile to merge.
@@ -801,7 +754,7 @@ def merge_tiles_two_phase(
             actual_h = y_end - y_start
             actual_w = x_end - x_start
 
-            # REVOLUTIONARY FIX: Place COMPLETE nuclei based on 4-step merge decisions.
+            # Place complete nuclei based on 4-step merge decisions.
             tile_region = tile_mask[:actual_h, :actual_w]
             merged_region = merged[y_start:y_end, x_start:x_end]
 
@@ -844,7 +797,9 @@ def merge_tiles_two_phase(
 
         for r, c in coords:
             try:
-                original_tile_path = source_masks_dir / f"{r}_{c}.npz"
+                # Convert tile indices to pixel coordinates for correct filename.
+                pixel_coord = _tile_coord_to_pixel_coord((r, c), tile_h, tile_w, overlap)
+                original_tile_path = source_masks_dir / f"{pixel_coord[0]}_{pixel_coord[1]}.npz"
                 if original_tile_path.exists():
                     original_tile = np.load(original_tile_path)["mask"]
                     total_input_nuclei += len(np.unique(original_tile[original_tile > 0]))

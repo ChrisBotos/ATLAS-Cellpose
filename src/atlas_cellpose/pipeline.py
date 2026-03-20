@@ -360,6 +360,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                 logger.error(f"Previous results directory not found: {previous_results_dir}")
                 return 1
 
+        # Skip logic: both use_previous_results AND the specific skip_and_copy_* flag must be True to skip a step.
         if not settings.get("skip_and_copy_preprocessing", False) or not settings.get("use_previous_results", False):
             # Step 1: Image preprocessing (CLAHE, cropping etc.).
             image = preprocess_image(image_path, settings, logger)

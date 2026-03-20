@@ -121,93 +121,77 @@ def _find_border_touching_nuclei(
         # Vertical line at column (width - overlap_length).
         line_pos = w - overlap_length
 
-        # Find nuclei touching the boundary line (with ±1 buffer).
+        # Find nuclei touching the boundary line (with ±1 buffer) using a slice.
         if overlap_length == 0:
-            cols_to_check = [c for c in [w-2, w-1] if 0 <= c < w]  # Right border and one pixel left.
+            col_start = max(0, w - 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[:, col_start:w]))
         else:
             if line_pos < 0 or line_pos >= w:
                 return set(), set()
-            cols_to_check = [c for c in [line_pos-1, line_pos, line_pos+1] if 0 <= c < w]
+            col_start = max(0, line_pos - 1)
+            col_end = min(w, line_pos + 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[:, col_start:col_end]))
 
-        for col in cols_to_check:
-            boundary_touching_nuclei.update(np.unique(tile_mask[:, col]))
-
-        # Find nuclei completely beyond the boundary line (in overlap region).
-        # These are nuclei that exist entirely beyond the boundary (not touching it).
-        if overlap_length > 0 and line_pos < w:
-            beyond_cols = list(range(line_pos + 2, w))  # Columns well beyond the boundary line (skip buffer zone).
-            for col in beyond_cols:
-                if col < w:
-                    overlap_region_nuclei.update(np.unique(tile_mask[:, col]))
+        # Find nuclei beyond the boundary line (in overlap region) using a slice.
+        if overlap_length > 0 and line_pos + 2 < w:
+            overlap_region_nuclei.update(np.unique(tile_mask[:, line_pos + 2:w]))
 
     elif direction == 'left':
         # Vertical line at column overlap_length.
         line_pos = overlap_length
 
-        # Find nuclei touching the boundary line (with ±1 buffer).
+        # Find nuclei touching the boundary line (with ±1 buffer) using a slice.
         if overlap_length == 0:
-            cols_to_check = [c for c in [0, 1] if 0 <= c < w]  # Left border and one pixel right.
+            col_end = min(w, 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[:, 0:col_end]))
         else:
             if line_pos < 0 or line_pos >= w:
                 return set(), set()
-            cols_to_check = [c for c in [line_pos-1, line_pos, line_pos+1] if 0 <= c < w]
+            col_start = max(0, line_pos - 1)
+            col_end = min(w, line_pos + 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[:, col_start:col_end]))
 
-        for col in cols_to_check:
-            boundary_touching_nuclei.update(np.unique(tile_mask[:, col]))
-
-        # Find nuclei completely beyond the boundary line (in overlap region).
-        # These are nuclei that exist entirely beyond the boundary (not touching it).
-        if overlap_length > 0 and line_pos > 1:
-            beyond_cols = list(range(0, line_pos - 2))  # Columns well before the boundary line (skip buffer zone).
-            for col in beyond_cols:
-                if col >= 0:
-                    overlap_region_nuclei.update(np.unique(tile_mask[:, col]))
+        # Find nuclei beyond the boundary line (in overlap region) using a slice.
+        if overlap_length > 0 and line_pos - 2 > 0:
+            overlap_region_nuclei.update(np.unique(tile_mask[:, 0:line_pos - 2]))
 
     elif direction == 'up':
         # Horizontal line at row overlap_length.
         line_pos = overlap_length
 
-        # Find nuclei touching the boundary line (with ±1 buffer).
+        # Find nuclei touching the boundary line (with ±1 buffer) using a slice.
         if overlap_length == 0:
-            rows_to_check = [r for r in [0, 1] if 0 <= r < h]  # Top border and one pixel down.
+            row_end = min(h, 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[0:row_end, :]))
         else:
             if line_pos < 0 or line_pos >= h:
                 return set(), set()
-            rows_to_check = [r for r in [line_pos-1, line_pos, line_pos+1] if 0 <= r < h]
+            row_start = max(0, line_pos - 1)
+            row_end = min(h, line_pos + 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[row_start:row_end, :]))
 
-        for row in rows_to_check:
-            boundary_touching_nuclei.update(np.unique(tile_mask[row, :]))
-
-        # Find nuclei completely beyond the boundary line (in overlap region).
-        # These are nuclei that exist entirely beyond the boundary (not touching it).
-        if overlap_length > 0 and line_pos > 1:
-            beyond_rows = list(range(0, line_pos - 2))  # Rows well before the boundary line (skip buffer zone).
-            for row in beyond_rows:
-                if row >= 0:
-                    overlap_region_nuclei.update(np.unique(tile_mask[row, :]))
+        # Find nuclei beyond the boundary line (in overlap region) using a slice.
+        if overlap_length > 0 and line_pos - 2 > 0:
+            overlap_region_nuclei.update(np.unique(tile_mask[0:line_pos - 2, :]))
 
     elif direction == 'down':
         # Horizontal line at row (height - overlap_length).
         line_pos = h - overlap_length
 
-        # Find nuclei touching the boundary line (with ±1 buffer).
+        # Find nuclei touching the boundary line (with ±1 buffer) using a slice.
         if overlap_length == 0:
-            rows_to_check = [r for r in [h-2, h-1] if 0 <= r < h]  # Bottom border and one pixel up.
+            row_start = max(0, h - 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[row_start:h, :]))
         else:
             if line_pos < 0 or line_pos >= h:
                 return set(), set()
-            rows_to_check = [r for r in [line_pos-1, line_pos, line_pos+1] if 0 <= r < h]
+            row_start = max(0, line_pos - 1)
+            row_end = min(h, line_pos + 2)
+            boundary_touching_nuclei.update(np.unique(tile_mask[row_start:row_end, :]))
 
-        for row in rows_to_check:
-            boundary_touching_nuclei.update(np.unique(tile_mask[row, :]))
-
-        # Find nuclei completely beyond the boundary line (in overlap region).
-        # These are nuclei that exist entirely beyond the boundary (not touching it).
-        if overlap_length > 0 and line_pos < h:
-            beyond_rows = list(range(line_pos + 2, h))  # Rows well beyond the boundary line (skip buffer zone).
-            for row in beyond_rows:
-                if row < h:
-                    overlap_region_nuclei.update(np.unique(tile_mask[row, :]))
+        # Find nuclei beyond the boundary line (in overlap region) using a slice.
+        if overlap_length > 0 and line_pos + 2 < h:
+            overlap_region_nuclei.update(np.unique(tile_mask[line_pos + 2:h, :]))
     else:
         raise ValueError(f"Invalid direction '{direction}'. Must be 'right', 'left', 'up', or 'down'.")
 
@@ -356,12 +340,9 @@ def merge_tiles_cpu_4step(
         non_priority_direction
     )
 
-    # Combine boundary-touching and overlap region nuclei for cross-boundary detection.
-    all_non_priority_overlap_nuclei = non_priority_boundary_nuclei.union(non_priority_overlap_nuclei)
-
     logging.info(f"Non-priority nuclei touching boundary: {len(non_priority_boundary_nuclei)} nuclei")
     logging.info(f"Non-priority nuclei in overlap region: {len(non_priority_overlap_nuclei)} nuclei")
-    logging.info(f"Total non-priority overlap nuclei: {len(all_non_priority_overlap_nuclei)} nuclei")
+    logging.info(f"Total non-priority overlap nuclei: {len(non_priority_boundary_nuclei) + len(non_priority_overlap_nuclei)} nuclei")
     logging.debug(f"Non-priority boundary nuclei IDs: {non_priority_boundary_nuclei}")
     logging.debug(f"Non-priority overlap region nuclei IDs: {non_priority_overlap_nuclei}")
 

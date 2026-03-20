@@ -403,7 +403,7 @@ def run_cellpose_on_tiles(
                     # Place the processed mask in the memory-mapped array.
                     masks_mm[y_slice, x_slice] = unique_mask
 
-                    tile_cells = int(unique_mask.max() - (current_max_id - int(mask.max()))) if unique_mask.max() > 0 else 0
+                    tile_cells = int(mask.max()) if mask.max() > 0 else 0
                     total_cells += tile_cells
 
                     logger.info(f"Tile {tile_idx}/{n_tiles}: {tile_cells} nuclei detected")

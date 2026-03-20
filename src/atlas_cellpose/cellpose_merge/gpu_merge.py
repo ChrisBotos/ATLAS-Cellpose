@@ -5,9 +5,14 @@ Contact: botoschristos@gmail.com | linkedin.com/in/christos-botos-2369hcty3396 |
 
 Script Name: gpu_merge.py.
 Description:
-    GPU implementation of the overlap‑patch merge.  The API mirrors ``merge_tiles_cpu_4step``
-    so that we can test them side‑by‑side.  The heavy lifting lives in
-    ``GPUDSU`` – a vectorised, deterministic union‑find using PyTorch tensors.
+    Planned GPU implementation of the 4-step merge algorithm. NOT YET IMPLEMENTED.
+
+    The API is intended to mirror ``merge_tiles_cpu_4step`` so that GPU and CPU
+    paths can be tested side-by-side. The ``GPUDSU`` class provides a vectorised
+    union-find using PyTorch tensors, but the merge function itself is a stub
+    that raises ``NotImplementedError``.
+
+    All merging currently uses the CPU path via ``cpu_merge.merge_tiles_cpu_4step``.
 """
 
 from __future__ import annotations
