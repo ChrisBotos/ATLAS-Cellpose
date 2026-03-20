@@ -779,32 +779,15 @@ def merge_tiles_two_phase(
             continue
     
     # Phase 3: Assemble final merged image from persistent storage.
-    # COMPLETELY REWRITTEN: Use a priority-based assembly that respects merge decisions.
-    logging.info("Phase 3: Assembling final merged image with priority-based placement")
+    # Place complete nuclei using first-come-first-served conflict detection.
+    logging.info("Phase 3: Assembling final merged image with conflict-aware placement")
     merged = np.zeros((height, width), dtype=np.uint32)
 
-    # Create a priority map to track which tiles have priority in each region.
-    priority_map = np.full((height, width), -1, dtype=np.int32)  # -1 = no tile assigned yet.
-
-    # Process tiles in a specific order to ensure consistent priority assignment.
+    # Process tiles in row-major order for deterministic assembly.
     sorted_coords = sorted(coords, key=lambda coord: (coord[0], coord[1]))
 
-    # First pass: Assign priority for each pixel based on tile processing order.
-    for priority_idx, (r, c) in enumerate(sorted_coords):
-        y_start = r * stride_h
-        y_end = min(height, y_start + tile_h)
-        x_start = c * stride_w
-        x_end = min(width, x_start + tile_w)
-
-        # Assign this tile's priority to all pixels in its region.
-        # Later tiles will overwrite priority in overlapping regions.
-        priority_map[y_start:y_end, x_start:x_end] = priority_idx
-
-        if debug_mode:
-            logging.debug(f"Assigned priority {priority_idx} to tile ({r},{c}) region [{y_start}:{y_end}, {x_start}:{x_end}]")
-
-    # Second pass: Place pixels from tiles only where they have priority.
-    for priority_idx, (r, c) in enumerate(sorted_coords):
+    # Place pixels from tiles using first-come-first-served conflict detection.
+    for _tile_idx, (r, c) in enumerate(sorted_coords):
         try:
             # Load final merged tile from persistent storage.
             tile_mask = _load_tile_from_storage((r, c), merged_masks_dir, tile_h, tile_w, overlap)

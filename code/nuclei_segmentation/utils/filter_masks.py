@@ -302,8 +302,6 @@ def save_violin_plots(
         ("eccentricity",      th.min_eccentricity,   th.max_eccentricity,   "Eccentricity",     "Eccentricity"),
         ("aspect_ratio",      th.min_aspect_ratio,   th.max_aspect_ratio,   "Aspect Ratio",     "Aspect Ratio"),
         ("hole_fraction",     th.min_hole_fraction,  th.max_hole_fraction,  "Hole Fraction",    "Hole Fraction"),
-        ("straight_fraction", getattr(th, "min_straight_fraction", 0.0),
-                              getattr(th, "max_straight_fraction", 1.0),     "Straight Fraction","Straight Fraction"),
         ("mean_intensity",    th.min_mean_intensity, th.max_mean_intensity, "Mean Intensity",   "Mean Intensity"),
     ]
 
@@ -495,17 +493,17 @@ def filter_masks_programmatic(
     # Users should adjust these based on their specific tissue and imaging conditions.
     th = Thresholds(
         min_pixels=settings.get("min_pixels", 20),
-        max_pixels=settings.get("max_pixels", 5000),
-        min_circularity=settings.get("min_circularity", 0.30),
+        max_pixels=settings.get("max_pixels", 3000),
+        min_circularity=settings.get("min_circularity", 0.4),
         max_circularity=settings.get("max_circularity", 1.00),
-        min_solidity=settings.get("min_solidity", 0.60),
+        min_solidity=settings.get("min_solidity", 0.6),
         max_solidity=settings.get("max_solidity", 1.00),
         min_eccentricity=settings.get("min_eccentricity", 0.00),
         max_eccentricity=settings.get("max_eccentricity", 0.99),
-        min_aspect_ratio=settings.get("min_aspect_ratio", 0.30),
-        max_aspect_ratio=settings.get("max_aspect_ratio", 5.00),
+        min_aspect_ratio=settings.get("min_aspect_ratio", 0.50),
+        max_aspect_ratio=settings.get("max_aspect_ratio", 4.00),
         min_hole_fraction=settings.get("min_hole_fraction", 0.00),
-        max_hole_fraction=settings.get("max_hole_fraction", 0.10),
+        max_hole_fraction=settings.get("max_hole_fraction", 0.05),
         exclude_border=settings.get("exclude_border", False),
     )
 

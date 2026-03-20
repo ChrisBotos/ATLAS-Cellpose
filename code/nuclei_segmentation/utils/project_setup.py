@@ -96,14 +96,14 @@ def load_config(config_path=None):
 
         "use_edge_detection": config.getboolean("edge_detection", "use_edge_detection", fallback=False),
         "clahe_cliplimit": config.getfloat("clahe", "cliplimit", fallback=5.0),
-        "clahe_tile_grid_size": get_tuple(config, "clahe", "tile_grid_size", default=(16, 16), cast=int),
+        "clahe_tile_grid_size": get_tuple(config, "clahe", "tile_grid_size", default=(32, 32), cast=int),
         "canny_threshold1": config.getint("edge_detection", "canny_threshold1", fallback=50),
         "canny_threshold2": config.getint("edge_detection", "canny_threshold2", fallback=150),
 
         "use_tiling": config.getboolean("tiling", "use_tiling", fallback=True),
         # Note: merge_overlap_threshold removed in new 3-step algorithm
         "tile_side_length": config.getint("tiling", "tile_side_length", fallback=1024),
-        "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.1),
+        "tile_overlap": config.getfloat("tiling", "tile_overlap", fallback=0.2),
         "small_overlay_size": config.getint("overlay", "small_overlay_size", fallback=1024),
         "qc_overlays": config.getboolean("tiling", "qc_overlays", fallback=True),
         "qc_merge_use_full_image": config.getboolean("tiling", "qc_merge_use_full_image", fallback=True),
@@ -121,17 +121,17 @@ def load_config(config_path=None):
         # Filtering parameters.
         "use_filtering": config.getboolean("filtering", "use_filtering", fallback=True),
         "min_pixels": config.getint("filtering", "min_pixels", fallback=20),
-        "max_pixels": config.getint("filtering", "max_pixels", fallback=900),
-        "min_circularity": config.getfloat("filtering", "min_circularity", fallback=0.56),
+        "max_pixels": config.getint("filtering", "max_pixels", fallback=3000),
+        "min_circularity": config.getfloat("filtering", "min_circularity", fallback=0.4),
         "max_circularity": config.getfloat("filtering", "max_circularity", fallback=1.00),
-        "min_solidity": config.getfloat("filtering", "min_solidity", fallback=0.765),
+        "min_solidity": config.getfloat("filtering", "min_solidity", fallback=0.6),
         "max_solidity": config.getfloat("filtering", "max_solidity", fallback=1.00),
         "min_eccentricity": config.getfloat("filtering", "min_eccentricity", fallback=0.00),
-        "max_eccentricity": config.getfloat("filtering", "max_eccentricity", fallback=0.975),
+        "max_eccentricity": config.getfloat("filtering", "max_eccentricity", fallback=0.99),
         "min_aspect_ratio": config.getfloat("filtering", "min_aspect_ratio", fallback=0.50),
-        "max_aspect_ratio": config.getfloat("filtering", "max_aspect_ratio", fallback=3.20),
+        "max_aspect_ratio": config.getfloat("filtering", "max_aspect_ratio", fallback=4.00),
         "min_hole_fraction": config.getfloat("filtering", "min_hole_fraction", fallback=0.00),
-        "max_hole_fraction": config.getfloat("filtering", "max_hole_fraction", fallback=0.001),
+        "max_hole_fraction": config.getfloat("filtering", "max_hole_fraction", fallback=0.05),
         "exclude_border": config.getboolean("filtering", "exclude_border", fallback=False),
     }
 
@@ -139,7 +139,7 @@ def load_config(config_path=None):
     CELLPOSE_PARAMS = {
         "model_type": config.get("cellpose", "model_type", fallback="nuclei"),
         "gpu": config.getboolean("cellpose", "gpu", fallback=True) and torch.cuda.is_available(),
-        "use_cellpose4": config.getboolean("cellpose", "use_cellpose4", fallback=True),  # True = Cellpose4, False = Cellpose3.
+        "use_cellpose4": config.getboolean("cellpose", "use_cellpose4", fallback=False),  # True = Cellpose4, False = Cellpose3.
         "diameter": None if config.get("cellpose", "diameter", fallback="None") == "None" else config.getint("cellpose", "diameter", fallback=0),  # None = auto-detection.
         "flow_threshold": config.getfloat("cellpose", "flow_threshold", fallback=0.4),
         "cellprob_threshold": config.getfloat("cellpose", "cellprob_threshold", fallback=-9.0),

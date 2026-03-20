@@ -58,7 +58,6 @@ import time
 import gc
 import psutil
 from typing import List, Tuple, Dict, Any, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from pathlib import Path
 
@@ -332,8 +331,6 @@ def run_cellpose_parallel_batches(
     # Validate inputs.
     if batch_size < 1:
         batch_size = 1
-    if max_workers < 1:
-        max_workers = 1
     if memory_limit_gb < 1.0:
         memory_limit_gb = 1.0
 
@@ -342,11 +339,6 @@ def run_cellpose_parallel_batches(
     optimal_batch_size = get_optimal_batch_size(tile_size, memory_limit_gb, batch_size)
     batch_size = min(batch_size, optimal_batch_size)
 
-    # Limit max_workers based on system constraints.
-    import psutil
-    cpu_count = psutil.cpu_count(logical=False) or 2
-    max_workers = min(max_workers, cpu_count, 4)  # Cap at 4 workers max.
-
     # Create batches.
     batches = []
     for i in range(0, len(tiles), batch_size):
@@ -354,54 +346,37 @@ def run_cellpose_parallel_batches(
         batches.append(batch)
 
     logging.info(f"Processing {len(tiles)} tiles in {len(batches)} batches "
-                f"(batch_size={batch_size}, max_workers={max_workers}, memory_limit={memory_limit_gb:.1f}GB)")
+                f"(batch_size={batch_size}, memory_limit={memory_limit_gb:.1f}GB)")
 
-    # Process batches in parallel with comprehensive error handling.
+    # Process batches sequentially to avoid GPU memory corruption.
+    # PyTorch CUDA operations are not thread-safe; Cellpose already uses GPU
+    # parallelism internally, so concurrent batch submission adds no benefit.
     all_results = []
     total_cells = 0
     failed_batches = 0
 
-    try:
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all batches.
-            future_to_batch = {
-                executor.submit(
-                    process_cellpose_batch,
+    with tqdm(total=len(batches), desc="Processing tile batches") as pbar:
+        for batch_idx, batch in enumerate(batches):
+            try:
+                batch_results = process_cellpose_batch(
                     model, batch, cellpose_params, batch_idx, timeout_seconds
-                ): batch_idx
-                for batch_idx, batch in enumerate(batches)
-            }
+                )
+                all_results.extend(batch_results)
 
-            # Collect results with progress tracking.
-            with tqdm(total=len(batches), desc="Processing tile batches") as pbar:
-                for future in as_completed(future_to_batch):
-                    batch_idx = future_to_batch[future]
-                    try:
-                        batch_results = future.result(timeout=timeout_seconds + 30)  # Extra timeout buffer.
-                        all_results.extend(batch_results)
+                batch_cells = sum(result[2] for result in batch_results)
+                total_cells += batch_cells
 
-                        batch_cells = sum(result[2] for result in batch_results)
-                        total_cells += batch_cells
+            except Exception as e:
+                failed_batches += 1
+                logging.error(f"Batch {batch_idx} failed: {e}")
 
-                        pbar.update(1)
-                        pbar.set_postfix({"Total cells": total_cells, "Failed": failed_batches})
+                # Add empty results for failed batch.
+                for tile_image, slice_info in batch:
+                    empty_mask = np.zeros(tile_image.shape[:2], dtype=np.uint32)
+                    all_results.append((empty_mask, slice_info, 0))
 
-                    except Exception as e:
-                        failed_batches += 1
-                        logging.error(f"Batch {batch_idx} failed: {e}")
-
-                        # Add empty results for failed batch.
-                        batch = batches[batch_idx]
-                        for tile_image, slice_info in batch:
-                            empty_mask = np.zeros(tile_image.shape[:2], dtype=np.uint32)
-                            all_results.append((empty_mask, slice_info, 0))
-
-                        pbar.update(1)
-                        pbar.set_postfix({"Total cells": total_cells, "Failed": failed_batches})
-
-    except Exception as executor_error:
-        logging.error(f"Parallel executor failed: {executor_error}")
-        raise RuntimeError(f"Parallel processing failed: {executor_error}")
+            pbar.update(1)
+            pbar.set_postfix({"Total cells": total_cells, "Failed": failed_batches})
 
     # Validate results.
     if len(all_results) != len(tiles):

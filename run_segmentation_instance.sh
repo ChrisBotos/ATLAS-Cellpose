@@ -106,40 +106,6 @@ update_config() {
 }
 
 # ------------------------------------------------------------------------------
-# Function: run_segmentation.
-# This function runs the nuclei segmentation pipeline using a temporary configuration file.
-# It extracts the job name from the configuration and launches the pipeline
-# via the Python interpreter. The process ID is saved for potential cleanup.
-# ------------------------------------------------------------------------------
-run_segmentation() {
-    local temp_config_path="$1"
-
-    # Extract the job name from the configuration file.
-    local job_name_from_config
-    job_name_from_config=$(grep "^job_name" "$temp_config_path" | awk -F' *= *' '{print $2}') || { log_error "Could not read job_name from $temp_config_path."; exit 1; }
-
-    log_info "Running nuclei segmentation for job '$job_name_from_config' using configuration from $temp_config_path."
-
-    # Log the pipeline start (only to the log file).
-    log_info "Nuclei segmentation pipeline is starting using configuration from $temp_config_path."
-
-    # Activate conda environment and launch the pipeline.
-    # The pipeline expects the config file to be in the configs directory, so we use the temp config.
-    source "$(conda info --base)/etc/profile.d/conda.sh" || { log_error "Could not source conda."; exit 1; }
-    conda activate venv310_cellpose3 || { log_error "Could not activate conda environment venv310_cellpose3."; exit 1; }
-
-    # Launch the segmentation pipeline by calling run_this.py.
-    # The pipeline will automatically load the config from the temp location.
-    PYTHONPATH="${script_dir}/code:${PYTHONPATH}" python3 "${script_dir}/code/nuclei_segmentation/run_this.py" &
-
-    # Save the process ID of the pipeline.
-    segmentation_pid=$!
-
-    # Wait for the pipeline process to finish.
-    wait $segmentation_pid
-}
-
-# ------------------------------------------------------------------------------
 # Create a unique temporary directory inside configs for the segmentation run.
 # ------------------------------------------------------------------------------
 temp_dir="${script_dir}/configs/temp_$(date +%s%N)_$$"

@@ -101,7 +101,7 @@ def setup_logging(output_dir, debug_mode=False):
 
     # Note: Config file backup is now handled in the load_config function.
     # We log the existence of the backup file if it exists.
-    config_backup_path = os.path.join(output_dir, "config_used.ini")
+    config_backup_path = os.path.join(output_dir, "nuclei_segmentation_config_used.ini")
     if os.path.exists(config_backup_path):
         console.print(f"[blue]ℹ[/blue] Configuration backed up at: [dim]{config_backup_path}[/dim]")
     else:
@@ -110,61 +110,3 @@ def setup_logging(output_dir, debug_mode=False):
 
     return logger
 
-
-def setup_debug(settings):
-    """
-    Configure debugging environment for advanced troubleshooting.
-
-    When debug mode is enabled, this function creates a specialized directory
-    for storing intermediate processing results as images. This is invaluable for
-    diagnosing segmentation issues and understanding the pipeline's behavior.
-
-    Args:
-        settings: Dictionary containing configuration settings including debug_mode.
-
-    Returns:
-        function: A function for saving debug images with automatic normalization.
-                 Returns the input array to allow inline use in processing chains.
-    """
-    if not settings.get("debug_mode", False):
-        # Return a no-op function if debug mode is disabled for efficiency.
-        return lambda tag, arr: arr
-
-    # Create debug directory within output directory.
-    debug_dir = os.path.join(settings["output_dir"], "debug")
-    os.makedirs(debug_dir, exist_ok=True)
-
-    console.print(f"[blue]ℹ[/blue] Debug mode enabled - snapshots will be saved to: [dim]{debug_dir}[/dim]")
-
-    def snap(tag, arr):
-        """
-        Save an intermediate processing result as a debug image.
-
-        Automatically handles normalization for different data types and adds
-        timestamps to prevent overwriting previous debug images.
-
-        Args:
-            tag: String identifier for the image (used in filename).
-            arr: Numpy array containing the image data to save.
-
-        Returns:
-            arr: The original input array (allows inline use in processing chains).
-        """
-        # Normalize array to 8-bit for visualization.
-        if arr.dtype != np.uint8:
-            v = arr.astype(np.float32)
-            v = 255 * (v - v.min()) / (np.ptp(v) + 1e-6)
-            v = v.astype(np.uint8)
-        else:
-            v = arr
-
-        # Save with timestamp to avoid overwriting previous debug images.
-        timestamp = datetime.now().strftime("%H%M%S")
-        output_path = os.path.join(debug_dir, f"{tag}_{timestamp}.tif")
-        imageio.imwrite(output_path, v)
-
-        console.print(f"[dim]  Debug snapshot saved: {tag}[/dim]")
-
-        return arr  # Return the original array for inline use.
-
-    return snap
