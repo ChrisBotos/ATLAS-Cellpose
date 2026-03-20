@@ -29,11 +29,12 @@
 # ------------------------------------------------------------------------------
 # Setup Logging.
 # ------------------------------------------------------------------------------
-# Determine the directory of this script (project root).
+# Determine the directory of this script and the project root.
 script_dir="$(cd "$(dirname "$0")" && pwd)"
+ATLAS_DIR="$(cd "$script_dir/.." && pwd)"
 
 # Set the log directory to be the "logs" folder in the project root.
-LOG_DIR="${script_dir}/logs/run_segmentation_instance"
+LOG_DIR="${ATLAS_DIR}/logs/run_segmentation_instance"
 
 # Create the log directory if it does not exist.
 if [ ! -d "$LOG_DIR" ]; then
@@ -108,7 +109,7 @@ update_config() {
 # ------------------------------------------------------------------------------
 # Create a unique temporary directory inside configs for the segmentation run.
 # ------------------------------------------------------------------------------
-temp_dir="${script_dir}/configs/temp_$(date +%s%N)_$$"
+temp_dir="${ATLAS_DIR}/configs/temp_$(date +%s%N)_$$"
 mkdir -p "$temp_dir" || { log_error "Could not create temporary directory $temp_dir."; exit 1; }
 log_info "Created temporary configuration directory: $temp_dir."
 
@@ -137,7 +138,7 @@ trap cleanup EXIT SIGINT SIGTERM
 # ------------------------------------------------------------------------------
 # Copy the required configuration file into the temporary directory.
 # ------------------------------------------------------------------------------
-CONFIG_FILE="${script_dir}/configs/nuclei_segmentation_config.ini"
+CONFIG_FILE="${ATLAS_DIR}/configs/nuclei_segmentation_config.ini"
 
 if [ -f "$CONFIG_FILE" ]; then
     cp "$CONFIG_FILE" "$temp_dir/nuclei_segmentation_config.ini" || { log_error "Failed to copy $CONFIG_FILE to $temp_dir."; exit 1; }
@@ -191,18 +192,17 @@ import sys
 import os
 from pathlib import Path
 
-# Add project root and code directory to path.
+# Add project root src directory to path.
 # The temp script is in configs/temp_*/run_segmentation_temp.py.
 # So we need to go up two levels to get to project root.
-script_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(script_dir))
-sys.path.insert(0, str(script_dir / "code" / "nuclei_segmentation"))
+project_root = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 # Import after path is set.
-from code.nuclei_segmentation.utils.project_setup import load_config
-from code.nuclei_segmentation.utils.logging_utils import setup_logging
-from code.nuclei_segmentation.utils.debug_utils import setup_debug
-from code.nuclei_segmentation.pipeline import run_segmentation_pipeline
+from atlas_cellpose.utils.project_setup import load_config
+from atlas_cellpose.utils.logging_utils import setup_logging
+from atlas_cellpose.utils.debug_utils import setup_debug
+from atlas_cellpose.pipeline import run_segmentation_pipeline
 import traceback
 import json
 

@@ -15,7 +15,7 @@ Dependencies:
     - numpy, opencv-python, scikit-image, tifffile.
 
 Usage:
-    from utils.preprocessing import preprocess_image
+    from atlas_cellpose.utils.preprocessing import preprocess_image
     image = preprocess_image(image_path, settings, logger)
 """
 

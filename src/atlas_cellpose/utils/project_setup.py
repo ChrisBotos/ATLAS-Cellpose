@@ -14,7 +14,7 @@ Dependencies:
     - torch (for GPU detection).
 
 Usage:
-    from utils.project_setup import load_config
+    from atlas_cellpose.utils.project_setup import load_config
     settings, cellpose_params, project_dirs = load_config()
 """
 
@@ -34,8 +34,8 @@ def setup_project_structure():
     base_dir = Path(__file__).resolve().parents[3]
     paths = {
         "base": base_dir,
-        "code": base_dir / "code",
-        "nuclei": base_dir / "code" / "nuclei_segmentation",
+        "src": base_dir / "src",
+        "package": base_dir / "src" / "atlas_cellpose",
         "configs": base_dir / "configs",
         "data": base_dir / "data",
         "results": base_dir / "results",

@@ -21,7 +21,7 @@ Dependencies:
     • pathlib, re for file operations and pattern matching.
 
 Usage:
-    from utils.merge_file_utils import resolve_tiles_path, discover_tiles
+    from atlas_cellpose.cellpose_merge.merge_file_utils import resolve_tiles_path, discover_tiles
     
     path = resolve_tiles_path(Path("tile_masks"))
     file_map, coords = discover_tiles(path)

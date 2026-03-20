@@ -21,7 +21,7 @@ Dependencies:
     • numpy for array operations and memory calculations.
 
 Usage:
-    from utils.merge_memory import estimate_cluster_requirements, check_cluster_feasibility
+    from atlas_cellpose.cellpose_merge.merge_memory import estimate_cluster_requirements, check_cluster_feasibility
     
     memory_gb, dimensions = estimate_cluster_requirements(cluster, tile_h, tile_w, overlap)
     is_feasible, reason = check_cluster_feasibility(cluster, tile_h, tile_w, overlap, height, width)

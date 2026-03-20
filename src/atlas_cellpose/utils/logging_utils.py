@@ -14,7 +14,7 @@ Dependencies:
     - numpy, imageio, rich.
 
 Usage:
-    from utils.logging_utils import setup_logging
+    from atlas_cellpose.utils.logging_utils import setup_logging
     logger = setup_logging(output_dir, debug_mode=False)
 """
 

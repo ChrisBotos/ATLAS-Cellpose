@@ -16,18 +16,13 @@ Usage:
     pytest tests/test_filter_masks.py -v
 """
 
-import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-# Ensure the source tree is importable.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "code" / "nuclei_segmentation"))
-
-from utils.filter_masks import Thresholds, apply_thresholds, compute_metrics
+from atlas_cellpose.utils.filter_masks import Thresholds, apply_thresholds, compute_metrics
 
 
 # ====================================================================== #

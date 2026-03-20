@@ -16,7 +16,7 @@ Dependencies:
     • tqdm for progress tracking.
 
 Usage:
-    from parallel_segmentation import run_cellpose_parallel_batches
+    from atlas_cellpose.utils.parallel_segmentation import run_cellpose_parallel_batches
     
     masks, flows, n_cells = run_cellpose_parallel_batches(
         model=cellpose_model,

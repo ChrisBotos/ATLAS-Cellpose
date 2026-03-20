@@ -15,7 +15,7 @@ Dependencies:
     - numpy, opencv-python, scipy, scikit-image.
 
 Usage:
-    from utils.watershed import apply_watershed_to_mask, refine_segmentation_with_edges
+    from atlas_cellpose.utils.watershed import apply_watershed_to_mask, refine_segmentation_with_edges
     masks = apply_watershed_to_mask(masks, min_area=1000, logger=logger)
 """
 

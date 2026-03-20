@@ -18,17 +18,12 @@ Usage:
 
 import logging
 import math
-import sys
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-# Ensure the source tree is importable.
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "code" / "nuclei_segmentation"))
-
-from utils.tiling import feather_mask, split_image_into_tiles
+from atlas_cellpose.utils.tiling import feather_mask, split_image_into_tiles
 
 
 # ====================================================================== #

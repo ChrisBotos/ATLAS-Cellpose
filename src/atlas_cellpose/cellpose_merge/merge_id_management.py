@@ -20,7 +20,7 @@ Dependencies:
     • numpy for data type operations.
 
 Usage:
-    from utils.merge_id_management import get_next_safe_gid_range, select_optimal_dtype
+    from atlas_cellpose.cellpose_merge.merge_id_management import get_next_safe_gid_range, select_optimal_dtype
     
     new_gid, offset, was_reset = get_next_safe_gid_range(current_gid, patch_max, max_safe_gid, reset_count, segment_size)
     dtype = select_optimal_dtype(estimated_max_nuclei)

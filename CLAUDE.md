@@ -26,41 +26,48 @@ Core capabilities:
 
 ```
 ATLAS-Cellpose/
-├── code/                               # Main source code
-│   └── nuclei_segmentation/           # Primary package
+├── src/
+│   └── atlas_cellpose/                # Primary package (pip install -e .)
+│       ├── __init__.py                # Public API + __version__
 │       ├── run_this.py                # Pipeline entry point (Python)
 │       ├── pipeline.py                # Core segmentation workflow
-│       ├── utils/                     # Utility modules
-│       │   ├── project_setup.py       # Configuration loading
-│       │   ├── logging_utils.py       # Logging setup
-│       │   ├── debug_utils.py         # Debug utilities
-│       │   ├── preprocessing.py       # CLAHE, gamma correction
-│       │   ├── tiling.py              # Adaptive tiling strategy
-│       │   ├── segmentation.py        # Cellpose integration
-│       │   ├── parallel_segmentation.py  # Parallel processing
-│       │   ├── watershed.py           # Edge refinement
-│       │   ├── filter_masks.py        # Morphological filtering
-│       │   ├── overlay_masks.py       # Visualization overlays
-│       │   ├── visualization.py       # Quality control visuals
-│       │   ├── binary_mask_visualization.py  # Binary mask generation
+│       ├── cellpose_merge/            # Tile merging module
+│       │   ├── __init__.py            # Re-exports
+│       │   ├── cpu_merge.py           # CPU-based merging
+│       │   ├── gpu_merge.py           # GPU-accelerated merging
+│       │   ├── merge_tiles.py         # Main merge orchestration
+│       │   ├── two_phase_merge.py     # 4-step merging algorithm
+│       │   ├── qc.py                  # Merge quality control
 │       │   ├── merge_file_utils.py    # File I/O for merging
 │       │   ├── merge_memory.py        # Memory management
 │       │   └── merge_id_management.py # ID management during merging
-│       └── cellpose_merge/            # Tile merging module
-│           ├── merge_tiles.py         # Main merge orchestration
-│           ├── two_phase_merge.py     # 4-step merging algorithm
-│           ├── cpu_merge.py           # CPU-based merging
-│           ├── gpu_merge.py           # GPU-accelerated merging
-│           └── qc.py                  # Merge quality control
+│       └── utils/                     # Utility modules
+│           ├── __init__.py
+│           ├── binary_mask_visualization.py  # Binary mask generation
+│           ├── debug_utils.py         # Debug utilities
+│           ├── filter_masks.py        # Morphological filtering
+│           ├── logging_utils.py       # Logging setup
+│           ├── overlay_masks.py       # Visualization overlays
+│           ├── parallel_segmentation.py  # Parallel processing
+│           ├── preprocessing.py       # CLAHE, gamma correction
+│           ├── project_setup.py       # Configuration loading
+│           ├── segmentation.py        # Cellpose integration
+│           ├── tiling.py              # Adaptive tiling strategy
+│           ├── visualization.py       # Quality control visuals
+│           └── watershed.py           # Edge refinement
+├── tests/                             # Unit and integration tests
+├── tasks_and_tools/                   # Shell wrappers
+│   └── run_segmentation_instance.sh   # Main execution script
 ├── configs/                           # Configuration directory
 │   └── nuclei_segmentation_config.ini # Main configuration file
 ├── data/                              # Input image data (gitignored contents)
 ├── results/                           # Output results (gitignored contents)
 ├── logs/                              # Log files (gitignored contents)
-├── run_segmentation_instance.sh       # Main execution script (shell wrapper)
+├── pyproject.toml                     # Package build configuration
+├── LICENSE                            # MIT license
+├── requirements.txt                   # Python dependencies
 ├── cellpose3_environment_recommended.yml  # Conda environment (Python 3.10)
 ├── cellpose4_environment.yml          # Alternative Cellpose 4 environment
-├── requirements.txt                   # Python dependencies
 ├── .gitignore
 ├── README.md
 └── CLAUDE.md                          # This file
@@ -73,16 +80,16 @@ ATLAS-Cellpose/
 ### **Recommended: Shell Script Wrapper**
 ```bash
 # Run with custom parameters (recommended).
-./run_segmentation_instance.sh image_path "data/your_image.tif" crop_box "0.38,0.42,0.32,0.36"
+./tasks_and_tools/run_segmentation_instance.sh image_path "data/your_image.tif" crop_box "0.38,0.42,0.32,0.36"
 
 # Run with specific Cellpose parameters.
-./run_segmentation_instance.sh job_name test_run cellprob_threshold -14 flow_threshold 0.8
+./tasks_and_tools/run_segmentation_instance.sh job_name test_run cellprob_threshold -14 flow_threshold 0.8
 ```
 
 ### **Alternative: Direct Python Execution**
 ```bash
 conda activate venv310_cellpose3
-python code/nuclei_segmentation/run_this.py
+python src/atlas_cellpose/run_this.py
 ```
 
 ### **Run Tests**
@@ -121,9 +128,9 @@ Many image files and results exceed standard token limits. Claude must **never**
 - Prefer **minimal, local, safe edits** that preserve existing structure.
 - **Do not** attempt large-scale rewrites or architectural changes unless explicitly asked.
 - Maintain strict separation of concerns:
-  - *Pipeline logic* = `pipeline.py`
-  - *Utilities* = `utils/` modules (one responsibility per file)
-  - *Merge logic* = `cellpose_merge/` modules
+  - *Pipeline logic* = `src/atlas_cellpose/pipeline.py`
+  - *Utilities* = `src/atlas_cellpose/utils/` modules (one responsibility per file)
+  - *Merge logic* = `src/atlas_cellpose/cellpose_merge/` modules
   - *Configuration* = `configs/` directory
 - ATLAS-Cellpose is a **segmentation pipeline**. Do not add unrelated functionality.
 
@@ -220,7 +227,7 @@ pytest tests/ -v
 
 ```bash
 conda activate venv310_cellpose3
-./run_segmentation_instance.sh job_name smoke_test image_path "data/IRI_regist_cropped.tif" crop_image False use_tiling True
+./tasks_and_tools/run_segmentation_instance.sh job_name smoke_test image_path "data/IRI_regist_cropped.tif" crop_image False use_tiling True
 ```
 
 ### **5.7 Configuration Consistency**
@@ -228,8 +235,8 @@ conda activate venv310_cellpose3
 Whenever introducing or modifying a parameter:
 
 1. Update `configs/nuclei_segmentation_config.ini` with the parameter and its comment.
-2. Update `code/nuclei_segmentation/utils/project_setup.py` to load the parameter.
-3. Update `run_segmentation_instance.sh` if the parameter should be overridable from the command line.
+2. Update `src/atlas_cellpose/utils/project_setup.py` to load the parameter.
+3. Update `tasks_and_tools/run_segmentation_instance.sh` if the parameter should be overridable from the command line.
 4. Update `README.md` if the parameter is user-facing.
 5. Verify that the default value in the config file matches the fallback value in the code.
 
@@ -273,11 +280,11 @@ Usage:
 ### **Working with This Codebase**
 
 - **Cellpose version matters:** This project is optimized for **Cellpose 3.0.10**. Cellpose 4.x has a different API and produces different results for nuclei. Do not upgrade Cellpose or change API calls without explicit approval.
-- **Two execution methods exist:** `run_segmentation_instance.sh` (recommended, creates temporary configs) and direct `python code/nuclei_segmentation/run_this.py` (requires manual config editing). The shell script is the source of truth for how parameters are passed.
+- **Two execution methods exist:** `tasks_and_tools/run_segmentation_instance.sh` (recommended, creates temporary configs) and direct `python src/atlas_cellpose/run_this.py` (requires manual config editing). The shell script is the source of truth for how parameters are passed.
 - **The 4-step merge algorithm is critical.** It is the core innovation of this project. Any changes to `two_phase_merge.py` must be carefully reviewed: Step 1 (priority selection), Step 2 (border deletion), Step 3 (cross-boundary preservation), Step 4 (cleanup). Incorrectly modifying merge logic can silently lose or duplicate nuclei.
 - **Tile overlap calculations are subtle.** The overlap fraction (default 0.2) combined with tile side length determines the overlap region in pixels. Off-by-one errors here cause merge artifacts. Always verify with `qc_overlays = True`.
 - **Results directory is massive** (10+ GB for full runs). NEVER attempt to read or list it in full.
-- **Large source files exist.** `pipeline.py` (~1236 lines), `qc.py` (~2018 lines), `overlay_masks.py` (~1236 lines). Use targeted line ranges or grep for specific functions.
+- **Large source files exist.** `src/atlas_cellpose/pipeline.py` (~1236 lines), `src/atlas_cellpose/cellpose_merge/qc.py` (~2018 lines), `src/atlas_cellpose/utils/overlay_masks.py` (~1236 lines). Use targeted line ranges or grep for specific functions.
 - **Config INI has multiple sections.** Parameters live in `[general]`, `[clahe]`, `[cellpose]`, `[tiling]`, `[filtering]`, etc. When adding a parameter, place it in the correct section.
 
 ### **Working with Claude Code Effectively**

@@ -14,7 +14,7 @@ Dependencies:
     • pipeline module for the segmentation workflow.
 
 Usage:
-    python run_this.py
+    python src/atlas_cellpose/run_this.py
 
 Inputs:
     • Configuration files (loaded automatically from config directory).
@@ -41,10 +41,10 @@ from pathlib import Path
 
 from rich.console import Console
 
-from utils.project_setup import load_config
-from utils.logging_utils import setup_logging
-from utils.debug_utils import setup_debug
-from pipeline import run_segmentation_pipeline
+from atlas_cellpose.utils.project_setup import load_config
+from atlas_cellpose.utils.logging_utils import setup_logging
+from atlas_cellpose.utils.debug_utils import setup_debug
+from atlas_cellpose.pipeline import run_segmentation_pipeline
 
 # Initialize Rich console for formatted output.
 console = Console()

@@ -13,7 +13,7 @@ Dependencies:
     - numpy.
 
 Usage:
-    from utils.debug_utils import setup_debug
+    from atlas_cellpose.utils.debug_utils import setup_debug
     snap = setup_debug(settings)
 """
 

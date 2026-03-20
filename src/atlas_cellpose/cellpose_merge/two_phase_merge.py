@@ -481,7 +481,7 @@ def _merge_two_tiles(
         from .cpu_merge import merge_tiles_cpu_4step
     except ImportError:
         # Fallback for when running as script.
-        from cpu_merge import merge_tiles_cpu_4step
+        from atlas_cellpose.cellpose_merge.cpu_merge import merge_tiles_cpu_4step
 
     # Get tile file paths using pixel coordinate naming.
     pixel_coord1 = _tile_coord_to_pixel_coord(coord1, tile_h, tile_w, overlap_length)

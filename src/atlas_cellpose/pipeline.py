@@ -16,7 +16,7 @@ Dependencies:
 
 Usage:
     Not meant to be run directly. Imported by run_this.py.
-    Recommended execution: ./run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
+    Recommended execution: ./tasks_and_tools/run_segmentation_instance.sh crop_box "0.38,0.42,0.32,0.36"
 
 Inputs:
     • DAPI-stained images of tissue sections.
@@ -51,15 +51,15 @@ from cellpose import models
 
 from rich.console import Console
 
-from utils.preprocessing import preprocess_image
-from utils.segmentation import run_cellpose_on_tiles
-from utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
-from utils.visualization import small_segmentation_overlay
-from utils.overlay_masks import overlay
-from utils.filter_masks import filter_masks_programmatic
-from utils.binary_mask_visualization import generate_binary_mask_visualization
+from atlas_cellpose.utils.preprocessing import preprocess_image
+from atlas_cellpose.utils.segmentation import run_cellpose_on_tiles
+from atlas_cellpose.utils.watershed import refine_segmentation_with_edges, apply_watershed_to_mask
+from atlas_cellpose.utils.visualization import small_segmentation_overlay
+from atlas_cellpose.utils.overlay_masks import overlay
+from atlas_cellpose.utils.filter_masks import filter_masks_programmatic
+from atlas_cellpose.utils.binary_mask_visualization import generate_binary_mask_visualization
 
-from cellpose_merge.merge_tiles import merge_masks_streaming
+from atlas_cellpose.cellpose_merge.merge_tiles import merge_masks_streaming
 
 # Initialize Rich console for formatted output.
 console = Console()
@@ -302,7 +302,7 @@ def generate_overlays(output_dir, settings, logger, image_path=None, mask_path=N
         logger.info(f"Creating high-quality overlay: {image_path} × {mask_path}")
 
         # Import OverlayConfig to pass debug_mode.
-        from utils.overlay_masks import OverlayConfig
+        from atlas_cellpose.utils.overlay_masks import OverlayConfig
 
         overlay_config = OverlayConfig(debug_mode=settings.get("debug_mode", False))
         overlay(

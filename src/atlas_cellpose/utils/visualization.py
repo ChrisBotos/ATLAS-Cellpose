@@ -14,7 +14,7 @@ Dependencies:
     - numpy, matplotlib, scikit-image, cellpose, tqdm.
 
 Usage:
-    from utils.visualization import small_segmentation_overlay
+    from atlas_cellpose.utils.visualization import small_segmentation_overlay
     small_segmentation_overlay(output_dir, crop_size=512, image_path=img, mask_path=mask)
 """
 import numpy as np

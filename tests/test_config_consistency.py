@@ -110,10 +110,10 @@ class TestConfigFilename:
         import ast
 
         logging_utils_path = (
-            PROJECT_ROOT / "code" / "nuclei_segmentation" / "utils" / "logging_utils.py"
+            PROJECT_ROOT / "src" / "atlas_cellpose" / "utils" / "logging_utils.py"
         )
         project_setup_path = (
-            PROJECT_ROOT / "code" / "nuclei_segmentation" / "utils" / "project_setup.py"
+            PROJECT_ROOT / "src" / "atlas_cellpose" / "utils" / "project_setup.py"
         )
 
         logging_src = logging_utils_path.read_text()
