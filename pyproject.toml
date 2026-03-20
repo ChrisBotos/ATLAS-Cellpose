@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atlas-cellpose"
-version = "1.0.0"
+version = "1.5.0"
 description = "Adaptive Tiled Local Analysis Segmentation for large-scale nuclear segmentation using Cellpose3."
 readme = "README.md"
 license = {text = "MIT"}
