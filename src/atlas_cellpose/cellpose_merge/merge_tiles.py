@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import shutil
 import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -279,10 +280,11 @@ def merge_masks_streaming(
         # Save the final merged mask.
         np.save(temp_merged_path, merged)
 
-        # Rename temp file to final file name.
+        # Move temp file to final file name.
+        # Uses shutil.move instead of Path.rename for WSL/NTFS compatibility.
         if final_merged_path.exists():
-            final_merged_path.rename(non_merged_path)
-        temp_merged_path.rename(final_merged_path)
+            shutil.move(str(final_merged_path), str(non_merged_path))
+        shutil.move(str(temp_merged_path), str(final_merged_path))
 
         # Also save as TIFF for compatibility.
         try:

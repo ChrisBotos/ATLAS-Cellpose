@@ -231,6 +231,7 @@ The merging algorithm resolves overlapping nuclei at tile boundaries through pri
 - The merge step is CPU-only. GPU acceleration applies to Cellpose segmentation, not merging.
 - The algorithm intentionally deletes some nuclei (border-touching priority nuclei in Step 2) to resolve duplicates. It aims to preserve cross-boundary nuclei but does not guarantee zero loss.
 - QC visualizations in `src/atlas_cellpose/cellpose_merge/` modules help validate merge quality.
+- Cellpose's built-in `stitch_threshold` parameter requires a uniform diameter across all tiles. Because ATLAS-Cellpose runs each tile with `diameter=0` for adaptive per-tile diameter detection, the built-in stitching is incompatible and a custom merge algorithm is used instead.
 
 ### Cellpose Integration
 

@@ -17,6 +17,10 @@ Description:
     3. Cross-boundary Preservation: Preserve non-priority nuclei extending into overlap
     4. Cleanup: Remove remaining non-priority nuclei in overlap region
 
+    Custom merging is necessary because each tile runs Cellpose with diameter=0 for
+    adaptive per-tile diameter detection. Cellpose's built-in stitch_threshold requires
+    a uniform diameter across all tiles, making it incompatible with this approach.
+
     The key insight is that nuclei can move outside their original tile boundaries
     during merging, so the second phase must use updated tile masks from the first
     phase to maintain merge consistency across the entire image.

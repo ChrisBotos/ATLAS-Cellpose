@@ -470,7 +470,10 @@ def run_cellpose_on_tiles(
 
                 # Run Cellpose segmentation on the current tile.
                 # The model expects a 3D array with channel dimension, so we add one.
-                # Use version-specific parameters for adaptive diameter learning.
+                # Each tile runs independently with diameter=0 for adaptive per-tile
+                # diameter detection. This is incompatible with Cellpose's built-in
+                # stitch_threshold, which requires a uniform diameter across all tiles.
+                # A custom merge algorithm is used instead (see cellpose_merge/).
                 use_cellpose4 = cellpose_params.get("use_cellpose4", True)
                 cellpose_version = "Cellpose4" if use_cellpose4 else "Cellpose3"
 

@@ -387,7 +387,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             else:
                 masks = np.load(previous_results_dir / "masks" / "segmentation_masks.npy")
             flows = [None, None, None]
-            total_cells = int(masks.max())
+            total_cells = len(np.unique(masks[masks > 0]))
             logger.info("Skipped segmentation and loaded masks from: {}".format(previous_results_dir / "masks" / "segmentation_masks.npy"))
 
         if not settings.get("skip_and_copy_merging", False) or not settings.get("use_previous_results", False):
@@ -440,7 +440,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                 # No need for additional save_outputs call to avoid duplicate files.
                 logger.info("Merged masks saved to: {}".format(output_dir / "masks" / "segmentation_masks.npy"))
 
-                total_cells = int(masks.max())
+                total_cells = len(np.unique(masks[masks > 0]))
         else:
             masks = np.load(previous_results_dir / "masks" / "segmentation_masks.npy")
             logger.info("Skipped merging.")
@@ -467,7 +467,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
             if settings.get("use_filtering", False):
                 filtering_enabled = True
                 console.print("\n[cyan]Applying morphological filtering...[/cyan]")
-                original_count = int(masks.max())
+                original_count = len(np.unique(masks[masks > 0]))
 
                 # Save unfiltered masks before filtering.
                 np.save(Path(output_dir) / "masks" / "segmentation_masks_unfiltered.npy", masks)
@@ -479,7 +479,7 @@ def run_segmentation_pipeline(settings, CELLPOSE_PARAMS, PROJECT_DIRS, logger, s
                     logger=logger,
                     intensity_image=image if settings.get("use_intensity_filtering", False) else None
                 )
-                filtered_count = int(masks.max())
+                filtered_count = len(np.unique(masks[masks > 0]))
                 removed = original_count - filtered_count
                 console.print(f"[green]✓[/green] Filtering completed: [bold cyan]{original_count:,}[/bold cyan] → [bold cyan]{filtered_count:,}[/bold cyan] nuclei ([red]{removed:,}[/red] removed)")
 
