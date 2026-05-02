@@ -83,7 +83,9 @@ def main():
             debug_mode = False
 
         # 4) Set up logging and debug.
-        logger = setup_logging(settings["output_dir"], debug_mode)
+        logger, _ = setup_logging(
+            settings["output_dir"], debug_mode, console=console
+        )
         snap = setup_debug(settings)
 
         # 5) Run the pipeline.

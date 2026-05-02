@@ -237,7 +237,7 @@ def main():
             debug_mode = False
 
         # Set up logging and debug.
-        logger = setup_logging(settings["output_dir"], debug_mode)
+        logger, _ = setup_logging(settings["output_dir"], debug_mode)
         snap = setup_debug(settings)
 
         logger.info("==== Kidney I/R Nuclei Segmentation Pipeline Started ====")
