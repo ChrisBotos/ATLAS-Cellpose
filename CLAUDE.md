@@ -141,6 +141,7 @@ Many image files and results exceed standard token limits. Claude must **never**
   - *Merge logic* = `src/atlas_cellpose/cellpose_merge/` modules
   - *Configuration* = `configs/` directory
 - ATLAS-Cellpose is a **segmentation pipeline**. Do not add unrelated functionality.
+- Never use em dashes. Use hyphens (-) instead in all text.
 
 ### **5.2 Project Goal: Clean-Up and Organization**
 
@@ -277,9 +278,10 @@ Usage:
 
 ## **7. Git Policy**
 
-- Never git add, commit, stash, tag, or pull.
-- Only update and deal with the local version of this project.
-- Never leave comments related to version changes like: `# Version: 1.1 — removed X`.
+- Only use git (add, commit, stash, tag, push, pull) when the user explicitly asks.
+- Never include a `Co-Authored-By` line or any other indication that the commit was AI-assisted.
+- Commit messages must be full descriptive sentences ending with a period.
+- Never leave comments related to version changes.
 
 ---
 
@@ -308,3 +310,72 @@ Usage:
 - **Memory:** Full-resolution kidney images are ~700 MB as TIFF. Loading multiple copies crashes 16 GB systems. Always use chunked processing.
 - **GPU/CPU consistency:** The merge module has both `cpu_merge.py` and `gpu_merge.py`. Any algorithm change must be applied to both.
 - **Filter thresholds:** The config file and README may list different default values. The config file is the source of truth.
+
+---
+
+## **9. Large File and Token Management**
+
+### **CRITICAL: Context Window Hygiene**
+- **NEVER** read entire large data files (TIFF, NPY, NPZ, CSV, PNG) into context.
+- **NEVER** dump raw result files or logs. Summarize findings instead.
+- **NEVER** cat/print files larger than ~200 lines without using offset/limit.
+- Use subagents for broad codebase exploration (10+ files).
+- Prefer targeted file reads (specific line ranges) over full-file reads.
+
+### **Working with Large Mathematical Scripts**
+- When a script contains extensive math (derivations, equations, matrix operations): read it in sections using offset/limit rather than loading the entire file.
+- Focus on the specific function or section being modified, not the whole file.
+
+### **Working with Large Result Files**
+- Read only the first/last few lines to verify format and content.
+- Use grep/search to find specific values rather than reading entire files.
+- Summarize results in markdown tables rather than reading raw output.
+
+### **Recommended: Create a .claudeignore**
+- Add a `.claudeignore` file at the project root to prevent accidental reads of large files.
+- Include: `data/`, `results/`, `logs/`, `*.csv`, `*.tsv`, `*.h5`, `*.hdf5`, `*.h5ad`, `*.parquet`, `*.pkl`, `*.npy`, `*.npz`, `*.gz`, `*.tif`, `*.tiff`, `*.log`, `*.png`, `*.jpg`.
+
+---
+
+---
+
+## Results Repository Scheme
+
+All experiment outputs live in self-contained, date-prefixed run directories under `results/`.
+
+### Directory layout
+
+```
+results/
+└── <YYYY-MM-DD>_<run_name>/
+    ├── config.json                  # Run-level parameter/config snapshot
+    ├── <phase_a>/
+    │   ├── data/                    # Numerical outputs (CSV, TSV, JSON)
+    │   ├── figures/                 # Plots and visualizations (PNG, PDF)
+    │   └── logs/                    # Phase-specific log files
+    └── <phase_b>/
+        ├── data/
+        ├── figures/
+        └── logs/
+```
+
+### Rules
+
+1. Every script that produces outputs accepts `--name <run_name>` (default: `"default_run"`).
+2. **Date prefix**: auto-prepended (`YYYY-MM-DD`) when the run directory is first created.
+3. **Run reuse**: if `results/*_<run_name>/` already exists, new phases are added into it (no new directory).
+4. **Phase replacement**: if `<phase>/` already exists within the run, it is deleted and recreated.
+5. **Config snapshot**: a `config.json` is saved/updated in the run root with parameters, timestamp, and script invocation.
+6. **Logs live inside results**: no separate top-level `logs/` directory. Each phase keeps its logs co-located. SLURM logs go to `<phase>/logs/slurm/`.
+
+---
+
+## Handling Outside Reviewer Feedback
+
+Whenever you receive a message marked "Outside Reviewer Feedback":
+
+1. Do not revise immediately. First, respond to every critique individually.
+2. For each point, state one of: AGREE / DISAGREE / PARTIAL - followed by one sentence of reasoning.
+3. Only after addressing all points, produce the revised plan or code.
+4. If you disagree with a critique, explain why clearly. Do not silently ignore or capitulate without reason.
+5. If a critique reveals something you missed, say so explicitly - do not retroactively act like it was always planned.
